@@ -7,6 +7,7 @@ import com.example.monitor.entity.Invitation;
 import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.InvitationRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,9 @@ import java.util.Optional;
  * token は<b>知っていること自体が登録の権限になる秘密</b>なので、ログに出さない。
  * 発行・使用のログには招待の主キーと覚え書きだけを残す。
  */
+/** 招待は画面からしか使わない。CLI では SecurityConfig ごと無効なので PasswordEncoder も無く、
+ * 付け忘れると「Bean が見つからない」で CLI が丸ごと起動できなくなる（実際に発生した）。 */
+@Profile("!cli")
 @Service
 @RequiredArgsConstructor
 @Slf4j

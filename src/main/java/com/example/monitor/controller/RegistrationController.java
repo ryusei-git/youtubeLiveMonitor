@@ -5,6 +5,7 @@ import com.example.monitor.dto.RegistrationRequest;
 import com.example.monitor.service.InvitationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +25,8 @@ import org.springframework.web.bind.annotation.RestController;
  * <p><b>権限はリクエストで選べない。</b>この経路で作られるのは常に一般利用者で、
  * 管理者を増やすことはできない。
  */
+/** 依存する InvitationService が {@code !cli} のため、こちらにも付ける。 */
+@Profile("!cli")
 @RestController
 @RequestMapping("/api/registration")
 @RequiredArgsConstructor

@@ -4,6 +4,7 @@ import com.example.monitor.dto.InvitationCreateRequest;
 import com.example.monitor.dto.InvitationResponse;
 import com.example.monitor.service.InvitationService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +22,9 @@ import java.util.List;
  * <p>パスを {@code /api/admin/} 配下に置いているのは、{@code SecurityConfig} で
  * 管理者限定にしていることをパスからも読み取れるようにするため。
  */
+/** 依存する InvitationService が {@code !cli} のため、こちらにも付ける
+ * （付けないと Bean 解決に失敗して CLI が起動できない）。 */
+@Profile("!cli")
 @RestController
 @RequestMapping("/api/admin/invitations")
 @RequiredArgsConstructor
