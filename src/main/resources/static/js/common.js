@@ -945,6 +945,7 @@ function initStudioShell() {
         "logs.html": ["チャンネルやログレベルを絞って、動作状況を確認。", "M5 3h14v18H5z M8 7h8 M8 11h8 M8 15h5"],
         "tables.html": ["データの内容を確認・編集する管理者向けの画面です。", "M3 4h18v16H3z M3 9h18 M9 9v11"],
         "playground.html": ["APIのリクエストと応答を確認する診断ツール。", "M8 5l-6 7 6 7 M16 5l6 7-6 7 M14 3l-4 18"],
+        "users.html": ["", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6"],
         "invitations.html": ["招待リンクを発行して、サービスを共有できます。", "M3 5h18v14H3z M3 5l9 7 9-7"],
         "my-channels.html": ["フォローしている配信者と、自分の録画設定。", "M4 4h16v16H4z M8 9h8 M8 14h5"],
         "my-recordings.html": ["フォロー中のチャンネルの録画を、まとめて楽しむ。", "M4 5h16v14H4z M10 9l5 3-5 3z"],

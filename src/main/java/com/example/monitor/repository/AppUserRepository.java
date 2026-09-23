@@ -53,4 +53,31 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     @Transactional
     @Query("UPDATE AppUser u SET u.lastLoginAt = :loginAt WHERE u.id = :id")
     int updateLastLoginAt(@Param("id") Long id, @Param("loginAt") LocalDateTime loginAt);
+
+    /**
+     * セッションに残った認証情報だけでは無効化・削除を検出できないため、毎回現状を照合する。
+     * @param id ログイン時の利用者ID
+     * @return 現在も存在し有効ならtrue
+     */
+    boolean existsByIdAndEnabledTrue(Long id);
+
+    /**
+     * 読み込み後に権限が変わっても管理者を無効化しないよう、更新条件にも権限を含める。
+     * @param id 利用者ID
+     * @param role 操作可能な権限
+     * @return 更新件数
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE AppUser u SET u.enabled = false WHERE u.id = :id AND u.role = :role")
+    int disableUser(@Param("id") Long id, @Param("role") Role role);
+
+    /**
+     * 管理者保護をDBの削除条件でも保証し、購読だけを外部キーで連鎖削除する。
+     * @param id 利用者ID
+     * @param role 操作可能な権限
+     * @return 削除件数
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("DELETE FROM AppUser u WHERE u.id = :id AND u.role = :role")
+    int deleteUser(@Param("id") Long id, @Param("role") Role role);
 }

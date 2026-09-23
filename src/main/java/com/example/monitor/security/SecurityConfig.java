@@ -1,5 +1,7 @@
 package com.example.monitor.security;
 
+import com.example.monitor.repository.AppUserRepository;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -122,9 +124,11 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http,
                                             AuthenticationSuccessHandler successHandler,
                                             AuthenticationFailureHandler failureHandler,
-                                            RecordingFileAuthorizationManager recordingFileAuthorizationManager)
+                                            RecordingFileAuthorizationManager recordingFileAuthorizationManager,
+                                            AppUserRepository appUserRepository)
             throws Exception {
         http
+            .addFilterBefore(new ActiveAppUserFilter(appUserRepository), AuthorizationFilter.class)
             // CSRF 対策。無効のままだと、悪意のあるページを管理者が開いただけで
             // そのブラウザの権限で「チャンネル削除」「招待の発行」などを実行させられる
             // （ログイン中の Cookie が自動で送られるため。実際に別 Origin からの POST が
@@ -164,6 +168,7 @@ public class SecurityConfig {
                 // 管理者向けの画面と API。以前は anyRequest().authenticated() に落ちていたため、
                 // 一般利用者でもチャンネルの削除や全利用者の録画閲覧ができてしまっていた。
                 // ユーザー画面を追加するにあたって明示的に閉じる
+                .requestMatchers("/users.html", "/api/admin/users/**").hasRole("ADMIN")
                 .requestMatchers("/channels.html", "/api/channels/**").hasRole("ADMIN")
                 .requestMatchers("/notifications.html", "/api/notifications/**").hasRole("ADMIN")
                 .requestMatchers("/recordings.html", "/player.html").hasRole("ADMIN")

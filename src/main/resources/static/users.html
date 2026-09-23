@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>再生 - YouTube Live Monitor</title>
+<title>利用者管理 - YouTube Live Monitor</title>
 <link rel="stylesheet" href="/css/style.css">
 <link rel="stylesheet" href="/css/studio.css">
+<link rel="stylesheet" href="/css/users.css">
 </head>
 <body>
 <header class="masthead">
@@ -22,8 +23,8 @@
     <a href="/index.html">ダッシュボード</a>
     <a href="/channels.html">チャンネル</a>
     <a href="/notifications.html">通知履歴</a>
-    <a href="/recordings.html" class="active">録画</a>
-    <a href="/users.html">利用者管理</a>
+    <a href="/recordings.html">録画</a>
+    <a href="/users.html" class="active">利用者管理</a>
     <a href="/invitations.html">招待</a>
     <a href="/logs.html">ログ</a>
     <a href="/tables.html">DB管理</a>
@@ -33,27 +34,20 @@
   </div>
 </nav>
 <main class="shell" id="mainContent">
-  <p><a href="/recordings.html">← 録画一覧へ戻る</a></p>
+  <h1>利用者管理</h1>
   <p id="error" role="alert" class="error" style="display:none;"></p>
-
-  <h1 id="title">読み込み中...</h1>
-
-  <video id="player" class="player" controls></video>
-
+  <p class="muted">登録済みの利用者を確認し、アクセスを停止できます。新しい利用者は<a href="/invitations.html">招待</a>から登録してください。</p>
+  <p class="muted">無効化するとログイン中でも次のアクセスで利用できなくなります。この画面から有効には戻せません。削除すると利用者と購読が消えますが、共有チャンネル・録画・監査履歴は残ります。</p>
+  <div class="userToolbar"><span id="userCount" role="status"></span><button type="button" id="reloadUsers">表示を更新</button></div>
   <div class="table-scroll">
-    <table id="detailTable">
+    <table id="userTable">
+      <thead><tr><th>利用者名</th><th>権限</th><th>状態</th><th>登録日時</th><th>最終ログイン</th><th>操作</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
-
-  <div class="inline">
-    <button id="deleteBtn">この録画を削除</button>
-  </div>
-
-  <h2>同じチャンネルの録画</h2>
-  <div class="videoGrid" id="relatedGrid"></div>
+  <div id="userEmpty" hidden></div>
 </main>
 <script src="/js/common.js"></script>
-<script src="/js/player.js"></script>
+<script src="/js/users.js"></script>
 </body>
 </html>

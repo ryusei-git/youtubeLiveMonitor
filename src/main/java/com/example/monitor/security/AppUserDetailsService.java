@@ -4,7 +4,6 @@ import com.example.monitor.entity.AppUser;
 import com.example.monitor.repository.AppUserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -44,10 +43,6 @@ public class AppUserDetailsService implements UserDetailsService {
         AppUser appUser = appUserRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("ユーザーが見つかりません: " + username));
 
-        return User.withUsername(appUser.getUsername())
-                .password(appUser.getPasswordHash())
-                .disabled(!appUser.isEnabled())
-                .authorities("ROLE_" + appUser.getRole().name())
-                .build();
+        return new AuthenticatedAppUser(appUser);
     }
 }

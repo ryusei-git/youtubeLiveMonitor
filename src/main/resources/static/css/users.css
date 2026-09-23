@@ -1,0 +1,5 @@
+/* 配信の赤いランプと、有効なアカウントの状態を混同させない。 */
+#userTable .statusLamp.is-live { background: #eaf6ef; }
+#userTable .statusLamp.is-live .lamp { background: #227448; border-color: #227448; animation: none; }
+#userTable .statusLamp.is-live .lampText { color: #227448; }
+.userToolbar { display: flex; align-items: center; gap: 16px; margin: 20px 0 12px; }
