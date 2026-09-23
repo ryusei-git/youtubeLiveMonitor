@@ -10,6 +10,8 @@ import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -51,6 +53,9 @@ public class GlobalExceptionHandler {
      * 元の例外が何だったのか分からなくなるので、必ず代替の文言を入れる。
      */
     private static final String FALLBACK_MESSAGE = "予期しないエラーが発生しました";
+
+    /** 存在しないパスへの応答。枠組みの文言を外に出さないために決め打ちにする。 */
+    private static final String NOT_FOUND_MESSAGE = "指定されたパスは存在しません";
 
     /**
      * 登録済みチャンネルの重複登録を 409 Conflict として返す。
@@ -168,8 +173,10 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<Map<String, String>> handleNoResourceFound(NoResourceFoundException e) {
-        // 利用者側の誤りなので WARN 止まり。スタックトレースは残さない
-        return clientError(HttpStatus.NOT_FOUND, e);
+        // 利用者側の誤りなので WARN 止まり。スタックトレースは残さない。
+        // 応答には枠組みの文言（"No static resource ..."）をそのまま載せない。
+        // 静的リソースとして解決を試みて失敗した、という内部の挙動が外から分かるため
+        return clientError(HttpStatus.NOT_FOUND, e, NOT_FOUND_MESSAGE);
     }
 
     /**
@@ -182,9 +189,48 @@ public class GlobalExceptionHandler {
      * @param e 発生した例外
      * @return エラー内容を含むレスポンス
      */
+    /**
+     * 入力の検証に失敗した場合を 400 Bad Request として返す。
+     *
+     * <p>これを拾わないと catch-all に落ちて<b>500 になる</b>。利用者の入力誤りを
+     * サーバーの異常として扱うと、原因が利用者側にあることが伝わらないうえ、
+     * ログに ERROR とスタックトレースが積み上がる。
+     *
+     * <p>文面は<b>項目名と制約から自分で組み立てる</b>。枠組みが付ける既定の文面は
+     * 英語で、クラス名や制約の内部表現を含むため外に出さない。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, String>> handleValidationFailed(MethodArgumentNotValidException e) {
+        String reason = e.getBindingResult().getFieldErrors().stream()
+                .map(error -> error.getField() + "：" + error.getDefaultMessage())
+                .findFirst()
+                .orElse("入力内容を確認してください");
+        return clientError(HttpStatus.BAD_REQUEST, e, reason);
+    }
+
+    /**
+     * 対応していない HTTP メソッドでの要求を 405 Method Not Allowed として返す。
+     *
+     * <p>これも拾わないと catch-all に落ちて 500 になる。
+     * 利用者側の誤りなので、サーバーの異常として扱わない。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, String>> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException e) {
+        return clientError(HttpStatus.METHOD_NOT_ALLOWED, e, "この操作はこのパスでは行えません");
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleUnexpected(Exception e) {
-        return serverError(e);
+        // 何が飛んでくるか分からない経路。DB のエラー文やファイルパスがそのまま
+        // 応答に載りうるので、利用者へは決まった文言だけを返す（詳細はログに残る）
+        return serverError(e, FALLBACK_MESSAGE);
     }
 
     /**
@@ -199,9 +245,25 @@ public class GlobalExceptionHandler {
      * @return エラー内容を含むレスポンス
      */
     private ResponseEntity<Map<String, String>> clientError(HttpStatus status, Exception e) {
+        return clientError(status, e, messageOf(e));
+    }
+
+    /**
+     * 応答に載せる文言を指定して、利用者側の誤りを記録して返す。
+     *
+     * <p><b>自分たちが書いていない例外のメッセージを返さない</b>ために使う。
+     * 枠組みやライブラリが付ける文面は内部の挙動を映すので、外に出す理由がない。
+     *
+     * @param status        返すステータス
+     * @param e             発生した例外
+     * @param clientMessage 応答に載せる文言
+     * @return エラー内容を含むレスポンス
+     */
+    private ResponseEntity<Map<String, String>> clientError(
+            HttpStatus status, Exception e, String clientMessage) {
         log.warn("リクエストを処理できませんでした: status={}, type={}, reason={}",
                 status.value(), e.getClass().getSimpleName(), e.getMessage());
-        return ResponseEntity.status(status).body(Map.of(ERROR_KEY, messageOf(e)));
+        return ResponseEntity.status(status).body(Map.of(ERROR_KEY, clientMessage));
     }
 
     /**
@@ -211,8 +273,20 @@ public class GlobalExceptionHandler {
      * @return エラー内容を含むレスポンス
      */
     private ResponseEntity<Map<String, String>> serverError(Exception e) {
+        return serverError(e, messageOf(e));
+    }
+
+    /**
+     * 応答に載せる文言を指定して、サーバー側の異常を記録して返す。
+     *
+     * @param e             発生した例外
+     * @param clientMessage 応答に載せる文言
+     * @return エラー内容を含むレスポンス
+     */
+    private ResponseEntity<Map<String, String>> serverError(Exception e, String clientMessage) {
         log.error("サーバー内部でエラーが発生しました", e);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(ERROR_KEY, messageOf(e)));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Map.of(ERROR_KEY, clientMessage));
     }
 
     /**

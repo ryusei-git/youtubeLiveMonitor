@@ -149,13 +149,16 @@ class GlobalExceptionHandlerTest {
     class HandleUnexpected {
 
         @Test
-        @DisplayName("正常系：想定外の例外は500を返す")
+        @DisplayName("正常系：想定外の例外は500を返し、例外のメッセージは外に出さない")
         void testMethod01() {
+            // 何が飛んでくるか分からない経路。DB のエラー文やファイルパスがそのまま
+            // 応答に載りうるので、利用者へは決まった文言だけを返す（詳細はログに残る）
             ResponseEntity<Map<String, String>> response =
-                    handler.handleUnexpected(new RuntimeException("想定外"));
+                    handler.handleUnexpected(new RuntimeException("接続失敗: jdbc:h2:file:./data/monitor"));
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
-            assertThat(response.getBody()).containsEntry("error", "想定外");
+            assertThat(response.getBody()).containsEntry("error", "予期しないエラーが発生しました");
+            assertThat(response.getBody().get("error")).doesNotContain("jdbc");
         }
 
         @Test
