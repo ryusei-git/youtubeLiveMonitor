@@ -981,7 +981,12 @@ function initStudioShell() {
     const navigation = document.querySelector(".globalnav");
     const activeLink = navigation?.querySelector("a.active");
     if (navigation && activeLink instanceof HTMLElement && matchMedia("(max-width: 760px)").matches) {
-        navigation.scrollLeft = Math.max(0, activeLink.offsetLeft - 12);
+        // 現在地を左端へ寄せると、手前のタブが必ず画面外へ押し出される。
+        // スマホではナビが横スクロールできること自体が分かりにくいため、
+        // 押すたびに選べる範囲が狭まっていくように見えてしまう（実際に指摘を受けた）。
+        // scrollIntoView は「見えていなければ最小限だけ動かす」ので、
+        // 既に見えている場合は何もしない
+        activeLink.scrollIntoView({ inline: "nearest", block: "nearest" });
     }
     const main = document.querySelector("main");
     if (main) {
