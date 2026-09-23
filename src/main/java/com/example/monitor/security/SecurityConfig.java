@@ -2,6 +2,7 @@ package com.example.monitor.security;
 
 import com.example.monitor.repository.AppUserRepository;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
@@ -125,9 +126,11 @@ public class SecurityConfig {
                                             AuthenticationSuccessHandler successHandler,
                                             AuthenticationFailureHandler failureHandler,
                                             RecordingFileAuthorizationManager recordingFileAuthorizationManager,
-                                            AppUserRepository appUserRepository)
+                                            AppUserRepository appUserRepository,
+                                            LoginAttemptLimiter loginAttemptLimiter)
             throws Exception {
         http
+            .addFilterBefore(new LoginAttemptFilter(loginAttemptLimiter), UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(new ActiveAppUserFilter(appUserRepository), AuthorizationFilter.class)
             // CSRF 対策。無効のままだと、悪意のあるページを管理者が開いただけで
             // そのブラウザの権限で「チャンネル削除」「招待の発行」などを実行させられる
