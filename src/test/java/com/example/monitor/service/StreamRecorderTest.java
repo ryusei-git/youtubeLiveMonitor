@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -74,6 +75,42 @@ class StreamRecorderTest {
 
     private StreamRecorder newRecorder(Path recordingDirectory) {
         return newRecorder(recordingDirectory, 1080);
+    }
+
+    /**
+     * 予約機構を共有した状態の録画係を作る。
+     *
+     * <p>自動録画と手動ダウンロードは<b>同じ {@link ActiveVideoJobs} を共有している</b>。
+     * 別々の集合を持たせると同時開始を防げないため、その共有が効いていることを
+     * 確かめるにはこちらを使う。
+     *
+     * @param recordingDirectory 保存先
+     * @param activeVideoJobs    共有する予約機構
+     * @return 録画係
+     */
+    private StreamRecorder newRecorder(Path recordingDirectory, ActiveVideoJobs activeVideoJobs) {
+        MonitorProperties properties = new MonitorProperties(
+                new YouTubeProperties("", 120),
+                new TwitchProperties("", ""),
+                new DiscordProperties(""),
+                new RecordingProperties(recordingDirectory.toString(), 1080),
+                new MonitorProperties.AdminProperties("admin", ""));
+        return new StreamRecorder(
+                properties, processLauncher, recordingHistoryService, recordingSalvager, activeVideoJobs);
+    }
+
+    /**
+     * 録画プロセスの代わりになるモックを作る。
+     *
+     * <p>出力の読み取りは別の仮想スレッドで非同期に行われ、アサーションまでに
+     * 消費される保証がない。{@code lenient} にして誤検知を避ける。
+     *
+     * @return 何も出力せずに終了するモックプロセス
+     */
+    private Process mockProcess() {
+        Process process = mock(Process.class);
+        lenient().when(process.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
+        return process;
     }
 
     private StreamRecorder newRecorder(Path recordingDirectory, int maxHeight) {
@@ -240,6 +277,61 @@ class StreamRecorderTest {
             assertThat(recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル")).isFalse();
 
             assertThat(recorder.isRecording("video001")).isFalse();
+        }
+
+        @Test
+        @DisplayName("異常系：手動ダウンロード中の動画は録画を開始しない")
+        void testMethod10(@TempDir Path tempDir) throws IOException {
+            // 同じ動画IDへ2つの yt-dlp が同じ出力先に書き込むと録画そのものが壊れる。
+            // ダウンロード側が先に予約を取っている状態を作る
+            ActiveVideoJobs shared = new ActiveVideoJobs();
+            shared.reserve("video001");
+            StreamRecorder recorder = newRecorder(tempDir, shared);
+            MonitoredChannel channel = new MonitoredChannel("UCSMOQeBJ2RAnuFungnQOxLg", "テストチャンネル");
+
+            // 既に取得中なので成功として扱う（呼び出し側から見れば目的は達成されている）
+            assertThat(recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル")).isTrue();
+
+            verify(processLauncher, never()).launch(any());
+        }
+
+        @Test
+        @DisplayName("異常系：履歴の登録に失敗したら起動済みプロセスを停止して予約を解放する")
+        void testMethod11(@TempDir Path tempDir) throws IOException, InterruptedException {
+            // 起動済みのプロセスを放置すると、次の巡回で同じ出力先に別プロセスが起動する
+            StreamRecorder recorder = newRecorder(tempDir);
+            MonitoredChannel channel = new MonitoredChannel("UCSMOQeBJ2RAnuFungnQOxLg", "テストチャンネル");
+            // 内部で when(...) を使うヘルパーを when(...) の引数に直接書くと入れ子になるため、
+            // 先にローカル変数へ受ける
+            Process process = mockProcess();
+            when(processLauncher.launch(any())).thenReturn(process);
+            when(recordingHistoryService.recordStart(any(), any(), any(), any()))
+                    .thenThrow(new IllegalStateException("DB障害"));
+
+            assertThatThrownBy(() -> recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル"))
+                    .isInstanceOf(IllegalStateException.class);
+
+            verify(process).destroyForcibly();
+            // destroyForcibly() だけでは終わらない。実際に終了したことを確認してから解放する
+            verify(process).waitFor();
+            assertThat(recorder.isRecording("video001")).isFalse();
+        }
+
+        @Test
+        @DisplayName("正常系：解放後は同じ動画IDで再び録画を開始できる")
+        void testMethod12(@TempDir Path tempDir) throws IOException {
+            // 解放し損ねると、その配信は以降永久に録画できなくなる
+            ActiveVideoJobs shared = new ActiveVideoJobs();
+            shared.reserve("video001");
+            shared.release("video001");
+            StreamRecorder recorder = newRecorder(tempDir, shared);
+            MonitoredChannel channel = new MonitoredChannel("UCSMOQeBJ2RAnuFungnQOxLg", "テストチャンネル");
+            Process process = mockProcess();
+            when(processLauncher.launch(any())).thenReturn(process);
+
+            assertThat(recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル")).isTrue();
+
+            verify(processLauncher).launch(any());
         }
     }
 
