@@ -147,13 +147,34 @@ function errorMessage(e) {
    ============================================================ */
 
 /**
+ * セッション切れをJSON解析より先に扱い、同時に複数のAPIが失敗しても一度だけ遷移する。
+ * @param {string} path APIパス
+ * @param {RequestInit} [options] 通信設定
+ * @returns {Promise<Response>} 応答
+ */
+async function authenticatedFetch(path, options) {
+    const response = await fetch(path, options);
+    if (response.status === 401) {
+        if (location.pathname !== "/login.html" && !loginRedirectPending) {
+            loginRedirectPending = true;
+            const target = location.pathname + location.search + location.hash;
+            location.assign("/login.html?expired=1&returnTo=" + encodeURIComponent(target));
+        }
+        throw new Error("ログインの有効期限が切れました。ログインし直してください");
+    }
+    return response;
+}
+
+let loginRedirectPending = false;
+
+/**
  * GET でJSONを取得する。
  *
  * @param {string} path 呼び出す API のパス
  * @returns {Promise<any>} 応答のJSON
  */
 async function apiGet(path) {
-    const res = await fetch(path);
+    const res = await authenticatedFetch(path);
     if (!res.ok) throw new Error(await extractError(res));
     return res.json();
 }
@@ -166,7 +187,7 @@ async function apiGet(path) {
  * @returns {Promise<any>} 応答のJSON。204 の場合は null
  */
 async function apiPost(path, body) {
-    const res = await fetch(path, {
+    const res = await authenticatedFetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify(body)
@@ -183,7 +204,7 @@ async function apiPost(path, body) {
  * @returns {Promise<void>}
  */
 async function apiPut(path, body) {
-    const res = await fetch(path, {
+    const res = await authenticatedFetch(path, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify(body)
@@ -198,7 +219,7 @@ async function apiPut(path, body) {
  * @returns {Promise<any>} 応答のJSON。204 の場合は null
  */
 async function apiDelete(path) {
-    const res = await fetch(path, { method: "DELETE", headers: csrfHeaders() });
+    const res = await authenticatedFetch(path, { method: "DELETE", headers: csrfHeaders() });
     if (!res.ok) throw new Error(await extractError(res));
     // 削除の多くは 204（本文なし）だが、削除結果の集計を返すものもある
     return res.status === 204 ? null : res.json();

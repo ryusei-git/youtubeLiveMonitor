@@ -1,5 +1,8 @@
 package com.example.monitor.security;
 
+import com.example.monitor.util.LoginReturnPath;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -45,6 +48,13 @@ public class LoggingAuthenticationFailureHandler extends SimpleUrlAuthentication
                                          AuthenticationException exception) throws IOException, ServletException {
         // パスワードそのものはログに残さない（usernameパラメータのみ参照する）
         log.warn("ログインに失敗しました: user={}, reason={}", request.getParameter("username"), exception.getMessage());
+        String returnTo = LoginReturnPath.validate(request.getParameter("returnTo"), true);
+        if (returnTo != null) {
+            saveException(request, exception);
+            getRedirectStrategy().sendRedirect(request, response,
+                    FAILURE_URL + "&returnTo=" + URLEncoder.encode(returnTo, StandardCharsets.UTF_8));
+            return;
+        }
         super.onAuthenticationFailure(request, response, exception);
     }
 }

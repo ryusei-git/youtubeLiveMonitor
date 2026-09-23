@@ -190,10 +190,10 @@ class SecurityConfigTest {
             mockMvc.perform(get("/api/videos?page=-1").with(SecurityMockMvcRequestPostProcessors.user(NORMAL_USERNAME).roles("USER")))
                     .andExpect(status().isBadRequest());
         }
-        @Test @DisplayName("異常系：未認証では動画APIも画像も取得できない")
+        @Test @DisplayName("異常系：未認証の動画APIと画像はリダイレクトせず401を返す")
         void testMethod02() throws Exception {
-            mockMvc.perform(get("/api/videos")).andExpect(status().is3xxRedirection());
-            mockMvc.perform(get("/api/videos/YOUTUBE_abcdefghijk/thumbnail")).andExpect(status().is3xxRedirection());
+            mockMvc.perform(get("/api/videos")).andExpect(status().isUnauthorized());
+            mockMvc.perform(get("/api/videos/YOUTUBE_abcdefghijk/thumbnail")).andExpect(status().isUnauthorized());
         }
     }
 

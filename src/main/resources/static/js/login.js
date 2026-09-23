@@ -33,3 +33,20 @@ if (loginForm) {
         token.setAttribute("value", csrfHeaders()["X-XSRF-TOKEN"] || "");
     });
 }
+
+// URLから受け取った値はサーバーが画面・権限を検証してから復帰先に使う。
+const loginReturnTo = queryParam("returnTo");
+if (loginForm && loginReturnTo) {
+    const field = document.createElement("input");
+    field.type = "hidden";
+    field.name = "returnTo";
+    field.value = loginReturnTo;
+    loginForm.append(field);
+}
+if (queryParam("expired") !== null) {
+    const notice = document.createElement("p");
+    notice.className = "muted";
+    notice.setAttribute("role", "status");
+    notice.textContent = "ログインの有効期限が切れました。もう一度ログインしてください。直前の操作は自動では再実行されません。";
+    loginForm?.before(notice);
+}

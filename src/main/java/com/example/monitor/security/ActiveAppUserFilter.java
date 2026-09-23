@@ -1,5 +1,7 @@
 package com.example.monitor.security;
 
+import com.example.monitor.util.ApiRequestPath;
+
 import com.example.monitor.repository.AppUserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -25,7 +27,7 @@ public class ActiveAppUserFilter extends OncePerRequestFilter {
                 && authentication.getPrincipal() instanceof AuthenticatedAppUser user
                 && !repository.existsByIdAndEnabledTrue(user.getUserId())) {
             new SecurityContextLogoutHandler().logout(request, response, authentication);
-            if (request.getServletPath().startsWith("/api/")) {
+            if (ApiRequestPath.matches(request)) {
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                 response.setContentType("application/json;charset=UTF-8");
                 response.getWriter().write("{\"error\":\"ログインし直してください\"}");

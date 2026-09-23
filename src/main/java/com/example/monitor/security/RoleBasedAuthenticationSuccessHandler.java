@@ -1,6 +1,8 @@
 package com.example.monitor.security;
 
 import com.example.monitor.repository.AppUserRepository;
+import com.example.monitor.util.LoginReturnPath;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -59,12 +61,26 @@ public class RoleBasedAuthenticationSuccessHandler extends SavedRequestAwareAuth
         boolean isAdmin = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch("ROLE_ADMIN"::equals);
-        setDefaultTargetUrl(isAdmin ? ADMIN_DEFAULT_TARGET : NON_ADMIN_DEFAULT_TARGET);
 
         appUserRepository.findByUsername(username)
                 .ifPresent(user -> appUserRepository.updateLastLoginAt(user.getId(), LocalDateTime.now()));
         log.info("ログインに成功しました: user={}", username);
 
+        String returnTo = LoginReturnPath.validate(request.getParameter("returnTo"), isAdmin);
+        if (returnTo != null) {
+            new HttpSessionRequestCache().removeRequest(request, response);
+            clearAuthenticationAttributes(request);
+            getRedirectStrategy().sendRedirect(request, response, returnTo);
+            return;
+        }
         super.onAuthenticationSuccess(request, response, authentication);
+    }
+
+    @Override
+    protected String determineTargetUrl(HttpServletRequest request, HttpServletResponse response,
+                                        Authentication authentication) {
+        // 共有ハンドラーの遷移先を書き換えると、同時ログインした別の権限の値が混ざる。
+        return authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()))
+                ? ADMIN_DEFAULT_TARGET : NON_ADMIN_DEFAULT_TARGET;
     }
 }

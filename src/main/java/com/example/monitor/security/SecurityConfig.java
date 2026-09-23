@@ -1,9 +1,14 @@
 package com.example.monitor.security;
 
+import com.example.monitor.util.ApiRequestPath;
+
 import com.example.monitor.repository.AppUserRepository;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
+import org.springframework.security.config.annotation.ObjectPostProcessor;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -127,9 +132,17 @@ public class SecurityConfig {
                                             AuthenticationFailureHandler failureHandler,
                                             RecordingFileAuthorizationManager recordingFileAuthorizationManager,
                                             AppUserRepository appUserRepository,
-                                            LoginAttemptLimiter loginAttemptLimiter)
+                                            LoginAttemptLimiter loginAttemptLimiter,
+                                            RequestAuthenticationHandler authenticationHandler)
             throws Exception {
+        HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
+        // APIの要求本文や変更操作を、再ログイン後の復帰要求として保存しない。
+        requestCache.setRequestMatcher(request -> "GET".equals(request.getMethod())
+                && !ApiRequestPath.matches(request));
         http
+            .requestCache(cache -> cache.requestCache(requestCache))
+            .exceptionHandling(errors -> errors.authenticationEntryPoint(authenticationHandler)
+                    .accessDeniedHandler(authenticationHandler))
             .addFilterBefore(new LoginAttemptFilter(loginAttemptLimiter), UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(new ActiveAppUserFilter(appUserRepository), AuthorizationFilter.class)
             // CSRF 対策。無効のままだと、悪意のあるページを管理者が開いただけで
@@ -139,7 +152,14 @@ public class SecurityConfig {
             // X-XSRF-TOKEN ヘッダで返す（common.js 参照）。
             .csrf(csrf -> csrf
                 .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                .csrfTokenRequestHandler(csrfTokenRequestHandler()))
+                .csrfTokenRequestHandler(csrfTokenRequestHandler())
+                .withObjectPostProcessor(new ObjectPostProcessor<CsrfFilter>() {
+                    @Override
+                    public <O extends CsrfFilter> O postProcess(O filter) {
+                        filter.setAccessDeniedHandler(authenticationHandler);
+                        return filter;
+                    }
+                }))
             .headers(headers -> headers
                 .frameOptions(frameOptions -> frameOptions.sameOrigin())
                 // 外部サイトへ遷移するときに、今いた URL を渡さない
