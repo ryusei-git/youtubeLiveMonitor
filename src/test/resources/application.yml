@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: youtube-live-monitor-test
+
+  # 本番の data/monitor.mv.db には絶対に触れない（実データが入っている）。
+  # テストはインメモリDBを使い、起動のたびにスキーマを作り直す。
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+# SecurityConfigTest がログインできるよう、テスト用の初期管理者を明示的に指定する。
+monitor:
+  admin:
+    username: testadmin
+    password: test-admin-password

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>チャンネル管理 - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <a class="brand" href="/index.html">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </a>
+  </div>
+</header>
+<nav class="globalnav" aria-label="メインメニュー">
+  <div class="shell">
+    <a href="/videos.html">動画・配信</a>
+    <a href="/index.html">ダッシュボード</a>
+    <a href="/channels.html" class="active">チャンネル</a>
+    <a href="/notifications.html">通知履歴</a>
+    <a href="/recordings.html">録画</a>
+    <a href="/invitations.html">招待</a>
+    <a href="/logs.html">ログ</a>
+    <a href="/tables.html">DB管理</a>
+    <!-- playground:start -->
+    <a href="/playground.html">APIお試し</a>
+    <!-- playground:end -->
+  </div>
+</nav>
+<main class="shell" id="mainContent">
+  <h1>チャンネル管理</h1>
+  <p id="error" role="alert" class="error" style="display:none;"></p>
+
+  <h2>チャンネルを登録 <span class="hint" title="チャンネルページのURLをそのまま貼り付けできます（YouTube: https://www.youtube.com/@foo、Twitch: https://www.twitch.tv/foo）。">ⓘ</span></h2>
+  <p id="platformNotice" class="muted" style="display:none;"></p>
+  <form id="addForm" class="inline">
+    <select id="addPlatform" aria-label="配信プラットフォーム"></select>
+    <input type="text" id="addChannelId" placeholder="URL / @ハンドル / チャンネルID" size="32" required>
+    <input type="text" id="addChannelName" placeholder="表示名" required>
+    <label>自動録画する
+      <input type="checkbox" id="addRecordEnabled">
+      <span class="hint" title="録画には yt-dlp が必要です。画質・音質は落とさず最高品質のまま保存するため、配信中は数十GB〜になりうるのでディスク容量に注意してください。">ⓘ</span>
+    </label>
+    <input type="text" id="addTitleKeywords" placeholder="絞り込むキーワード（例: ASMR,生配信）" size="26">
+    <button type="submit">登録</button>
+  </form>
+
+  <details class="utilityPanel compactPanel"><summary>名前でチャンネルを探す <small>YouTubeのみ・検索ごとにクォータ100</small></summary>
+  <h2>チャンネル名で検索（YouTube のみ） <span class="hint" title="YouTube API のクォータを 1回100 消費するため、IDが分からない時だけ使ってください。Twitch はURLに出ているチャンネル名をそのまま登録できるため、検索は用意していません。">ⓘ</span></h2>
+  <form id="searchForm" class="inline">
+    <input type="text" id="searchName" placeholder="チャンネル名" required>
+    <button type="submit">検索</button>
+  </form>
+  <div class="table-scroll">
+    <table id="searchTable" style="display:none;">
+      <thead><tr><th>チャンネルID</th><th>名前</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  </details>
+  <h2>登録済みチャンネル</h2>
+  <div class="inline">
+    <button id="checkNowBtn" title="録画設定やタイトルフィルターを変えた後、次の巡回を待たずに試せます。">今すぐチェック</button>
+    <span id="checkResult" class="muted"></span>
+  </div>
+  <div class="table-scroll">
+    <table id="channelTable">
+      <thead>
+        <tr>
+          <th>配信元</th>
+          <th>名前</th>
+          <th>状態</th>
+          <th>録画</th>
+          <th>フィルター <span class="hint" title="登録後に条件のボタンを押して絞り込めます（例: 「ASMR,生配信」）。配信タイトル、または配信のカテゴリ（Twitchのみ）にいずれかのキーワードを含む配信だけを通知・録画します。どちらにも含まれない配信は通知されません。空欄なら絞り込みなし。">ⓘ</span></th>
+          <th>最終チェック</th>
+          <th>最終通知動画ID</th>
+          <th>ID</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/channels.js"></script>
+</body>
+</html>

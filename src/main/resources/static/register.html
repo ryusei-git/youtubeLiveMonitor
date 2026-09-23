@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>利用者登録 - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <span class="brand">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </span>
+  </div>
+</header>
+<main class="shell" id="mainContent">
+  <h1>利用者登録</h1>
+  <p id="error" role="alert" class="error" role="alert" style="display:none;"></p>
+
+  <!-- 招待の確認が終わるまでは何も出さない。無効なリンクにも入力欄を見せると、
+       入力し終えてから「使えません」と言うことになる -->
+  <div id="checking" class="muted"><span class="spinner"></span> 招待リンクを確認しています...</div>
+
+  <div id="rejected" style="display:none;"></div>
+
+  <div id="form" style="display:none;">
+    <p class="muted">
+      パスワードはあなたが決めます。管理者にも分かりません。<br>
+      利用者名は3文字以上、パスワードは8文字以上にしてください。
+    </p>
+    <form id="registerForm">
+      <p><label>利用者名<br>
+        <input type="text" id="username" autocomplete="username" required minlength="3" maxlength="64" size="28">
+      </label></p>
+      <p><label>パスワード<br>
+        <input type="password" id="password" autocomplete="new-password" required minlength="8" size="28">
+      </label></p>
+      <p><label>パスワード（確認）<br>
+        <input type="password" id="passwordConfirm" autocomplete="new-password" required minlength="8" size="28">
+      </label></p>
+      <p><button type="submit">登録する</button></p>
+    </form>
+  </div>
+
+  <div id="done" style="display:none;"></div>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/register.js"></script>
+</body>
+</html>

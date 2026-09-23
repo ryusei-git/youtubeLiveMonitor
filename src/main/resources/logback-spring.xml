@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <statusListener class="ch.qos.logback.core.status.NopStatusListener" />
+
+    <include resource="org/springframework/boot/logging/logback/defaults.xml" />
+
+    <!--
+        標準出力。bin/service.sh がこれを logs/service.log にリダイレクトしており、
+        管理者が「サービス全体で何が起きているか」を見る唯一の入口になる。
+
+        レベルを出力に含めること。以前は "%d - %msg" だけで WARN も DEBUG も
+        見分けが付かず、grep ERROR / grep WARN で何も引っかからなかった（実際に
+        チャンネル登録ミスによる 404 の警告を見落とした）。
+
+        しきい値を INFO にしているのは、DEBUG まで流すと 14 チャンネル分の
+        正常時のログで埋まり、肝心の警告が埋もれるため。チャンネル単位の詳細は
+        CHANNEL_LOG 側に DEBUG まで残るので情報は失われない。
+    -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!--
+        MDC の channelId をキーに、チャンネルごとに別ファイルへログを振り分ける。
+        LiveBroadcastListener が監視サイクル中に MDC.put("channelId", ...) するので、
+        そのチャンネルを処理している間に発生した全ログ（LiveStatusChecker, YouTubeMonitorService,
+        NotificationService 経由のものも含む）が対象チャンネルのファイルに書き込まれる。
+        MDC が未設定（システムログ）の場合は default.log に集約される。
+    -->
+    <appender name="CHANNEL_LOG" class="ch.qos.logback.classic.sift.SiftingAppender">
+        <discriminator>
+            <key>channelId</key>
+            <defaultValue>system</defaultValue>
+        </discriminator>
+        <sift>
+            <appender name="CHANNEL_LOG-${channelId}" class="ch.qos.logback.core.rolling.RollingFileAppender">
+                <file>logs/channels/${channelId}.log</file>
+                <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                    <fileNamePattern>logs/channels/${channelId}.%d{yyyy-MM-dd}.log</fileNamePattern>
+                    <maxHistory>14</maxHistory>
+                </rollingPolicy>
+                <encoder>
+                    <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %msg%n</pattern>
+                </encoder>
+            </appender>
+        </sift>
+    </appender>
+
+    <!-- CLI コマンド実行時はフレームワークの起動ログ・アプリ自身のログを抑え、コマンドの出力だけが見えるようにする -->
+    <springProfile name="cli">
+        <property name="ROOT_LOG_LEVEL" value="WARN" />
+        <property name="APP_LOG_LEVEL" value="WARN" />
+    </springProfile>
+    <springProfile name="!cli">
+        <property name="ROOT_LOG_LEVEL" value="INFO" />
+        <property name="APP_LOG_LEVEL" value="DEBUG" />
+    </springProfile>
+
+    <logger name="com.example.monitor" level="${APP_LOG_LEVEL}" additivity="true">
+        <appender-ref ref="CHANNEL_LOG" />
+    </logger>
+
+    <root level="${ROOT_LOG_LEVEL}">
+        <appender-ref ref="CONSOLE" />
+    </root>
+</configuration>

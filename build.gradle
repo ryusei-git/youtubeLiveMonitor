@@ -1,0 +1,104 @@
+plugins {
+    id 'java'
+    id 'jacoco'
+    id 'org.springframework.boot' version '3.3.3'
+    id 'io.spring.dependency-management' version '1.1.4'
+}
+
+group = 'com.example'
+version = '0.1.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = "https://jitpack.io" }
+}
+
+dependencies {
+    // Spring Boot
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    runtimeOnly 'com.h2database:h2'
+
+    // CLI
+    implementation 'info.picocli:picocli:4.7.6'
+    implementation 'info.picocli:picocli-spring-boot-starter:4.7.6'
+
+    // YouTube API
+    // google-http-client が Apache HttpClient 経由で commons-logging を引き込み、
+    // Spring Boot の spring-jcl と衝突して警告が出るため除外する
+    implementation('com.google.apis:google-api-services-youtube:v3-rev20260820-2.0.0') {
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
+    implementation('com.google.api-client:google-api-client:2.7.0') {
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
+
+    // ライブ判定（/live リダイレクトのHTML解析）
+    implementation 'org.jsoup:jsoup:1.17.2'
+
+    // Discord Webhook
+    implementation 'club.minnced:discord-webhooks:0.8.4'
+
+    // Configuration
+    implementation 'org.springframework.boot:spring-boot-configuration-processor'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    implementation 'me.paulschwarz:spring-dotenv:4.0.0'
+
+    // Utilities
+    implementation 'org.projectlombok:lombok:1.18.30'
+    annotationProcessor 'org.projectlombok:lombok:1.18.30'
+
+    // Testing
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    finalizedBy jacocoTestReport
+}
+
+// カバレッジレポート（./gradlew test で自動生成。build/reports/jacoco/test/html/index.html）
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+    }
+    // main() は Spring Boot の起動処理そのもので、単体テストの対象として検証する価値が薄いため除外する
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: ['com/example/monitor/YouTubeLiveMonitorApplication.class'])
+        }))
+    }
+}
+
+// bootJar（実行可能jar）のみ生成し、紛らわしい -plain.jar は作らない
+tasks.named('jar') {
+    enabled = false
+}
+
+// JavaDoc（./gradlew javadoc で build/docs/javadoc に生成）
+tasks.named('javadoc') {
+    options {
+        encoding = 'UTF-8'          // ソース中の日本語コメントの読み込み
+        charSet = 'UTF-8'           // 生成HTMLの文字コード
+        docEncoding = 'UTF-8'
+        locale = 'ja'
+
+        // 構文・HTML・参照リンクの誤りは検出したいが、"missing" だけは無効化する。
+        // Lombok が生成するコンストラクタは javadoc からは見えないため、
+        // 実際には @RequiredArgsConstructor が付いているクラスまで
+        // 「コンストラクタに説明がない」と大量に警告されてしまうため。
+        addStringOption('Xdoclint:all,-missing', '-quiet')
+    }
+}

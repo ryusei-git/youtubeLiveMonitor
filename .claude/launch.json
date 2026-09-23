@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Spring Boot Dev",
+      "runtimeExecutable": "./gradlew",
+      "runtimeArgs": ["bootRun"],
+      "port": 8080
+    },
+    {
+      "name": "Gradle Build",
+      "runtimeExecutable": "./gradlew",
+      "runtimeArgs": ["build"],
+      "port": null
+    },
+    {
+      "name": "Run Tests",
+      "runtimeExecutable": "./gradlew",
+      "runtimeArgs": ["test"],
+      "port": null
+    }
+  ]
+}

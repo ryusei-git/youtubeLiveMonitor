@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: youtube-live-monitor
+
+  # 画面ファイル（static/ 配下の HTML/CSS/JS）のキャッシュ制御。
+  # 既定では Cache-Control が付かず、ブラウザが独自判断で古い内容を保持するため、
+  # 画面を更新してもハードリロードするまで反映されない（実際に発生した）。
+  # no-cache は「キャッシュを使う前に必ず問い合わせる」指定で、変更が無ければ 304 が返る。
+  # 録画ファイル（/recordings/**）は RecordingResourceConfig が別に登録しているため対象外。
+  web:
+    resources:
+      cache:
+        cachecontrol:
+          no-cache: true
+
+  datasource:
+    url: jdbc:h2:file:./data/monitor;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+# ログ出力の設定は logback-spring.xml 側で一元管理する
+
+monitor:
+  youtube:
+    api-key: ${YOUTUBE_API_KEY:}
+    interval-seconds: ${MONITOR_INTERVAL_SECONDS:120}
+
+  twitch:
+    client-id: ${TWITCH_CLIENT_ID:}
+    client-secret: ${TWITCH_CLIENT_SECRET:}
+
+  discord:
+    webhook-url: ${DISCORD_WEBHOOK_URL:}
+
+  recording:
+    directory: ${MONITOR_RECORDING_DIRECTORY:recordings}
+    max-height: ${MONITOR_RECORDING_MAX_HEIGHT:0}
+
+  # 起動時に管理者が1人もいなければ、この値から初期管理者を作成する（AdminUserInitializer）。
+  # 一度作成された後はこの値を変えても上書きされない（管理者が既に存在するため）。
+  admin:
+    username: ${ADMIN_USERNAME:admin}
+    password: ${ADMIN_PASSWORD:}

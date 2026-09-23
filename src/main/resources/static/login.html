@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ログイン - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <span class="brand">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </span>
+  </div>
+</header>
+<main class="shell loginShell">
+  <div class="loginCard">
+    <h1>ログイン</h1>
+    <p id="loginError" class="error" style="display:none;">ユーザー名またはパスワードが違います</p>
+    <p id="logoutNotice" class="muted" style="display:none;">ログアウトしました</p>
+    <form method="post" action="/api/auth/login">
+      <div class="loginField">
+        <label for="username">ユーザー名</label>
+        <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+      </div>
+      <div class="loginField">
+        <label for="password">パスワード</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit">ログイン</button>
+    </form>
+  </div>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "//": "エディタ（VSCode 等）で JS を型チェックさせるための設定。ビルド手順は増えない。",
+  "compilerOptions": {
+    "checkJs": true,
+    "strict": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true
+  },
+  "include": ["js/**/*.js"]
+}

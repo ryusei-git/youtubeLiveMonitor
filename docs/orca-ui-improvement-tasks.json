@@ -1,0 +1,150 @@
+{
+  "runId": "run_78e36c616474",
+  "source": "docs/service-ui-review-2026-09-21.md",
+  "tasks": [
+    {
+      "reviewId": "UI-01",
+      "priority": "P1",
+      "title": "[P1][UI-01] TwitchにもYouTubeリンクが生成される",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-01／優先度：P1\n対象・編集範囲：共通リンク、利用画面、RecordingResponse・NotificationHistoryResponse・DashboardResponse、必要な履歴URLの保存処理。この改善に必要な実装と回帰テストのみを担当する。\n\n### UI-01：プラットフォームをまたぐリンクの誤り\n\n**現状**：`common.js` の `videoLink()` は常に `youtube.com/watch?v=...`、`channelLink()` は常に `youtube.com/channel/...` を作る。通知履歴、録画カード、再生詳細、ダッシュボード、チャンネルの最終通知欄で利用されている。Twitchの数値IDでもYouTubeのURLになってしまう。\n\n`RecordingResponse`、`NotificationHistoryResponse`、`DashboardResponse.LiveChannelSummary` には視聴URLや配信元がない。JSの文字列置換だけでは正しく直せない。\n\n**改善**：DTOに配信元と適切なURLを渡し、共通部品は渡されたURLを描画する。履歴に必要な視聴URL・元ページURLは取得時に保存する。Twitchの配信IDとVOD IDを混同せず、配信者の現在のページと当時のアーカイブへのリンクを区別する。既存行でURLを確定できない場合はリンク無しの表示にする。\n\n**受け入れ条件**：YouTube・Twitch・未登録動画・URLを持たない既存履歴の全画面で、誤ったサービスへリンクしない。URLを補うために各画面表示から外部APIを毎回呼ばない。\n\n根拠：`js/common.js::videoLink/channelLink`、`js/dashboard.js::loadDashboard`、`js/notifications.js::loadHistory`、`js/player.js::renderDetail`、上記DTO。\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_8f36e13e74de",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-02",
+      "priority": "P1",
+      "title": "[P1][UI-02] フィルターを再編集すると古い値になる",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-02／優先度：P1\n対象・編集範囲：js/channels.js のフィルター編集状態。この改善に必要な実装と回帰テストのみを担当する。\n\n### UI-02：フィルター再編集時に古い値が復活する\n\n**現状**：`loadChannels()` のダブルクリック処理は読み込み時の `ch.recordTitleKeywords` を渡す。`editTitleFilterCell()` は保存後にセルの文字だけ変更し、`ch` を更新しない。\n\n例：元の `ASMR` を `雑談` に保存→ページを再読み込みせず再編集すると、入力欄が `ASMR` で開く。Escapeで取り消すと表示も古い値になる。入力内容によっては意図しない保存につながる。今回は本番設定を変更せず、コード経路で確認した。\n\n**改善**：保存成功時に画面の状態モデルを更新するか、対象行をAPIから再取得する。編集ボタンと保存・取消を明示し、操作中の重複編集も防ぐ。\n\n**受け入れ条件**：A→B保存→再編集でBが開く。取消でBを維持。保存失敗時も直前に保存済みの値へ戻る。\n\n根拠：`js/channels.js::loadChannels/editTitleFilterCell`。\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_d162608f8f7c",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-03",
+      "priority": "P1",
+      "title": "[P1][UI-03] 現在値と最終観測値、判定不能が混在する",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-03／優先度：P1\n対象・編集範囲：DashboardService・DashboardResponse、dashboard.js・channels.jsの状態表示。この改善に必要な実装と回帰テストのみを担当する。\n\n### UI-03：「現在」と「最後に分かった状態」を分離する\n\n**現状**：ダッシュボードは初期読み込みと「今すぐチェック」後に取得するだけで、開いたままでは更新しない。稼働時間も止まった表示になる。「今すぐチェック」は表示更新ではなく、通知・録画を伴いうる巡回操作。\n\nさらに `DashboardService` は判定失敗中も保持する `currentlyLive` を件数に含める。円グラフは全件を「配信中／休止中」に分けるが、警告は連続2回失敗から。チャンネル画面では1回失敗から「判定失敗」。同じチャンネルを異なる意味で読ませている。\n\n**改善**：正常に観測できた配信中／未配信／判定不能／未チェックを表示上で区別する。DB上の最後の正常な状態は保持したまま、判定不能には最終成功時刻と以前の状態を添える。画面更新時刻、巡回最終完了時刻、監視間隔を表示する。「表示を更新」と「今すぐ巡回」を分ける。\n\n**受け入れ条件**：判定失敗をfalseへ書き換えず、不明なものを現在の確定値として数えない。巡回の停止・長時間化と単なる画面の古さを区別できる。GETによる表示更新で通知や録画を起動しない。\n\n根拠：`DashboardService::getSnapshot`、`js/dashboard.js::renderChannelStatusChart/loadDashboard`、`js/channels.js::channelStateLabel`。\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_76f244a521d8",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-04",
+      "priority": "P1",
+      "title": "[P1][UI-04] 設定の保存済みと適用済みを区別できない",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-04／優先度：P1\n対象・編集範囲：SettingsController・EnvironmentSettingsService、設定画面、録画保存先の参照設計。この改善に必要な実装と回帰テストのみを担当する。\n\n### UI-04：設定保存と適用の二段階を見せる\n\n**現状**：PUTは`.env`だけを変更し、GETは起動時の`MonitorProperties`を返す。保存直後は再起動が必要と表示するが、再訪問するとその表示はなくなり、フォームも適用中の旧値へ戻る。再度保存すると監視間隔・画質など旧値を送り、保留中の変更を上書きしうる。\n\n保存先も同じ問題を持つ。録画のパスは相対パスで、静的配信のルートは設定したディレクトリ。保存先を変えるだけでは過去のファイルは移動しないため、既存録画を新しいルートから探して再生できなくなる可能性がある。現行画面に移動・参照の説明はない。\n\n**改善**：設定を専用画面にし、「適用中」「保存済み」「再起動待ち」を永続的に表示する。変更した項目だけ送信する。秘密情報は値を戻さず、設定済み・変更予定だけ返す。保存先変更は過去ファイルの扱いを説明し、移行手順または旧保存先の参照設計を用意する。\n\n**受け入れ条件**：保存後に再訪しても保留内容を把握でき、別項目の保存で消えない。反映後に保留表示が消える。保存先変更後の既存録画の扱いが事前に分かる。再起動ボタンの追加だけで解決したことにしない。\n\n根拠：`SettingsController::getSettings/updateSettings`、`EnvironmentSettingsService`、`js/dashboard.js::loadSettings` と保存ハンドラー、`RecordingResourceConfig`。\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_52d8dc1a768c",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-05",
+      "priority": "P1",
+      "title": "[P1][UI-05] DB管理が認証情報を表示し、汎用編集できる",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-05／優先度：P1\n対象・編集範囲：DatabaseTableService・DB管理API、tables.html・tables.js、管理ナビゲーション。この改善に必要な実装と回帰テストのみを担当する。\n\n### UI-05：DB管理を通常操作から分離する\n\n**現状**：DB管理は他の画面と同格のナビにあり、初期選択で「ログイン利用者」が表示された。パスワードハッシュも列として表示される。主キー以外はダブルクリック編集が可能で、フォーカスが外れると即保存する。サーバー側の除外テーブルは`AUDIT_LOGS`のみ。\n\n管理者限定の画面であり、公開漏えいを確認したという指摘ではない。ただし画面共有時の不要な露出、権限や認証情報の誤編集、業務上の正規化処理を通さない更新が起きやすい構成。\n\n**改善**：ナビの「管理・診断」配下へ移し、既定は閲覧専用にする。認証情報のテーブル・列は汎用取得APIでも除外またはマスクする。編集モードへの明示的切り替え、変更前後の確認、保存・取消を設ける。チャンネル設定などは通常画面から編集できるようにする。\n\n**受け入れ条件**：パスワードハッシュが一覧API・DOMに含まれない。セルを見ようとしてクリックを外しただけでは更新されない。認証・権限変更は専用の検証付き操作を通す。未知の通常テーブルを閲覧できる既存の拡張性は維持する。\n\n根拠：`tables.html`、`js/tables.js::editCell`、`DatabaseTableService::getTableData/filterUpdatableColumns`。認証情報が含まれるため、DB管理の画像・スナップショットは成果物に含めていない。\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_6d2ce8c3f49a",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-06",
+      "priority": "P2",
+      "title": "[P2][UI-06] ダッシュボードで容量グラフが監視状況より先",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-06／優先度：P2\n対象・編集範囲：index.html・dashboard.js・style.css、関連一覧への導線。この改善に必要な実装と回帰テストのみを担当する。\n\n### UI-06：ダッシュボードの主役を監視状況に戻す\n\n**現状**：KPI→円グラフ3つ→チャンネル別容量棒グラフ→設定・配信中一覧の順。約932px幅ではグラフが2列になり、3枚目の右に空白ができる。配信中一覧の見出しは画面上端から約890pxで、最初に見たい情報へ視線が届きにくい。\n\n**改善**：上から「要対応」「巡回の健康状態」「配信中・録画中」「最近の結果」。ディスク内訳は容量管理へ移すか折りたたむ。容量の円グラフと棒グラフは併置の利点もあるため、詳細画面で比較する用途に残す。\n\n**受け入れ条件**：主要なデスクトップ幅で、初期表示から監視の正常性と配信中・録画中の概要が分かる。警告・件数から絞り込み済みの一覧へ遷移できる。\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_0195b1e251bf",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-07",
+      "priority": "P2",
+      "title": "[P2][UI-07] 通知・録画しない理由が分からない",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-07／優先度：P2\n対象・編集範囲：LiveStreamPollingSchedulerの判定結果、チャンネルDTO・詳細画面、履歴導線。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：配信中でも通知済み・フィルター対象外・通知上限・録画開始失敗の区別を画面で追えない\n変更内容：チャンネル詳細に「直近の判定理由」「一致したタイトル／カテゴリ」「通知結果」「録画結果」を表示し、対応する履歴・ログへつなぐ\n受け入れ条件・根拠：外部APIを追加で常時呼ばず、既存巡回の判定結果を返す。フィルター対象外と取得失敗を分ける。根拠：Schedulerの各return経路と`MonitoredChannelResponse`\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_d3b3cc43eb3f",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-08",
+      "priority": "P2",
+      "title": "[P2][UI-08] フィルター・録画ON/OFFの意味が不明瞭",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-08／優先度：P2\n対象・編集範囲：channels.html・channels.js、必要なチャンネル更新API。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：フィルターは通知と録画両方に効くが、登録時は短いplaceholderだけ。編集はダブルクリック。「録画ON」は実際の録画中とも読める。名前編集も通常画面にない\n変更内容：「通知・録画の条件」に改称し、カンマ区切りOR・タイトルまたはカテゴリ・空なら全件を短文で常時表示。「自動録画：有効」と「録画中」を分ける。行に設定ボタンを置く\n受け入れ条件・根拠：キーボードでも条件編集可能。登録フォームと検索経由登録の初期設定の違いが分かる。根拠：`channels.html`、`js/channels.js`、`MonitoredChannelController`\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_bcd85ba5ff67",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-09",
+      "priority": "P2",
+      "title": "[P2][UI-09] 通知の結果列が初期表示で見えず、失敗を絞れない",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-09／優先度：P2\n対象・編集範囲：notifications.html・notifications.js、通知履歴の検索API・DTO。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：結果列が長いタイトルの右にあり、実画面では横スクロールしないと読めない。失敗・期間による絞り込みがない\n変更内容：列順を「時刻・結果・チャンネル・タイトル・詳細」に変更。結果、期間、キーワードで絞り込み。動画IDは詳細へ\n受け入れ条件・根拠：初期表示で成功・失敗が判別できる。ダッシュボードの失敗件数から失敗一覧へ遷移。根拠：`notifications.html`、`js/notifications.js`\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_b44710eee378",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-10",
+      "priority": "P2",
+      "title": "[P2][UI-10] 録画一覧が下方にあり、開始した取得が条件に隠れる",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-10／優先度：P2\n対象・編集範囲：recordings.html・recordings.js、ダウンロード応答の詳細リンク。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：録画一覧の見出しは約657px、カード開始は約770px。URL取得開始後はページ番号だけ0に戻り、以前の検索条件が残るので開始した動画が隠れる場合がある。自動更新も表示中にRECORDINGがある場合だけ\n変更内容：録画一覧を先頭へ。URL取得は「追加」パネル、容量管理は別区画へ。取得開始後に対象カード／進捗へのリンクを表示。更新状態を明示\n受け入れ条件・根拠：「完了」絞り込み中に取得開始しても進行を追える。空ページから新規録画を発見できる。根拠：`recordings.html`、`js/recordings.js::scheduleRefreshWhileRunning` と取得開始処理\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_13c7328b2bb3",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-11",
+      "priority": "P2",
+      "title": "[P2][UI-11] 録画失敗・途中まで・再生エラーの次の操作がない",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-11／優先度：P2\n対象・編集範囲：player.html・player.js、common.jsの録画カード、録画詳細DTO。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：FAILEDカードは詳細へ移動できず、削除以外の対処が見えない。再生詳細に状態がなく、PARTIALの説明もない。videoのerrorを説明する処理がない\n変更内容：再生可否と詳細閲覧を分離。状態、理由、ログ、元ページ、ファイル有無を詳細で表示。再生エラーを利用者向けに説明\n受け入れ条件・根拠：完了・途中まで・失敗・録画中すべてで状態の意味を確認可能。404や非対応形式で無言の黒画面にならない。根拠：`common.js::buildVideoCard`、`player.js::renderDetail/load`\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_7122f8714688",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-12",
+      "priority": "P2",
+      "title": "[P2][UI-12] 削除対象と残るデータが十分に見えない",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-12／優先度：P2\n対象・編集範囲：channels.js・recordings.js、RecordingFileService・削除プレビューAPI。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：チャンネル削除確認は履歴が消えることを伝えるが、ファイルが残ること・進行中録画が続くことは伝えない。一括削除は対象件数・容量を見ずに確定する\n変更内容：チャンネル名と失う情報・残るファイルを確認画面に明示。一括削除は事前プレビューで対象・容量・除外理由を表示\n受け入れ条件・根拠：録画中のものは実行時にも再確認して除外。プレビュー後の状態変化で誤削除しない。根拠：`channels.js`、`recordings.js`、`RecordingFileService`\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_c28d1a9874bd",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-13",
+      "priority": "P2",
+      "title": "[P2][UI-13] 使用量は分かるが、録画を継続できる空き容量は不明",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-13／優先度：P2\n対象・編集範囲：DiskUsageResponse・RecordingFileService、ダッシュボード・録画容量表示。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：「12.2 GB」は録画ディレクトリの使用量であり、ボリュームの空き容量・残り割合は表示されない\n変更内容：「録画ファイル使用量」と明記。保存先の空き容量・総容量・取得時刻を追加し、容量低下を目立たせる\n受け入れ条件・根拠：保存先ボリュームの値を返し、取得失敗を0と表示しない。録画継続可能時間を出すなら変動する推定値と明記。根拠：`DiskUsageResponse`、ダッシュボード・録画画面\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_37a4916f4c17",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-14",
+      "priority": "P2",
+      "title": "[P2][UI-14] ログの対象を名前で探せず、障害画面からつながらない",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-14／優先度：P2\n対象・編集範囲：ログAPI・DTO、logs.html・logs.js、警告と履歴のログリンク。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：ログ対象の選択肢がUC IDや数値IDのみ。警告には「ログを確認」とあるが、対象ログへのリンクがない\n変更内容：登録名＋配信元＋IDで表示し、削除済みはIDを残す。チャンネル・通知・録画から対象と期間を渡す。本文検索を追加\n受け入れ条件・根拠：失敗の対象をIDの手作業コピーなしで探せる。レベル選択肢は絞り込み前の実データから集める方針を維持。根拠：`js/logs.js::loadChannelOptions`\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_0bbd81464d91",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-15",
+      "priority": "P2",
+      "title": "[P2][UI-15] ラベル・キーボード操作・エラー通知に不足",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-15／優先度：P2\n対象・編集範囲：各HTMLフォーム、common.js、共通CSSとキーボード操作。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：設定フォームは行見出しがあるが入力とのlabel関連付けがなく、実際のアクセシビリティツリーで名前のないcomboboxがある。日時・IDの開閉はclickのみ。重要説明はtitle頼み\n変更内容：label/for、button、キーボード操作、短い常時説明を追加。成功通知はstatus、失敗はalertとして通知。編集完了時のフォーカスを管理\n受け入れ条件・根拠：マウスなしで登録・編集・開閉可能。各入力が一意の名前を持つ。タッチでも条件の意味を確認できる。根拠：各HTML、`common.js::datetimeCell/bindDatetimeCells`\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_21bf4fc02164",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-16",
+      "priority": "P2",
+      "title": "[P2][UI-16] 320px幅でダッシュボード全体が横にはみ出す",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-16／優先度：P2\n対象・編集範囲：css/style.cssのinfoRowと狭幅表示。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：320px iframeでdocument.scrollWidth=346px、`.infoRow`内の子は330px固定下限。表内でなくページ全体が横に広がる\n変更内容：狭い幅では`.infoRow`を1列・最小幅0にし、内部の表だけ横スクロールさせる\n受け入れ条件・根拠：320/360/390/768pxでdocument幅がviewportを超えない。実機タッチ検証は別途必要。根拠：`css/style.css`の`minmax(330px, 1fr)`と実測\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_e3600a5ff21d",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-17",
+      "priority": "P2",
+      "title": "[P2][UI-17] 非同期の成功が別のエラーを消す、応答順も未制御",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-17／優先度：P2\n対象・編集範囲：recordings.jsなどの非同期読込、common.jsのエラー表示。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：録画画面は一覧と容量を並列取得し、片方の成功が共通`clearError()`で他方の失敗を消せる。検索変更時の古い応答を排除する仕組みもない\n変更内容：セクション別の読込・失敗・再試行表示を持たせる。リクエスト番号またはAbortControllerで古い応答を捨てる\n受け入れ条件・根拠：一覧失敗＋容量成功でも一覧のエラーが残る。検索A→Bの応答が逆順でもBの結果を表示。根拠：`recordings.js::loadRecordings/loadDiskUsage`、`common.js::clearError`\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_9fb4f4aab759",
+      "status": "ready"
+    },
+    {
+      "reviewId": "UI-18",
+      "priority": "P3",
+      "title": "[P3][UI-18] 空状態・ページ移動・APIクォータ・文言を整える",
+      "spec": "対象プロジェクト：/home/ryusei/youtubeLiveMonitor\n資料：/home/ryusei/youtubeLiveMonitor/docs/service-ui-review-2026-09-21.md\n管理ID：UI-18／優先度：P3\n対象・編集範囲：各画面のページャー・空状態、録画種別表示、APIお試しのクォータ文言。この改善に必要な実装と回帰テストのみを担当する。\n\n現状・影響：1/1でも前・次ボタンが有効。通知履歴には0件の説明がない。取得動画も「録画中」。APIお試しのクォータはアプリ起動後の累計だが表示に期間がない\n変更内容：境界ボタンを無効化。初回0件と検索0件を区別。録画とダウンロードの種別を表示。「起動後のAPIお試し消費量（サービス全体の残量ではない）」と明記\n受け入れ条件・根拠：最終ページの最後の削除後も存在するページへ戻る。クォータを日次残量と誤読しない。根拠：各ページャー、`RECORDING_STATUS_LABEL`、`ApiPlaygroundService::sessionQuotaTotal`\n\n制約・担当境界：\n- 着手時にAGENTS.mdと最新コードを読み、調査後の変更と重複しないよう現状を再確認する。\n- 他タスクと共通JS/CSS/DTOを編集する場合は変更を調整し、他の作業を上書きしない。\n- LIVE / NOT_LIVE / DETECTION_FAILEDの区別、監視ループの個別UPDATEと排他、完成ファイルによる録画判定を維持する。\n- 登録時のプラットフォーム正規化、ログレベルの動的選択肢、表セルを折り返さない方針を維持する。\n- 既存データを破壊せず、秘密情報をレスポンス・資料・ログへ露出させない。\n- 画面確認のためだけに実データの削除や外部通知を行わない。\n\n完了の証拠：\n- 上記受け入れ条件の結果、変更ファイル、未検証範囲を記録する。\n- 意味のある回帰テストと画面確認を行い、AGENTS.md指定のbuild・javadoc等のチェック結果を残す。\n- 稼働jarをビルドで更新した場合はbin/service.sh restartまで実施する。\n\n登録時点では未着手。今回の依頼はタスク化のみで、エージェントへの割当・実装開始は行わない。",
+      "taskId": "task_cee9062a7707",
+      "status": "ready"
+    }
+  ]
+}

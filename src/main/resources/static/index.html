@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ダッシュボード - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <a class="brand" href="/index.html">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </a>
+  </div>
+</header>
+<nav class="globalnav" aria-label="メインメニュー">
+  <div class="shell">
+    <a href="/videos.html">動画・配信</a>
+    <a href="/index.html" class="active">ダッシュボード</a>
+    <a href="/channels.html">チャンネル</a>
+    <a href="/notifications.html">通知履歴</a>
+    <a href="/recordings.html">録画</a>
+    <a href="/invitations.html">招待</a>
+    <a href="/logs.html">ログ</a>
+    <a href="/tables.html">DB管理</a>
+    <!-- playground:start -->
+    <a href="/playground.html">APIお試し</a>
+    <!-- playground:end -->
+  </div>
+</nav>
+<main class="shell" id="mainContent">
+  <div class="pageHead">
+    <h1>ダッシュボード</h1>
+    <div class="pageActions">
+      <span id="checkResult" class="muted"></span>
+      <span class="muted">稼働 <span id="uptime">-</span>（起動 <span id="startedAt">-</span>）</span>
+      <button id="checkNowBtn">今すぐチェック</button>
+    </div>
+  </div>
+  <p id="error" role="alert" class="error" style="display:none;"></p>
+
+  <div id="detectionAlert" style="display:none;">
+    <h2 class="error">配信状態を判定できていないチャンネルがあります <span class="hint" title="このアプリの配信検知は YouTube が公式に保証していない HTML 解析に依存しているため、YouTube 側の仕様変更で突然壊れることがあります。連続して失敗している場合はログを確認してください。">ⓘ</span></h2>
+    <div class="table-scroll">
+      <table id="detectionAlertTable">
+        <thead><tr><th>チャンネル名</th><th>連続失敗回数</th><th>最後に判定できた時刻</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="kpiGrid">
+    <div class="kpi">
+      <span class="kpiLabel">監視チャンネル</span>
+      <span class="kpiValue" id="totalChannels">-</span><span class="kpiUnit">件</span>
+    </div>
+    <div class="kpi">
+      <span class="kpiLabel">現在配信中</span>
+      <span class="kpiValue" id="liveNowCount">-</span><span class="kpiUnit">件</span>
+    </div>
+    <div class="kpi">
+      <span class="kpiLabel">24時間の通知</span>
+      <span class="kpiValue" id="notificationsLast24h">-</span><span class="kpiUnit">件</span>
+      <span class="kpiSub" id="notificationFailures">-</span>
+    </div>
+    <div class="kpi">
+      <span class="kpiLabel">ディスク使用量</span>
+      <span class="kpiValue" id="diskUsage">-</span>
+      <span class="kpiSub"><a href="/recordings.html">内訳を見る</a></span>
+    </div>
+  </div>
+
+  <section class="livePanel">
+    <div>
+      <h2>配信中のチャンネル</h2>
+      <div id="liveVideos" class="videoGrid"></div>
+    </div>
+  </section>
+  <div class="chartRow">
+    <div class="chartCard">
+      <h2>チャンネルの状態 <span class="hint" title="配信中と休止中は重ならない分類です。判定に失敗しているチャンネルは上の警告欄に出ます。">ⓘ</span></h2>
+      <div id="channelStatusChart"></div>
+    </div>
+    <div class="chartCard">
+      <h2>録画の状態 <span class="hint" title="失敗が積み上がっている場合は録画設定か yt-dlp 側に問題があります。">ⓘ</span></h2>
+      <div id="recordingStatusChart"></div>
+    </div>
+    <div class="chartCard">
+      <h2>ディスク使用量の内訳 <span class="hint" title="録画ディレクトリを実際に走査した結果です。登録を削除したチャンネルのファイルも含みます。">ⓘ</span></h2>
+      <div id="diskDonutChart"></div>
+    </div>
+  </div>
+
+  <h2>チャンネル別 使用量 <span class="hint" title="棒の長さは最大値を基準にした相対比です。項目が増えても順位と差を読めるよう、円グラフと併置しています。">ⓘ</span></h2>
+  <div class="barChart" id="diskBarChart"></div>
+
+  <details class="utilityPanel" id="monitorSettings">
+    <summary>監視・録画の設定</summary>
+  <div class="infoRow">
+    <div>
+      <h2>現在の設定 <span class="hint" title="変更は .env に保存されます。このアプリは起動時にしか設定を読み込まないため、反映には保存後に bin/service.sh restart が必要です。">ⓘ</span></h2>
+      <form id="settingsForm">
+        <div class="table-scroll">
+          <table id="settingsTable">
+            <tr>
+              <th>監視間隔</th>
+              <td><select id="settingIntervalSelect">
+                <option value="60">60秒</option>
+                <option value="120">120秒</option>
+                <option value="300">300秒</option>
+                <option value="600">600秒</option>
+                <option value="900">900秒</option>
+                <option value="1800">1800秒</option>
+              </select></td>
+            </tr>
+            <tr>
+              <th>録画の保存先 <span class="hint" title="「参照...」はサーバー上でOSのフォルダ選択ダイアログを開きます。ブラウザとサーバーが別のマシンの場合は使えないため、その場合は直接パスを入力してください。">ⓘ</span></th>
+              <td>
+                <div class="dirPicker">
+                  <input type="text" id="settingRecordingDirInput">
+                  <button type="button" id="browseDirectoryBtn">参照...</button>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <th>録画の画質上限</th>
+              <td><select id="settingMaxHeightSelect">
+                <option value="0">上限なし（最高画質）</option>
+                <option value="2160">2160p</option>
+                <option value="1440">1440p</option>
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+                <option value="480">480p</option>
+              </select></td>
+            </tr>
+            <tr>
+              <th>YouTube APIキー <span class="hint" title="空欄のまま保存すると変更しません。">ⓘ</span></th>
+              <td><input type="password" id="settingApiKeyInput" size="34" placeholder="-" autocomplete="off"></td>
+            </tr>
+            <tr>
+              <th>Discord Webhook <span class="hint" title="空欄のまま保存すると変更しません。">ⓘ</span></th>
+              <td><input type="password" id="settingWebhookInput" size="34" placeholder="-" autocomplete="off"></td>
+            </tr>
+            <tr>
+              <th>Twitch Client ID <span class="hint" title="Twitchのチャンネルを監視する場合に必要です。https://dev.twitch.tv/console でアプリを登録すると発行されます（クライアントタイプは「機密」を選択）。空欄のまま保存すると変更しません。">ⓘ</span></th>
+              <td><input type="password" id="settingTwitchClientIdInput" size="34" placeholder="-" autocomplete="off"></td>
+            </tr>
+            <tr>
+              <th>Twitch Client Secret <span class="hint" title="Twitch Developer Console の「新しい秘密鍵」で発行します。表示は1回きりなので控えておいてください。空欄のまま保存すると変更しません。">ⓘ</span></th>
+              <td><input type="password" id="settingTwitchClientSecretInput" size="34" placeholder="-" autocomplete="off"></td>
+            </tr>
+          </table>
+        </div>
+        <div class="inline">
+          <button type="submit">設定を保存</button>
+          <span id="settingsSaveResult" class="muted"></span>
+        </div>
+      </form>
+    </div>
+
+  </div>
+  </details>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/dashboard.js"></script>
+</body>
+</html>

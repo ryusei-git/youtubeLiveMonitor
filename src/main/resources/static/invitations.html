@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>招待 - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <a class="brand" href="/index.html">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </a>
+  </div>
+</header>
+<nav class="globalnav" aria-label="メインメニュー">
+  <div class="shell">
+    <a href="/videos.html">動画・配信</a>
+    <a href="/index.html">ダッシュボード</a>
+    <a href="/channels.html">チャンネル</a>
+    <a href="/notifications.html">通知履歴</a>
+    <a href="/recordings.html">録画</a>
+    <a href="/invitations.html" class="active">招待</a>
+    <a href="/settings.html">設定</a>
+    <a href="/logs.html">ログ</a>
+    <a href="/tables.html">管理：DB</a>
+    <!-- playground:start -->
+    <a href="/playground.html">診断：API</a>
+    <!-- playground:end -->
+  </div>
+</nav>
+<main class="shell" id="mainContent">
+  <h1>招待</h1>
+  <p id="error" role="alert" class="error" role="alert" style="display:none;"></p>
+
+  <h2>招待リンクを発行 <span class="hint" title="発行したリンクを相手に送ると、相手が自分でパスワードを決めてアカウントを作れます。パスワードは管理者にも分かりません。">ⓘ</span></h2>
+  <p class="muted">
+    リンクは<strong>1回使うと無効</strong>になり、期限を過ぎても使えなくなります。
+    相手ごとに1本ずつ発行してください。
+  </p>
+  <form id="issueForm" class="inline">
+    <input type="text" id="issueLabel" placeholder="誰に送るか（例: 山田さん）" size="24" aria-label="誰に送るかの覚え書き">
+    <label>有効日数
+      <input type="number" id="issueDays" value="7" min="1" max="90" size="4" aria-label="有効日数">
+    </label>
+    <button type="submit">発行する</button>
+  </form>
+
+  <div id="issued" style="display:none;"></div>
+
+  <h2>発行済みの招待</h2>
+  <div class="table-scroll">
+    <table id="invitationTable">
+      <thead>
+        <tr>
+          <th>宛先</th>
+          <th>状態</th>
+          <th>リンク</th>
+          <th>期限</th>
+          <th>発行</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div id="invitationEmpty" style="display:none;"></div>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/invitations.js"></script>
+</body>
+</html>

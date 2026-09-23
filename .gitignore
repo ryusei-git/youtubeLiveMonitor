@@ -1,0 +1,25 @@
+build/
+.gradle/
+data/
+logs/
+run/
+recordings/
+.env
+*.log
+.DS_Store
+src/tests
+
+# --- エディタ・IDE が生成するもの ---
+.VSCodeCounter/
+.vscode/
+
+# --- Eclipse/VSCode の Java 拡張がコンパイル結果を置く場所 ---
+# bin/ 直下のスクリプト（service.sh など）は追跡したいので、生成物だけを除外する
+bin/main/
+bin/test/
+bin/default/
+bin/generated-sources/
+bin/generated-test-sources/
+
+# --- OS が作るもの ---
+Thumbs.db

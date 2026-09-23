@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>録画 - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <a class="brand" href="/my-channels.html">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </a>
+  </div>
+</header>
+<nav class="globalnav" aria-label="メインメニュー">
+  <div class="shell">
+    <a href="/videos.html" class="active">動画・配信</a>
+    <a href="/my-channels.html">マイチャンネル</a>
+    <a href="/my-recordings.html">録画</a>
+  </div>
+</nav>
+<main class="shell" id="mainContent">
+  <div class="pageHead"><h1>動画・配信</h1><button id="refreshVideosBtn">表示を更新</button></div>
+  <p class="pageDescription">登録チャンネルの新着動画と配信を、この画面で再生できます。</p>
+  <p id="error" class="error" role="alert" style="display:none;"></p>
+  <p id="collectionNotice" class="muted" role="status">取得状況を確認しています…</p>
+  <form id="videoFilterForm" class="inline">
+    <label>検索 <input id="videoKeyword" type="search" placeholder="タイトル・チャンネル名" maxlength="200"></label>
+    <label>チャンネル <select id="videoChannel"><option value="">すべて</option></select></label>
+    <label>表示 <select id="videoMode"><option value="all">すべて</option><option value="live">配信中</option></select></label>
+    <button type="submit">検索</button>
+  </form>
+  <p id="videoSummary" class="muted" role="status"></p>
+  <div id="onlineVideoGrid" class="videoGrid"></div>
+  <div class="inline"><button id="videoPrev">前へ</button><span id="videoPage" class="muted"></span><button id="videoNext">次へ</button></div>
+  <p class="muted">新着動画は約10分ごとに取得します。収集を開始してから公開された動画と、監視中に見つかった配信を保存します。この一覧の収集では動画本体を保存しません（自動録画の設定は別です）。</p>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/videos.js"></script>
+</body>
+</html>

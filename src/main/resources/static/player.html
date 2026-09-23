@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>再生 - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <a class="brand" href="/index.html">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </a>
+  </div>
+</header>
+<nav class="globalnav" aria-label="メインメニュー">
+  <div class="shell">
+    <a href="/videos.html">動画・配信</a>
+    <a href="/index.html">ダッシュボード</a>
+    <a href="/channels.html">チャンネル</a>
+    <a href="/notifications.html">通知履歴</a>
+    <a href="/recordings.html" class="active">録画</a>
+    <a href="/invitations.html">招待</a>
+    <a href="/logs.html">ログ</a>
+    <a href="/tables.html">DB管理</a>
+    <!-- playground:start -->
+    <a href="/playground.html">APIお試し</a>
+    <!-- playground:end -->
+  </div>
+</nav>
+<main class="shell" id="mainContent">
+  <p><a href="/recordings.html">← 録画一覧へ戻る</a></p>
+  <p id="error" role="alert" class="error" style="display:none;"></p>
+
+  <h1 id="title">読み込み中...</h1>
+
+  <video id="player" class="player" controls></video>
+
+  <div class="table-scroll">
+    <table id="detailTable">
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="inline">
+    <button id="deleteBtn">この録画を削除</button>
+  </div>
+
+  <h2>同じチャンネルの録画</h2>
+  <div class="videoGrid" id="relatedGrid"></div>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/player.js"></script>
+</body>
+</html>

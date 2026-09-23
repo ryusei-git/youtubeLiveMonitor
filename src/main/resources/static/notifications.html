@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>通知履歴 - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <a class="brand" href="/index.html">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </a>
+  </div>
+</header>
+<nav class="globalnav" aria-label="メインメニュー">
+  <div class="shell">
+    <a href="/videos.html">動画・配信</a>
+    <a href="/index.html">ダッシュボード</a>
+    <a href="/channels.html">チャンネル</a>
+    <a href="/notifications.html" class="active">通知履歴</a>
+    <a href="/recordings.html">録画</a>
+    <a href="/invitations.html">招待</a>
+    <a href="/logs.html">ログ</a>
+    <a href="/tables.html">DB管理</a>
+    <!-- playground:start -->
+    <a href="/playground.html">APIお試し</a>
+    <!-- playground:end -->
+  </div>
+</nav>
+<main class="shell" id="mainContent">
+  <h1>通知履歴 <span class="hint" title="送信に失敗した試行も含めて表示しています。">ⓘ</span></h1>
+  <p id="error" role="alert" class="error" style="display:none;"></p>
+
+  <form id="filterForm" class="inline">
+    <select id="channelFilter"><option value="">全チャンネル</option></select>
+    <button type="submit">絞り込み</button>
+  </form>
+
+  <div class="table-scroll">
+    <table id="historyTable">
+      <thead><tr><th>通知時刻</th><th>チャンネル</th><th>配信タイトル</th><th>動画</th><th>結果</th><th>エラー内容</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="inline">
+    <button id="prevBtn">前へ</button>
+    <span id="pageInfo" class="muted"></span>
+    <button id="nextBtn">次へ</button>
+  </div>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/notifications.js"></script>
+</body>
+</html>

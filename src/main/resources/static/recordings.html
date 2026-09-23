@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>録画 - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <a class="brand" href="/index.html">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </a>
+  </div>
+</header>
+<nav class="globalnav" aria-label="メインメニュー">
+  <div class="shell">
+    <a href="/videos.html">動画・配信</a>
+    <a href="/index.html">ダッシュボード</a>
+    <a href="/channels.html">チャンネル</a>
+    <a href="/notifications.html">通知履歴</a>
+    <a href="/recordings.html" class="active">録画</a>
+    <a href="/invitations.html">招待</a>
+    <a href="/logs.html">ログ</a>
+    <a href="/tables.html">DB管理</a>
+    <!-- playground:start -->
+    <a href="/playground.html">APIお試し</a>
+    <!-- playground:end -->
+  </div>
+</nav>
+<main class="shell" id="mainContent">
+  <h1>録画ライブラリ</h1>
+  <p id="error" role="alert" class="error" style="display:none;"></p>
+
+  <h2>録画一覧 <span class="hint" title="サムネイルまたはタイトルをクリックすると再生画面へ移動します。">ⓘ</span></h2>
+  <form id="filterForm" class="inline">
+    <input type="search" id="keywordFilter" placeholder="タイトル・チャンネル名で検索">
+    <select id="channelFilter"><option value="">全チャンネル</option></select>
+    <select id="statusFilter">
+      <option value="">すべての状態</option>
+      <option value="COMPLETED">完了</option>
+      <option value="PARTIAL">途中まで</option>
+      <option value="RECORDING">録画中</option>
+      <option value="FAILED">失敗</option>
+    </select>
+    <button type="submit">検索</button>
+    <button type="button" id="resetBtn">条件をクリア</button>
+  </form>
+
+  <p id="resultSummary" class="muted"></p>
+  <div class="videoGrid" id="videoGrid"></div>
+
+  <div class="inline">
+    <button id="prevBtn">前へ</button>
+    <span id="pageInfo" class="muted"></span>
+    <button id="nextBtn">次へ</button>
+  </div>
+  <details class="utilityPanel" id="recordingTools">
+    <summary>動画URLから追加・保存容量の管理</summary>
+  <h2>URLを指定してダウンロード <span class="hint" title="YouTube（youtube.com / youtu.be、Shorts可）と Twitch の動画URLに対応しています。ダウンロードした動画は下の録画一覧にそのまま並びます。監視対象に登録していないチャンネルの動画も取り込めます（その場合チャンネル欄は「(未登録チャンネル)」になります）。">ⓘ</span></h2>
+  <form id="downloadForm" class="inline">
+    <input type="text" id="downloadUrl" placeholder="https://www.youtube.com/watch?v=..." size="48" required>
+    <button type="submit" id="downloadBtn">ダウンロード</button>
+    <span id="downloadSummary" class="muted"></span>
+  </form>
+
+  <h2>ディスク使用量</h2>
+  <p>合計: <strong id="totalDiskUsage">-</strong></p>
+  <div class="table-scroll">
+    <table id="diskUsageTable">
+      <thead><tr><th>チャンネル</th><th>使用量</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="inline" id="orphanedCleanup">
+    <button id="cleanupOrphanedBtn">孤立した録画ファイルを一括削除</button>
+    <span class="hint" title="削除済みチャンネルの録画ファイルに加えて、登録中チャンネルに残った録画履歴の無い断片ファイル（録画が失敗してマージ前に中断された場合などに残ります）もまとめて削除します。録画が進行中のものは対象外です。">ⓘ</span>
+    <span id="orphanedSummary" class="muted"></span>
+  </div>
+
+  </details>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/recordings.js"></script>
+</body>
+</html>

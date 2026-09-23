@@ -1,0 +1,91 @@
+package com.example.monitor.dto;
+
+import com.example.monitor.entity.MonitoredChannel;
+import com.example.monitor.entity.Recording;
+
+import java.time.LocalDateTime;
+
+/**
+ * 録画履歴 1 件を API のレスポンスとして返す形。
+ *
+ * <p>エンティティは遅延読み込みのチャンネル参照を持つため、そのまま返すと
+ * JSON 変換時に問題が起きやすい（{@link NotificationHistoryResponse}と同じ理由）。
+ *
+ * @param id             録画履歴の主キー
+ * @param channelId      録画対象チャンネルの主キー。画面が「同じチャンネルの録画」を
+ *                       引き直すときの絞り込みに使う（{@code youtubeChannelId} ではこの API を引けない）。
+ *                       監視対象に登録されていないチャンネルの動画をダウンロードした場合は {@code null}
+ * @param youtubeChannelId 録画対象チャンネルの YouTube チャンネル ID。未登録なら {@code null}
+ * @param channelName    録画対象チャンネルの表示名。未登録の場合は
+ *                       {@link #UNLINKED_CHANNEL_NAME}（画面に「-」とだけ出ると理由が分からないため）
+ * @param videoId        配信の動画 ID
+ * @param videoTitle     録画開始時点での配信タイトル
+ * @param filePath       録画ファイルの保存先パス（{@code monitor.recording.directory}からの相対パス）。
+ *                       画面はこれを {@code /recordings/} と連結して再生用 URL を組み立てる
+ * @param fileSizeBytes  ファイルサイズ（バイト）。録画中・失敗時は {@code null}
+ * @param durationSeconds 再生時間（秒）。読み取れていなければ {@code null}
+ * @param thumbnailPath  サムネイル画像のパス（{@code monitor.recording.directory}からの相対パス）。
+ *                       未生成なら {@code null}。画面はこれを {@code /recordings/} と連結して表示する
+ * @param status         録画の状態（{@code RECORDING} / {@code COMPLETED} / {@code PARTIAL} / {@code FAILED}）
+ * @param startedAt      録画を開始した時刻
+ * @param completedAt    録画が完了・失敗した時刻。録画中は {@code null}
+ */
+public record RecordingResponse(
+        Long id,
+        Long channelId,
+        String youtubeChannelId,
+        String channelName,
+        String videoId,
+        String videoTitle,
+        String filePath,
+        Long fileSizeBytes,
+        Integer durationSeconds,
+        String thumbnailPath,
+        String status,
+        LocalDateTime startedAt,
+        LocalDateTime completedAt
+) {
+
+    /**
+     * 監視対象に登録されていないチャンネルの録画に使う表示名。
+     *
+     * <p>URL 指定のダウンロードでは、監視していないチャンネルの動画が対象になることがあり、
+     * その録画は {@link Recording#channel} が {@code null} になる。
+     * 「削除済みチャンネル」（登録されていたが消された）とは意味が違うため、別の言葉にしている。
+     *
+     * <p>ディスク使用量の集計（{@link com.example.monitor.service.RecordingFileService}）でも
+     * 同じ状態を指すのに使う。画面ごとに違う言葉が出ると同じものだと分からなくなるため、
+     * ここ 1 か所で定義している。
+     */
+    public static final String UNLINKED_CHANNEL_NAME = "(未登録チャンネル)";
+
+    /**
+     * エンティティからレスポンスを組み立てる。
+     *
+     * <p><b>チャンネルが {@code null} でも落ちないこと。</b>URL 指定でダウンロードした動画は
+     * チャンネルに紐づかないことがある（{@link Recording#channel} の JavaDoc 参照）。
+     * 一覧・再生画面の両方がこのメソッドを通るため、ここで吸収しておけば
+     * 画面側が個別に未設定の判定を書かずに済む。
+     *
+     * @param recording 変換元のエンティティ
+     * @return 変換後のレスポンス
+     */
+    public static RecordingResponse from(Recording recording) {
+        MonitoredChannel channel = recording.getChannel();
+        return new RecordingResponse(
+                recording.getId(),
+                channel == null ? null : channel.getId(),
+                channel == null ? null : channel.getYoutubeChannelId(),
+                channel == null ? UNLINKED_CHANNEL_NAME : channel.getChannelName(),
+                recording.getVideoId(),
+                recording.getVideoTitle(),
+                recording.getFilePath(),
+                recording.getFileSizeBytes(),
+                recording.getDurationSeconds(),
+                recording.getThumbnailPath(),
+                recording.getStatus().name(),
+                recording.getStartedAt(),
+                recording.getCompletedAt()
+        );
+    }
+}
