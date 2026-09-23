@@ -873,8 +873,12 @@ function setBusy(target, busy) {
  * <p>ログイン画面のようにナビの無い画面では何もしない（未認証で API を叩かないため）。
  */
 async function initLiveIndicator() {
+    // 管理者のナビにだけダッシュボードへのリンクがある。これが無い画面（ログイン・
+    // 利用者向け）から /api/dashboard を叩いても 403 が返るだけなので、行かない
+    // （握り潰していたが、開くたびに無駄な要求とコンソールエラーが出ていた）。
+    // 利用者向けの画面は自分が持っているデータから setLiveIndicator を呼ぶ
     const bar = document.querySelector(".masthead .shell");
-    if (!bar || !document.querySelector(".globalnav")) return;
+    if (!bar || !document.querySelector('.globalnav a[href="/index.html"]')) return;
 
     try {
         const data = await apiGet("/api/dashboard");
