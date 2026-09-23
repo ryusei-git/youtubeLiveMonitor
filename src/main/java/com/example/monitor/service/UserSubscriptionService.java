@@ -44,6 +44,18 @@ import java.util.Optional;
 @Slf4j
 public class UserSubscriptionService {
 
+    /**
+     * 1 利用者あたりの購読数の上限。
+     *
+     * <p><b>これが無いと、利用者の操作だけで巡回対象を無制限に増やせる。</b>
+     * 未登録のチャンネルを購読すると {@code channels} の行が増え、
+     * 巡回のたびにそのぶん問い合わせが走る（巡回時間も外部への通信量も伸びる）。
+     *
+     * <p>個人と友人が使う規模での上限。足りなくなったら増やせばよいので、
+     * 設定項目にはしていない。
+     */
+    private static final int MAX_SUBSCRIPTIONS_PER_USER = 50;
+
     private final UserSubscriptionRepository userSubscriptionRepository;
     private final AppUserRepository appUserRepository;
     private final MonitoredChannelRepository monitoredChannelRepository;
@@ -79,6 +91,17 @@ public class UserSubscriptionService {
     @Transactional
     public SubscribedChannelResponse subscribe(Platform platform, String channelInput, String channelName) {
         AppUser user = currentUser();
+
+        // 上限の判定は findOrRegister より前に行う。後ろに置くと、上限に達した利用者でも
+        // 未登録チャンネルの行だけが増えてしまい、巡回対象が無制限に伸びる
+        // （このチェックが守りたいのはまさにそこ）
+        long owned = userSubscriptionRepository.countByUser(user);
+        if (owned >= MAX_SUBSCRIPTIONS_PER_USER) {
+            throw new IllegalArgumentException(
+                    "購読できるチャンネルは" + MAX_SUBSCRIPTIONS_PER_USER + "件までです。"
+                            + "不要なチャンネルを解除してから追加してください。");
+        }
+
         MonitoredChannel channel = monitoredChannelService.findOrRegister(platform, channelInput, channelName);
 
         if (userSubscriptionRepository.existsByUserAndChannel(user, channel)) {

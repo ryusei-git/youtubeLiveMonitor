@@ -31,6 +31,16 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
     List<UserSubscription> findByUserOrderBySubscribedAtDesc(AppUser user);
 
     /**
+     * この利用者の購読件数を数える。上限の判定に使う。
+     *
+     * <p>一覧を取得して数えないのは、判定のためだけに全件を読み込むのが無駄なため。
+     *
+     * @param user 対象の利用者
+     * @return 購読件数
+     */
+    long countByUser(AppUser user);
+
+    /**
      * 指定した利用者が指定したチャンネルを既に購読しているかを判定する。
      *
      * <p>二重購読を防ぐための事前確認に使う（DB 側の一意制約が最終的な保証だが、
