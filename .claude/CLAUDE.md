@@ -27,42 +27,71 @@ Java 21 / Spring Boot 3.3.3 / Gradle / H2（ファイルモード）。
   既存の例: `FileNameUtils`（拡張子除去）, `EpochTimeConverter`（日時変換）,
   `CaseInsensitiveMatcher`（大文字小文字を無視した一致検索）。
 
-## 並行作業の約束（Claude と Codex）
+## タスクの進め方（Claude と Codex の共通ルール）
 
 このリポジトリは **Claude と Codex が同時に触る**。同じファイルを同時に編集すると、
 後から書いた方が相手の変更を黙って消す。実際に「ファイルが消えた」と誤診して
-1時間を溶かし、通知履歴の検索機能を一度失った。
+1時間を溶かし、通知履歴の検索機能を一度失った。以下は事故を繰り返さないための取り決め。
 
-**着手前に必ず宣言する。** 宣言はタスク管理の
-[Project](https://github.com/users/ryusei-git/projects/4) で行う。
+残作業は [Project](https://github.com/users/ryusei-git/projects/4) で管理する
+（リポジトリの Issue と連動）。
 
-| タイミング | やること |
-|---|---|
-| 着手する前 | Status を `In progress` にし、自分のラベル（`claude` / `codex`）を付ける |
-| 終わったら | Status を `Done` にし、ラベルを外す |
-| 中断するとき | ラベルは付けたまま、Issue に「どこまで終わったか」をコメントする |
+### 1. 着手する前
+
+1. **Backlog から優先度の高いものを選ぶ**（Priority: P0 > P1 > P2、同じなら番号順）。
+2. **相手のラベル（`claude` / `codex`）が付いた Issue は選ばない。** どうしても触る
+   必要があるなら、その Issue にコメントを残して相手の判断を待つ。
+3. **`git status` と `git diff` を見る。** 相手の未コミット変更が残っていることがある。
+   **見慣れない変更を「壊れている」と決めつけて戻さない**（消えたように見えるのは、
+   相手の編集途中であることが多い）。
+4. **細分化できないか検討する。** 1コミットで終わらない大きさなら、サブイシューに割る。
+   割った親は「まとめ」として残し、実作業はサブイシューで行う。
+5. **宣言する。** Status を `In progress` にし、自分のラベルを付ける。
 
 ```bash
-# 着手（例: Issue #4 を Claude が取る）
-gh issue edit 4 --repo ryusei-git/youtubeLiveMonitor --add-label claude
-gh project item-list 4 --owner ryusei-git --format json   # item id を引く
-gh project item-edit --id <item-id> --project-id PVT_kwHOBB07r84BkZNB \
-  --field-id PVTSSF_lAHOBB07r84BkZNBzhjJ6nM --single-select-option-id 47fc9ee4  # In progress
+gh issue edit <番号> --repo ryusei-git/youtubeLiveMonitor --add-label claude
+# Status の変更は Project の item-edit（下の「コマンド」参照）
+```
 
+### 2. 作業中
+
+- **1タスク＝1コミット。ついでの修正をしない。**
+- **別の問題を見つけたら、その場で直さずサブイシューを作る。**
+  脱線は必ずここへ逃がす。1タスクの途中で力尽きると手戻りが大きい。
+- **テストは触らない。** 新規作成は専用の Issue が担当する。ただし仕様変更で既存
+  テストが落ちた場合の追従は行い、**何をなぜ変えたかを Issue に書く**。
+
+### 3. 終わったら
+
+1. `.claude/skills/verify`（Claude）／`AGENTS.md` の完了条件（Codex）を通す。
+   `clean build javadoc` 警告ゼロ、`tsc --noEmit` 型エラーゼロ、巡回と CLI が動く。
+2. **ビルドしたら必ず `bin/service.sh restart` まで行う。**
+3. コミットしてプッシュする。コミット文に Issue 番号を書く（`#4` のように）。
+4. Status を `Done`、ラベルを外す、Issue をクローズする。
+
+### 4. 中断するとき
+
+**ラベルは付けたまま**、Issue に「どこまで終わったか」「次に何をすべきか」を
+コメントする。ラベルを外すと、相手が壊れかけの状態を引き継いでしまう。
+
+### コマンド
+
+```bash
 # 誰が何を持っているか
 gh issue list --repo ryusei-git/youtubeLiveMonitor --label claude
 gh issue list --repo ryusei-git/youtubeLiveMonitor --label codex
+
+# Status の変更（Project: PVT_kwHOBB07r84BkZNB / Status: PVTSSF_lAHOBB07r84BkZNBzhjJ6nM）
+gh project item-list 4 --owner ryusei-git --format json        # item id を引く
+gh project item-edit --id <item-id> --project-id PVT_kwHOBB07r84BkZNB \
+  --field-id PVTSSF_lAHOBB07r84BkZNBzhjJ6nM --single-select-option-id <option>
+#   Backlog f75ad846 / Ready 61e4505c / In progress 47fc9ee4 / In review df73e18b / Done 98236657
+
+# サブイシューの作成と親子付け
+gh issue create --repo ryusei-git/youtubeLiveMonitor --title "..." --body "..."
+gh api --method POST repos/ryusei-git/youtubeLiveMonitor/issues/<親>/sub_issues \
+  -F sub_issue_id=<子の issue id（数値。番号ではなく id）>
 ```
-
-**相手のラベルが付いた Issue には手を出さない。** 触る必要が出たら、
-その Issue にコメントを残して相手の判断を待つ。
-
-**着手前に `git status` と `git diff` を見る。** 相手の未コミット変更が
-作業ツリーに残っていることがある。見慣れない変更を「壊れている」と決めつけて
-戻さないこと（消えたように見えるのは、相手の編集途中であることが多い）。
-
-**1タスク＝1コミット。** ついでの修正をしない。作業中に別の問題を見つけたら、
-その場で直さずサブイシューを作って次に回す。
 
 ## 踏み抜きやすい落とし穴
 
