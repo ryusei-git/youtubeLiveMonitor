@@ -33,6 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -689,6 +690,80 @@ class LiveStreamPollingSchedulerTest {
             verify(monitoredChannelRepository).recordDetectionFailure(eq(2L), any(LocalDateTime.class));
             verify(monitoredChannelRepository, never())
                     .updateObservedLiveState(any(), anyBoolean(), any(), any());
+        }
+
+        @Test
+        @DisplayName("正常系：別の配信を検知したら通知の失敗回数を数え直して通知を試みる")
+        void testMethod36() {
+            // 巡回間隔内での枠の差し替えや、アプリ停止中の切り替えでは NOT_LIVE を
+            // 一度も挟まずに次の配信へ移る。ここで失敗回数を持ち越すと、新しい配信への
+            // 通知が一度も試されないまま終わる
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setCurrentLiveVideoId("videoA");
+            target.setNotificationFailureCount(3); // MAX_NOTIFICATION_ATTEMPTS と同値
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("videoB", "別の配信", null,
+                    "https://www.youtube.com/watch?v=videoB"));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository).resetNotificationFailureCount(1L);
+            // DB を 0 に戻すだけでは足りない。このサイクルの上限判定も 0 として行われ、
+            // 実際に詳細取得まで進むことを確かめる
+            verify(streamPlatform).fetchDetails("videoB");
+        }
+
+        @Test
+        @DisplayName("正常系：同じ配信のままなら失敗回数を数え直さず再送もしない")
+        void testMethod37() {
+            // 直らない失敗（Webhook の設定ミスなど）で毎サイクル試行し続けるのを防ぐ、
+            // という上限の意味がここで失われてはならない
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setCurrentLiveVideoId("videoA");
+            target.setNotificationFailureCount(3);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("videoA", "同じ配信", null,
+                    "https://www.youtube.com/watch?v=videoA"));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository, never()).resetNotificationFailureCount(anyLong());
+            verify(streamPlatform, never()).fetchDetails(anyString());
+        }
+
+        @Test
+        @DisplayName("正常系：前の配信が分からない場合は失敗回数を数え直さない")
+        void testMethod38() {
+            // 分からないものを「別の配信だ」と断定すると、上限を設けた意味が消える
+            // （「配信していない」と「判定できなかった」を区別するのと同じ考え方）
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setNotificationFailureCount(3);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("videoB", "新しい配信", null,
+                    "https://www.youtube.com/watch?v=videoB"));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository, never()).resetNotificationFailureCount(anyLong());
+            verify(streamPlatform, never()).fetchDetails(anyString());
+        }
+
+        @Test
+        @DisplayName("正常系：判定に失敗した回は配信状態にも失敗回数にも触れない")
+        void testMethod39() {
+            // 分からないものを false と書かない。既存の仕様が保たれていることを確かめる
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setCurrentLiveVideoId("videoA");
+            target.setNotificationFailureCount(3);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.failed());
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository, never()).resetNotificationFailureCount(anyLong());
+            verify(monitoredChannelRepository, never())
+                    .updateObservedLiveState(any(), anyBoolean(), any(), any());
+            verify(monitoredChannelRepository).recordDetectionFailure(eq(1L), any(LocalDateTime.class));
         }
     }
 
