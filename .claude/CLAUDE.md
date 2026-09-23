@@ -27,6 +27,43 @@ Java 21 / Spring Boot 3.3.3 / Gradle / H2（ファイルモード）。
   既存の例: `FileNameUtils`（拡張子除去）, `EpochTimeConverter`（日時変換）,
   `CaseInsensitiveMatcher`（大文字小文字を無視した一致検索）。
 
+## 並行作業の約束（Claude と Codex）
+
+このリポジトリは **Claude と Codex が同時に触る**。同じファイルを同時に編集すると、
+後から書いた方が相手の変更を黙って消す。実際に「ファイルが消えた」と誤診して
+1時間を溶かし、通知履歴の検索機能を一度失った。
+
+**着手前に必ず宣言する。** 宣言はタスク管理の
+[Project](https://github.com/users/ryusei-git/projects/4) で行う。
+
+| タイミング | やること |
+|---|---|
+| 着手する前 | Status を `In progress` にし、自分のラベル（`claude` / `codex`）を付ける |
+| 終わったら | Status を `Done` にし、ラベルを外す |
+| 中断するとき | ラベルは付けたまま、Issue に「どこまで終わったか」をコメントする |
+
+```bash
+# 着手（例: Issue #4 を Claude が取る）
+gh issue edit 4 --repo ryusei-git/youtubeLiveMonitor --add-label claude
+gh project item-list 4 --owner ryusei-git --format json   # item id を引く
+gh project item-edit --id <item-id> --project-id PVT_kwHOBB07r84BkZNB \
+  --field-id PVTSSF_lAHOBB07r84BkZNBzhjJ6nM --single-select-option-id 47fc9ee4  # In progress
+
+# 誰が何を持っているか
+gh issue list --repo ryusei-git/youtubeLiveMonitor --label claude
+gh issue list --repo ryusei-git/youtubeLiveMonitor --label codex
+```
+
+**相手のラベルが付いた Issue には手を出さない。** 触る必要が出たら、
+その Issue にコメントを残して相手の判断を待つ。
+
+**着手前に `git status` と `git diff` を見る。** 相手の未コミット変更が
+作業ツリーに残っていることがある。見慣れない変更を「壊れている」と決めつけて
+戻さないこと（消えたように見えるのは、相手の編集途中であることが多い）。
+
+**1タスク＝1コミット。** ついでの修正をしない。作業中に別の問題を見つけたら、
+その場で直さずサブイシューを作って次に回す。
+
 ## 踏み抜きやすい落とし穴
 
 ### 「配信していない」と「判定できなかった」を必ず区別する
