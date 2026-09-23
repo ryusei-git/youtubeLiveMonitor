@@ -9,6 +9,7 @@ import com.example.monitor.dto.DownloadResponse;
 import com.example.monitor.dto.VideoSource;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
+import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.platform.StreamPlatform;
@@ -98,6 +99,45 @@ class VideoDownloadServiceTest {
         return new VideoDownloadService(properties, streamPlatformRegistry, videoSourceProbe,
                 processLauncher, recordingHistoryService, recordingSalvager,
                 recordingRepository, monitoredChannelRepository, new ActiveVideoJobs());
+    }
+
+    /**
+     * 予約機構を共有した状態のサービスを作る。
+     *
+     * <p>自動録画と手動ダウンロードは<b>同じ {@link ActiveVideoJobs} を共有している</b>。
+     * 別々の集合を持たせると同時開始を防げないため、その共有が効いていることを
+     * 確かめるにはこちらを使う。
+     *
+     * @param recordingDirectory 保存先
+     * @param activeVideoJobs    共有する予約機構
+     * @return サービス
+     */
+    private VideoDownloadService newService(Path recordingDirectory, ActiveVideoJobs activeVideoJobs) {
+        MonitorProperties properties = new MonitorProperties(
+                new YouTubeProperties("", 120),
+                new TwitchProperties("", ""),
+                new DiscordProperties(""),
+                new RecordingProperties(recordingDirectory.toString(), 0),
+                new MonitorProperties.AdminProperties("admin", ""));
+        return new VideoDownloadService(properties, streamPlatformRegistry, videoSourceProbe,
+                processLauncher, recordingHistoryService, recordingSalvager,
+                recordingRepository, monitoredChannelRepository, activeVideoJobs);
+    }
+
+    /**
+     * 配信の状態を指定して、YouTube の動画 1 本が見つかる状態を作る。
+     *
+     * @param liveStatus {@code yt-dlp} が返す {@code live_status}
+     */
+    private void givenYouTubeVideoWithLiveStatus(String liveStatus) {
+        when(streamPlatformRegistry.findByUrl(YOUTUBE_URL)).thenReturn(streamPlatform);
+        VideoSource source = new VideoSource(
+                "youtube", "aqz-KE-bpKQ", "UCSMOQeBJ2RAnuFungnQOxLg", "@BlenderOfficial",
+                liveStatus, "Big Buck Bunny");
+        when(videoSourceProbe.probe(YOUTUBE_URL)).thenReturn(Optional.of(source));
+        lenient().when(streamPlatform.resolveChannelId(source))
+                .thenReturn(Optional.of("UCSMOQeBJ2RAnuFungnQOxLg"));
+        lenient().when(streamPlatform.platform()).thenReturn(Platform.YOUTUBE);
     }
 
     private Set<String> activeDownloadsOf(VideoDownloadService service) {
@@ -315,6 +355,102 @@ class VideoDownloadServiceTest {
                     .isInstanceOf(IllegalStateException.class);
 
             // 登録を残すと、この動画は以降永久にダウンロードできなくなる
+            assertThat(service.isDownloading("aqz-KE-bpKQ")).isFalse();
+        }
+
+        @Test
+        @DisplayName("異常系：自動録画中の動画はダウンロードを開始できない")
+        void testMethod13(@TempDir Path tempDir) throws IOException {
+            // 同じ動画IDへ2つの yt-dlp が同じ出力先に書き込むと録画そのものが壊れる。
+            // 録画側が先に予約を取っている状態を作る
+            ActiveVideoJobs shared = new ActiveVideoJobs();
+            shared.reserve("aqz-KE-bpKQ");
+            givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
+            VideoDownloadService service = newService(tempDir, shared);
+
+            assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
+                    .isInstanceOf(VideoAlreadyDownloadedException.class);
+
+            verify(processLauncher, never()).launch(any());
+        }
+
+        @Test
+        @DisplayName("異常系：配信中のURLはプロセスを起動する前に拒否する")
+        void testMethod14(@TempDir Path tempDir) throws IOException {
+            // ライブ配信の取得は自動録画の担当。手動ダウンロードは VOD 向けと責務を分ける
+            givenYouTubeVideoWithLiveStatus("is_live");
+            VideoDownloadService service = newService(tempDir);
+
+            assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
+                    .isInstanceOf(LiveStreamDownloadRejectedException.class);
+
+            verify(processLauncher, never()).launch(any());
+            // 予約も取らない。取ったまま拒否すると、その動画は以降扱えなくなる
+            assertThat(service.isDownloading("aqz-KE-bpKQ")).isFalse();
+        }
+
+        @Test
+        @DisplayName("異常系：配信開始前の待機所のURLも拒否する")
+        void testMethod15(@TempDir Path tempDir) throws IOException {
+            givenYouTubeVideoWithLiveStatus("is_upcoming");
+            VideoDownloadService service = newService(tempDir);
+
+            assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
+                    .isInstanceOf(LiveStreamDownloadRejectedException.class);
+
+            verify(processLauncher, never()).launch(any());
+        }
+
+        @Test
+        @DisplayName("正常系：配信が終わった動画は拒否しない")
+        void testMethod16(@TempDir Path tempDir) throws IOException {
+            // was_live / post_live は既に配信が終わっている。自動録画と重なる場合は
+            // 予約機構が弾くのが正しい層なので、ここでは拒否しない
+            givenYouTubeVideoWithLiveStatus("was_live");
+            when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
+            // 内部で when(...) を使うヘルパーを when(...) の引数に直接書くと
+            // スタブが入れ子になり UnfinishedStubbingException になる
+            Process process = mockProcess();
+            when(processLauncher.launch(any())).thenReturn(process);
+
+            assertThat(newService(tempDir).startDownload(YOUTUBE_URL)).isNotNull();
+
+            verify(processLauncher).launch(any());
+        }
+
+        @Test
+        @DisplayName("正常系：配信直後の動画も拒否しない")
+        void testMethod17(@TempDir Path tempDir) throws IOException {
+            givenYouTubeVideoWithLiveStatus("post_live");
+            when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
+            // 内部で when(...) を使うヘルパーを when(...) の引数に直接書くと
+            // スタブが入れ子になり UnfinishedStubbingException になる
+            Process process = mockProcess();
+            when(processLauncher.launch(any())).thenReturn(process);
+
+            assertThat(newService(tempDir).startDownload(YOUTUBE_URL)).isNotNull();
+
+            verify(processLauncher).launch(any());
+        }
+
+        @Test
+        @DisplayName("異常系：履歴の登録に失敗したら起動済みプロセスを停止して予約を解放する")
+        void testMethod18(@TempDir Path tempDir) throws IOException, InterruptedException {
+            // 起動済みのプロセスを放置すると、次の再試行で同じ出力先に別プロセスが起動する
+            givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
+            when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
+            Process process = mockProcess();
+            when(processLauncher.launch(any())).thenReturn(process);
+            when(recordingHistoryService.recordStart(any(), any(), any(), any()))
+                    .thenThrow(new IllegalStateException("DB障害"));
+            VideoDownloadService service = newService(tempDir);
+
+            assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
+                    .isInstanceOf(IllegalStateException.class);
+
+            verify(process).destroyForcibly();
+            // destroyForcibly() だけでは終わらない。実際に終了したことを確認してから解放する
+            verify(process).waitFor();
             assertThat(service.isDownloading("aqz-KE-bpKQ")).isFalse();
         }
     }
