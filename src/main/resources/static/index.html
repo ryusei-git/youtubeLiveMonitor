@@ -54,6 +54,11 @@
     </div>
   </div>
 
+  <div id="recordingFailureAlert" style="display:none;">
+    <h2 class="error">録画に失敗した配信があります（直近7日） <span class="hint" title="アーカイブ一覧で状態『失敗』を選ぶと全件を確認できます。">ⓘ</span></h2>
+    <div id="recordingFailures"></div>
+  </div>
+
   <div class="kpiGrid">
     <div class="kpi">
       <span class="kpiLabel">監視チャンネル</span>
@@ -104,6 +109,9 @@
 
   <h2>チャンネル別 使用量 <span class="hint" title="棒の長さは最大値を基準にした相対比です。項目が増えても順位と差を読めるよう、円グラフと併置しています。">ⓘ</span></h2>
   <div class="barChart" id="diskBarChart"></div>
+
+  <h2>サービスのファイル容量 <span class="hint" title="実際のファイルを走査した値です。録画はダッシュボード上部の『ディスク使用量』と同じものです。">ⓘ</span></h2>
+  <div id="serviceStorage"></div>
 
   <details class="utilityPanel" id="monitorSettings">
     <summary>監視・録画の設定</summary>

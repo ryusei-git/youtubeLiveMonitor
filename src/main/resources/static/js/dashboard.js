@@ -160,6 +160,72 @@ function renderDetectionAlert(failingChannels) {
 }
 
 /**
+ * 直近で録画に失敗した配信の警告を出す。
+ *
+ * <p>判定失敗の警告欄と同じく、平常時（0 件）は見出しごと隠して画面を占有しない。
+ * 取得に失敗したときは「失敗なし」と区別できるよう、欄を出して取得できなかったことを示す。
+ */
+async function loadRecordingFailures() {
+    const alertBox = el("recordingFailureAlert");
+    const box = el("recordingFailures");
+    try {
+        /** @type {Array<{channelName: string, channelUrl: string|null, videoTitle: string|null, videoUrl: string|null, startedAt: string}>} */
+        const failures = await apiGet("/api/dashboard/recording-failures");
+        if (failures.length === 0) {
+            alertBox.style.display = "none";
+            return;
+        }
+        const rows = failures.map(f => `
+        <tr>
+            <td>${datetimeCell(f.startedAt)}</td>
+            <td>${externalLink(f.channelName, f.channelUrl)}</td>
+            <td>${externalLink(f.videoTitle ?? "（タイトル不明）", f.videoUrl)}</td>
+        </tr>`).join("");
+        box.innerHTML = `
+        <div class="table-scroll">
+            <table id="recordingFailureTable">
+                <thead><tr><th>日時</th><th>チャンネル</th><th>動画タイトル</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+        bindDatetimeCells(box);
+    } catch {
+        box.innerHTML = '<p class="muted">取得できませんでした</p>';
+    }
+    alertBox.style.display = "";
+}
+
+/**
+ * サービスを構成するファイル（録画・ログ・アプリ本体・データベース）の容量を表にする。
+ *
+ * <p>録画だけのディスク使用量では、ログや DB の肥大化に気づけないため別に出している。
+ */
+async function loadServiceStorage() {
+    const box = el("serviceStorage");
+    try {
+        /** @type {{totalBytes: number, items: Array<{key: string, label: string, path: string, bytes: number}>}} */
+        const data = await apiGet("/api/dashboard/storage");
+        const rows = data.items.map(item => `
+        <tr>
+            <td>${escapeHtml(item.label)}</td>
+            <td>${escapeHtml(item.path)}</td>
+            <td>${escapeHtml(formatFileSize(item.bytes))}</td>
+        </tr>`).join("");
+        box.innerHTML = `
+        <div class="table-scroll">
+            <table id="serviceStorageTable">
+                <thead><tr><th>項目</th><th>場所</th><th>容量</th></tr></thead>
+                <tbody>${rows}
+                    <tr><td><strong>合計</strong></td><td></td><td><strong>${escapeHtml(formatFileSize(data.totalBytes))}</strong></td></tr>
+                </tbody>
+            </table>
+        </div>`;
+    } catch {
+        box.innerHTML = '<p class="muted">取得できませんでした</p>';
+    }
+}
+
+/**
  * 選択肢に無い現在値だった場合、末尾に選択肢を追加してそれを選択状態にする。
  *
  * <p>{@code .env} を直接編集して、プルダウンの選択肢に無い値（例: 監視間隔を250秒）に
@@ -281,6 +347,9 @@ let dashboardLastUpdatedAt = null;
 
 async function loadDashboard() {
     const request = ++dashboardRequest;
+    // 下の Promise.all に入れると、片方の失敗で KPI やグラフまで更新されなくなるため別に読む
+    loadRecordingFailures();
+    loadServiceStorage();
     try {
         const [data, livePage, upcoming] = await Promise.all([
             apiGet("/api/dashboard"),
