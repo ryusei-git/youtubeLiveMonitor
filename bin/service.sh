@@ -84,13 +84,21 @@ cmd_start() {
     # ヒープの上限。指定しないと物理メモリの 1/4（この端末で 3.98GB）まで広がる。
     # 実測（2026-09-25、起動 31 分後）は使用 271MB・確保 692MB で、1GB は使用量のおよそ 4 倍の余裕がある。
     # G1PeriodicGCInterval（5 分）は、しばらく GC が無いときにも回して、使っていない確保分を OS へ返させるため
-    # （待機中の常駐メモリを減らす）。端末を載せ替えたときに変えられるよう、JAVA_OPTS があればそちらを使う。
-    local java_opts="${JAVA_OPTS:--Xmx1g -XX:G1PeriodicGCInterval=300000}"
+    # （待機中の常駐メモリを減らす）。
+    # TrimNativeHeapInterval（5 分）は、ヒープの外の malloc の領域のうち使っていない分を OS へ返させるため。
+    # 本番の実測（2026-09-25）ではヒープの外に 250〜290MB あり、G1 がヒープを縮めた後はヒープ（251MB）より
+    # 大きかった（#184）。この端末の JDK 21・25 のどちらにもあるフラグ（無い JDK では起動しなくなる）。
+    # 端末を載せ替えたときに変えられるよう、JAVA_OPTS があればそちらを使う。
+    local java_opts="${JAVA_OPTS:--Xmx1g -XX:G1PeriodicGCInterval=300000 -XX:TrimNativeHeapInterval=300000}"
 
     echo "起動しています... ($jar を $run_jar にコピーして起動)"
     rotate_log
+    # MALLOC_ARENA_MAX=2 は、glibc の malloc のアリーナ（スレッドが取り合わないよう分けた確保領域）の数を絞るため。
+    # 既定の上限は 8 × コア数（この端末で 64）で、本番では 64MB 境界の匿名領域（アリーナ）が 66 個・252MB
+    # あった（#184）。java の起動にだけ付ける（JAVA_OPTS を指定しても付く）。
+    # 子プロセスの yt-dlp・ffmpeg にも引き継がれるが、アリーナが減るだけで困ることは無い。
     # 複数のオプションを空白で区切って渡せるよう、java_opts はクォートせずに展開する
-    nohup java $java_opts -jar "$run_jar" > "$LOG_FILE" 2>&1 &
+    MALLOC_ARENA_MAX=2 nohup java $java_opts -jar "$run_jar" > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
 
     for _ in $(seq 1 "$START_TIMEOUT"); do
