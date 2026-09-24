@@ -45,6 +45,22 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class ExternalCommandRunner {
 
+    /**
+     * 溜める出力の上限（文字数。出力はほぼ ASCII なので約 1MB）。超えた分は読んで捨てる。
+     *
+     * <p>呼び出し側が使う出力は {@code ffprobe} の数値や {@code yt-dlp} の 1 行だけで、数百文字に収まる。
+     * 一方で {@code ffmpeg} は、壊れた入力に対してパケットごとにメッセージを出しうる
+     * （{@code -v error} で警告は止まるが、エラーは出る）。上限が無いと、それを巡回のたびに
+     * 丸ごとメモリに抱える（#184）。
+     *
+     * <p>上限は行単位で見る（行の途中では切らない）。1 行が極端に長いと {@code readLine()} がその行を
+     * 丸ごと持つが、ここで呼ぶコマンドの出力は短い行ばかりなので行単位で済ませている。
+     */
+    private static final int MAX_OUTPUT_CHARS = 1024 * 1024;
+
+    /** 上限を超えて捨てた出力があったときに、出力の末尾に付ける印。 */
+    private static final String TRUNCATION_MARKER = "（以下省略）";
+
     private final ProcessLauncher processLauncher;
 
     /**
@@ -61,7 +77,8 @@ public class ExternalCommandRunner {
      * @param command        実行するコマンドと引数
      * @param contextFile    ログに出す対象ファイル（原因の切り分け用）
      * @param timeoutSeconds 応答待ちの上限（秒）。超えたら強制終了する
-     * @return 標準出力。起動失敗・タイムアウト・異常終了の場合は {@link Optional#empty()}
+     * @return 標準出力（上限を超えた分は省略。{@code MAX_OUTPUT_CHARS} 参照）。
+     *         起動失敗・タイムアウト・異常終了の場合は {@link Optional#empty()}
      */
     public Optional<String> run(List<String> command, Path contextFile, long timeoutSeconds) {
         return run(command, contextFile.toString(), timeoutSeconds);
@@ -78,7 +95,8 @@ public class ExternalCommandRunner {
      * @param command        実行するコマンドと引数
      * @param context        ログに出す処理対象（原因の切り分け用）
      * @param timeoutSeconds 応答待ちの上限（秒）。超えたら強制終了する
-     * @return 標準出力。起動失敗・タイムアウト・異常終了の場合は {@link Optional#empty()}
+     * @return 標準出力（上限を超えた分は省略。{@code MAX_OUTPUT_CHARS} 参照）。
+     *         起動失敗・タイムアウト・異常終了の場合は {@link Optional#empty()}
      */
     public Optional<String> run(List<String> command, String context, long timeoutSeconds) {
         Process process;
@@ -247,11 +265,20 @@ public class ExternalCommandRunner {
         @Override
         public void run() {
             StringBuilder builder = new StringBuilder();
+            boolean truncated = false;
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    builder.append(line).append('\n');
+                    // 上限を超えた後も EOF まで読み続けて捨てる。読むのをやめるとパイプが詰まり、
+                    // 子プロセスが書き込みで止まって打ち切りになる（クラスの JavaDoc 参照）
+                    truncated |= builder.length() + line.length() + 1 > MAX_OUTPUT_CHARS;
+                    if (!truncated) {
+                        builder.append(line).append('\n');
+                    }
+                }
+                if (truncated) {
+                    builder.append(TRUNCATION_MARKER);
                 }
                 output = builder.toString();
             } catch (IOException e) {

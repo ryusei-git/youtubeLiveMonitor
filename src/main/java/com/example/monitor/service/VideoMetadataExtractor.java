@@ -170,6 +170,9 @@ public class VideoMetadataExtractor {
     private boolean captureFrameAt(Path videoFile, Path thumbnail, long positionSeconds) {
         List<String> command = List.of(
                 "ffmpeg", "-y",
+                // 進捗と警告は出させない。出力は使わない（成否は下のとおり画像の有無で見る）のに、
+                // 壊れた入力ではパケットごとに警告が出て、読んで溜める費用だけがかかる
+                "-v", "error", "-nostats",
                 // -ss を入力より前に置くとキーフレーム単位で高速にシークできる
                 "-ss", String.valueOf(positionSeconds),
                 "-i", videoFile.toString(),
