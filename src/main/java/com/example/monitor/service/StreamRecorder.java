@@ -7,6 +7,7 @@ import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.YtDlpFormatSelector;
+import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -73,12 +74,6 @@ public class StreamRecorder {
 
     /** Logback の SiftingAppender がログの振り分け先を決めるために参照する MDC のキー。 */
     private static final String MDC_CHANNEL_ID_KEY = "channelId";
-
-    /**
-     * yt-dlp の出力の書き込み先。ほかのログ（{@code logback-spring.xml} の {@code logs/channels/}）と
-     * 同じ場所に置く。録画フォルダの下に置くと、録画ファイルの走査・削除・孤立ファイルの判定に混ざるため。
-     */
-    private static final Path YT_DLP_LOG_DIRECTORY = Path.of("logs", "yt-dlp");
 
     private final MonitorProperties monitorProperties;
     private final ProcessLauncher processLauncher;
@@ -156,7 +151,7 @@ public class StreamRecorder {
 
             Process process;
             try {
-                process = processLauncher.launch(command, ytDlpLogFile(videoId));
+                process = processLauncher.launch(command, YtDlpLogFile.of(videoId));
             } catch (IOException e) {
                 log.error("録画プロセスの起動に失敗しました（yt-dlp が無いか、出力先のログファイルを作れない可能性があります）: "
                         + "channel={}, video={}", channel.getChannelName(), videoId, e);
@@ -252,17 +247,6 @@ public class StreamRecorder {
     }
 
     /**
-     * yt-dlp の出力を書き込むファイル。録り直し（{@link #awaitCompletion} の {@code fallbackCommand}）も
-     * 同じファイルに追記し、1 本の録画の経緯を 1 か所で追えるようにする。
-     *
-     * @param videoId 録画対象の動画 ID
-     * @return 出力の書き込み先
-     */
-    private static Path ytDlpLogFile(String videoId) {
-        return YT_DLP_LOG_DIRECTORY.resolve(videoId + ".log");
-    }
-
-    /**
      * 録画プロセスの終了を待って結果を履歴に残す。1 回目が再生できるファイルを残さずに終わったら、
      * {@code fallbackCommand} で「今の時点から」もう 1 回だけ録り直す。
      *
@@ -304,7 +288,7 @@ public class StreamRecorder {
                 log.warn("最初からの録画に失敗したため、今の時点から録画し直します: channel={}, video={}, exitCode={}",
                         channel.getChannelName(), videoId, exitCode);
                 try {
-                    Process retry = processLauncher.launch(fallbackCommand, ytDlpLogFile(videoId));
+                    Process retry = processLauncher.launch(fallbackCommand, YtDlpLogFile.of(videoId));
                     resumedMidway = true;
                     exitCode = awaitExit(retry, videoId);
                     salvage = recordingSalvager.ensurePlayable(outputFile);

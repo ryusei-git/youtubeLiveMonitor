@@ -30,7 +30,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -154,17 +153,6 @@ class VideoDownloadServiceTest {
     }
 
     /**
-     * ダウンロードプロセスの代わりになるモックを作る。
-     *
-     * @return 何も出力せずに終了するモックプロセス
-     */
-    private Process mockProcess() {
-        Process process = mock(Process.class);
-        lenient().when(process.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[0]));
-        return process;
-    }
-
-    /**
      * YouTube の動画 1 本が見つかる状態を作る。
      *
      * @param channelId メタデータから得られるチャンネル ID。特定できない場合は {@code null}
@@ -190,8 +178,8 @@ class VideoDownloadServiceTest {
             MonitoredChannel channel = new MonitoredChannel("UCSMOQeBJ2RAnuFungnQOxLg", "Blender");
             when(monitoredChannelRepository.findByYoutubeChannelId("UCSMOQeBJ2RAnuFungnQOxLg"))
                     .thenReturn(Optional.of(channel));
-            Process process = mockProcess();
-            when(processLauncher.launch(any())).thenReturn(process);
+            Process process = mock(Process.class);
+            when(processLauncher.launch(any(), any())).thenReturn(process);
 
             DownloadResponse response = newService(tempDir).startDownload(YOUTUBE_URL);
 
@@ -211,8 +199,8 @@ class VideoDownloadServiceTest {
             givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
             when(monitoredChannelRepository.findByYoutubeChannelId("UCSMOQeBJ2RAnuFungnQOxLg"))
                     .thenReturn(Optional.empty());
-            Process process = mockProcess();
-            when(processLauncher.launch(any())).thenReturn(process);
+            Process process = mock(Process.class);
+            when(processLauncher.launch(any(), any())).thenReturn(process);
 
             DownloadResponse response = newService(tempDir).startDownload(YOUTUBE_URL);
 
@@ -228,8 +216,8 @@ class VideoDownloadServiceTest {
         void testMethod03(@TempDir Path tempDir) throws IOException {
             // Twitch の VOD のように channel_id もログイン名も解決できない場合
             givenYouTubeVideo(null);
-            Process process = mockProcess();
-            when(processLauncher.launch(any())).thenReturn(process);
+            Process process = mock(Process.class);
+            when(processLauncher.launch(any(), any())).thenReturn(process);
 
             DownloadResponse response = newService(tempDir).startDownload(YOUTUBE_URL);
 
@@ -244,13 +232,13 @@ class VideoDownloadServiceTest {
         void testMethod04(@TempDir Path tempDir) throws IOException {
             givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            Process process = mockProcess();
-            when(processLauncher.launch(any())).thenReturn(process);
+            Process process = mock(Process.class);
+            when(processLauncher.launch(any(), any())).thenReturn(process);
 
             newService(tempDir).startDownload(YOUTUBE_URL);
 
             ArgumentCaptor<List<String>> captor = ArgumentCaptor.forClass(List.class);
-            verify(processLauncher).launch(captor.capture());
+            verify(processLauncher).launch(captor.capture(), any());
             List<String> command = captor.getValue();
 
             assertThat(command).first().isEqualTo("yt-dlp");
@@ -267,8 +255,8 @@ class VideoDownloadServiceTest {
         void testMethod05(@TempDir Path tempDir) throws IOException {
             givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            Process process = mockProcess();
-            when(processLauncher.launch(any())).thenReturn(process);
+            Process process = mock(Process.class);
+            when(processLauncher.launch(any(), any())).thenReturn(process);
 
             newService(tempDir).startDownload(YOUTUBE_URL);
 
@@ -282,8 +270,8 @@ class VideoDownloadServiceTest {
             VideoSource source = new VideoSource("youtube", "aqz-KE-bpKQ", null, null, "not_live", null);
             when(videoSourceProbe.probe(YOUTUBE_URL)).thenReturn(Optional.of(source));
             when(streamPlatform.resolveChannelId(source)).thenReturn(Optional.empty());
-            Process process = mockProcess();
-            when(processLauncher.launch(any())).thenReturn(process);
+            Process process = mock(Process.class);
+            when(processLauncher.launch(any(), any())).thenReturn(process);
 
             DownloadResponse response = newService(tempDir).startDownload(YOUTUBE_URL);
 
@@ -301,7 +289,7 @@ class VideoDownloadServiceTest {
                     .hasMessageContaining("aqz-KE-bpKQ");
 
             // 同じ出力先へ二重に書き込ませない
-            verify(processLauncher, never()).launch(any());
+            verify(processLauncher, never()).launch(any(), any());
             verify(recordingHistoryService, never()).recordStart(any(), any(), any(), any());
         }
 
@@ -316,7 +304,7 @@ class VideoDownloadServiceTest {
             assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
                     .isInstanceOf(VideoAlreadyDownloadedException.class);
 
-            verify(processLauncher, never()).launch(any());
+            verify(processLauncher, never()).launch(any(), any());
         }
 
         @Test
@@ -342,7 +330,7 @@ class VideoDownloadServiceTest {
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining(YOUTUBE_URL);
 
-            verify(processLauncher, never()).launch(any());
+            verify(processLauncher, never()).launch(any(), any());
         }
 
         @Test
@@ -357,7 +345,7 @@ class VideoDownloadServiceTest {
         void testMethod12(@TempDir Path tempDir) throws IOException {
             givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            when(processLauncher.launch(any())).thenThrow(new IOException("yt-dlp: command not found"));
+            when(processLauncher.launch(any(), any())).thenThrow(new IOException("yt-dlp: command not found"));
             VideoDownloadService service = newService(tempDir);
 
             assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
@@ -380,7 +368,7 @@ class VideoDownloadServiceTest {
             assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
                     .isInstanceOf(VideoAlreadyDownloadedException.class);
 
-            verify(processLauncher, never()).launch(any());
+            verify(processLauncher, never()).launch(any(), any());
         }
 
         @Test
@@ -393,7 +381,7 @@ class VideoDownloadServiceTest {
             assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
                     .isInstanceOf(LiveStreamDownloadRejectedException.class);
 
-            verify(processLauncher, never()).launch(any());
+            verify(processLauncher, never()).launch(any(), any());
             // 予約も取らない。取ったまま拒否すると、その動画は以降扱えなくなる
             assertThat(service.isDownloading("aqz-KE-bpKQ")).isFalse();
         }
@@ -407,7 +395,7 @@ class VideoDownloadServiceTest {
             assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
                     .isInstanceOf(LiveStreamDownloadRejectedException.class);
 
-            verify(processLauncher, never()).launch(any());
+            verify(processLauncher, never()).launch(any(), any());
         }
 
         @Test
@@ -417,14 +405,12 @@ class VideoDownloadServiceTest {
             // 予約機構が弾くのが正しい層なので、ここでは拒否しない
             givenYouTubeVideoWithLiveStatus("was_live");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            // 内部で when(...) を使うヘルパーを when(...) の引数に直接書くと
-            // スタブが入れ子になり UnfinishedStubbingException になる
-            Process process = mockProcess();
-            when(processLauncher.launch(any())).thenReturn(process);
+            Process process = mock(Process.class);
+            when(processLauncher.launch(any(), any())).thenReturn(process);
 
             assertThat(newService(tempDir).startDownload(YOUTUBE_URL)).isNotNull();
 
-            verify(processLauncher).launch(any());
+            verify(processLauncher).launch(any(), any());
         }
 
         @Test
@@ -432,14 +418,12 @@ class VideoDownloadServiceTest {
         void testMethod17(@TempDir Path tempDir) throws IOException {
             givenYouTubeVideoWithLiveStatus("post_live");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            // 内部で when(...) を使うヘルパーを when(...) の引数に直接書くと
-            // スタブが入れ子になり UnfinishedStubbingException になる
-            Process process = mockProcess();
-            when(processLauncher.launch(any())).thenReturn(process);
+            Process process = mock(Process.class);
+            when(processLauncher.launch(any(), any())).thenReturn(process);
 
             assertThat(newService(tempDir).startDownload(YOUTUBE_URL)).isNotNull();
 
-            verify(processLauncher).launch(any());
+            verify(processLauncher).launch(any(), any());
         }
 
         @Test
@@ -448,8 +432,8 @@ class VideoDownloadServiceTest {
             // 起動済みのプロセスを放置すると、次の再試行で同じ出力先に別プロセスが起動する
             givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            Process process = mockProcess();
-            when(processLauncher.launch(any())).thenReturn(process);
+            Process process = mock(Process.class);
+            when(processLauncher.launch(any(), any())).thenReturn(process);
             when(recordingHistoryService.recordStart(any(), any(), any(), any()))
                     .thenThrow(new IllegalStateException("DB障害"));
             VideoDownloadService service = newService(tempDir);
@@ -476,7 +460,7 @@ class VideoDownloadServiceTest {
             when(recordingSalvager.ensurePlayable(outputFile))
                     .thenReturn(new SalvageOutcome(SalvageStatus.ALREADY_PLAYABLE, 12345L));
 
-            service.awaitCompletion(mockProcess(), 1L, "video001", outputFile, null);
+            service.awaitCompletion(mock(Process.class), 1L, "video001", outputFile, null);
 
             verify(recordingHistoryService).markCompleted(1L, 12345L);
         }
@@ -489,7 +473,7 @@ class VideoDownloadServiceTest {
             when(recordingSalvager.ensurePlayable(outputFile))
                     .thenReturn(new SalvageOutcome(SalvageStatus.SALVAGED, 500L));
 
-            service.awaitCompletion(mockProcess(), 1L, "video001", outputFile, null);
+            service.awaitCompletion(mock(Process.class), 1L, "video001", outputFile, null);
 
             verify(recordingHistoryService).markPartial(1L, 500L);
         }
@@ -501,7 +485,7 @@ class VideoDownloadServiceTest {
             Path outputFile = tempDir.resolve("downloads/video001.mp4");
             when(recordingSalvager.ensurePlayable(outputFile)).thenReturn(SalvageOutcome.unavailable());
 
-            service.awaitCompletion(mockProcess(), 1L, "video001", outputFile, null);
+            service.awaitCompletion(mock(Process.class), 1L, "video001", outputFile, null);
 
             verify(recordingHistoryService).markFailed(1L);
         }
@@ -516,7 +500,7 @@ class VideoDownloadServiceTest {
             when(recordingSalvager.ensurePlayable(outputFile))
                     .thenReturn(new SalvageOutcome(SalvageStatus.ALREADY_PLAYABLE, 1L));
 
-            service.awaitCompletion(mockProcess(), 1L, "video001", outputFile, null);
+            service.awaitCompletion(mock(Process.class), 1L, "video001", outputFile, null);
 
             assertThat(service.isDownloading("video001")).isFalse();
         }
