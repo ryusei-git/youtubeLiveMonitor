@@ -10,7 +10,8 @@ import org.springframework.stereotype.Component;
  * リソースの推移を 1 分ごとに記録する。
  *
  * <p>{@code fixedRate} にするのは、記録の間隔を一定に保ち、折れ線の横軸と CPU 使用率の平均の窓を
- * そろえるため。起動直後にも 1 回動くので、次の API からは CPU 使用率が出る。
+ * そろえるため。起動直後にも 1 回動く。CPU 使用率は 2 回の記録の差から出すので、値が出るのは
+ * 2 回目の記録（起動の 1 分後）から。
  */
 @Component
 @Profile("!cli")

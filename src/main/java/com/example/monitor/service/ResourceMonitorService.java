@@ -41,9 +41,11 @@ import java.util.stream.Collectors;
  * <p>計測には OSHI を使う。自前で {@code /proc} を読むより、プロセスごとの CPU・メモリの
  * 取り方を間違えにくいため（親 Issue #139 の決定）。
  *
- * <p>CPU 使用率とネットワーク量は「2 回の計測の差」でしか出せない。API のたびに待って 2 回測ると
- * 応答が遅くなるので、1 分ごとの記録（{@link #record()}）で前回値を残し、API はその前回値との差で
- * 最新の値を返す。推移は再起動で消えてよいのでメモリ上にだけ持つ（DB に書くと書き込みが 1 分ごとに増えるだけ）。
+ * <p>CPU 使用率とネットワーク量は「2 回の計測の差」でしか出せないので、1 分ごとの記録（{@link #record()}）で
+ * 前回の記録との差を取る。API（{@link #snapshot()}）は測り直さず、直前の記録の値を返す。
+ * 計測は全プロセス（この端末で数百）を列挙するため重く、以前は API のたびに測り直していて、
+ * ダッシュボードを開いている間は 1 分ごとの記録とは別に毎分同じ列挙をしていた（#190）。
+ * 推移は再起動で消えてよいのでメモリ上にだけ持つ（DB に書くと書き込みが 1 分ごとに増えるだけ）。
  *
  * <p>CLI では定期処理が動かず前回値が作られないので、Bean ごと作らない。
  */
@@ -83,8 +85,8 @@ public class ResourceMonitorService {
     private static final double DISK_FREE_WARNING_RATIO = 0.10;
 
     /**
-     * 差を取る 2 回の計測の間隔の下限（ミリ秒）。記録の直後に API が呼ばれると差がほぼ 0 になり、
-     * 使用率が 0% や極端な値に振れるので、そのときは「分からない」（{@code null}）として返す。
+     * 差を取る 2 回の計測の間隔の下限（ミリ秒）。記録が間を置かずに続くと（定期処理が遅れを取り戻すときなど）
+     * 差がほぼ 0 になり、使用率が 0% や極端な値に振れるので、そのときは「分からない」（{@code null}）として返す。
      */
     private static final long MIN_WINDOW_MILLIS = 1000;
 
@@ -97,19 +99,26 @@ public class ResourceMonitorService {
     /** 直前の 1 分ごとの記録の時点の値。まだ記録していなければ {@code null}。 */
     private volatile Baseline baseline;
 
+    /** 直前の 1 分ごとの記録で測った値（注意を含む）。まだ記録していなければ {@code null}。 */
+    private volatile ResourceSnapshotResponse latest;
+
     /**
-     * 今の値を返す。CPU 使用率とネットワーク量は、直前の 1 分ごとの記録からの平均。
+     * 今の値を返す。直前の 1 分ごとの記録の値なので最大 1 分古く、CPU 使用率とネットワーク量は
+     * その 1 つ前の記録からの平均。
+     *
+     * <p>まだ記録していない起動直後だけはその場で測る。差を取る前回値が無いので、CPU 使用率と
+     * ネットワーク量は {@code null}。
      *
      * @return 今のリソースと注意
      */
     public ResourceSnapshotResponse snapshot() {
-        ResourceSnapshotResponse measured = measure(baseline).response();
-        return new ResourceSnapshotResponse(measured.measuredAt(), measured.system(), measured.service(),
-                warnings(measured.system()));
+        ResourceSnapshotResponse recorded = latest;
+        return recorded != null ? recorded : withWarnings(measure(null).response());
     }
 
     /**
-     * 今の値を推移に 1 件加え、次の差分計算の基準にする。1 分ごとの定期処理から呼ぶ。
+     * 今の値を推移に 1 件加え、次の差分計算の基準と、API（{@link #snapshot()}）が返す値にする。
+     * 1 分ごとの定期処理から呼ぶ。
      */
     public synchronized void record() {
         Measurement measurement = measure(baseline);
@@ -128,6 +137,8 @@ public class ResourceMonitorService {
             if (history.size() == HISTORY_SIZE) history.removeFirst();
             history.addLast(point);
         }
+        // CPU の注意は推移の末尾（今回の記録を含む）を見るので、推移に加えた後に判定する
+        latest = withWarnings(measurement.response());
     }
 
     /**
@@ -257,11 +268,20 @@ public class ResourceMonitorService {
         return names;
     }
 
+    private ResourceSnapshotResponse withWarnings(ResourceSnapshotResponse measured) {
+        return new ResourceSnapshotResponse(measured.measuredAt(), measured.system(), measured.service(),
+                warnings(measured.system()));
+    }
+
     private List<Warning> warnings(SystemUsage system) {
         List<Warning> warnings = new ArrayList<>();
-        List<ResourceHistoryPoint> recent = history();
-        if (recent.size() >= CPU_WARNING_MINUTES && recent.subList(recent.size() - CPU_WARNING_MINUTES, recent.size())
-                .stream().allMatch(p -> p.systemCpuPercent() != null && p.systemCpuPercent() > CPU_WARNING_PERCENT)) {
+        boolean cpuHigh;
+        // 推移は最大 24 時間分（1440 件）あるので、複製せずに末尾から目安の分数だけを見る
+        synchronized (history) {
+            cpuHigh = history.size() >= CPU_WARNING_MINUTES && history.reversed().stream().limit(CPU_WARNING_MINUTES)
+                    .allMatch(p -> p.systemCpuPercent() != null && p.systemCpuPercent() > CPU_WARNING_PERCENT);
+        }
+        if (cpuHigh) {
             warnings.add(new Warning("cpu", "CPU 使用率が %d 分以上 %.0f%% を超えています"
                     .formatted(CPU_WARNING_MINUTES, CPU_WARNING_PERCENT)));
         }
