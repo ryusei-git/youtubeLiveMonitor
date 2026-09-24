@@ -87,13 +87,13 @@ async function loadChannels() {
         for (const [index, ch] of channels.entries()) {
             const tr = document.createElement("tr");
             tr.innerHTML = `
-                <td>${index + 1}</td>
+                <td data-sort-value="${index + 1}">${index + 1}</td>
                 <td class="revealable" title="クリックでチャンネルIDを表示">${escapeHtml(ch.platformLabel)}</td>
                 <td><a href="/recordings.html?channelId=${ch.id}">${escapeHtml(ch.channelName)}</a></td>
                 <td>${channelStateLabel(ch)}</td>
-                <td><button class="recordBtn" data-id="${ch.id}" data-enabled="${ch.recordEnabled}">${ch.recordEnabled ? "自動録画：有効" : "自動録画：無効"}</button></td>
-                <td>${ch.recordingCount}件</td>
-                <td class="titleFilterCell">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
+                <td data-sort-value="${ch.recordEnabled ? "1" : "0"}"><button class="recordBtn" data-id="${ch.id}" data-enabled="${ch.recordEnabled}">${ch.recordEnabled ? "自動録画：有効" : "自動録画：無効"}</button></td>
+                <td data-sort-value="${ch.recordingCount}">${ch.recordingCount}件</td>
+                <td class="titleFilterCell" data-sort-value="${escapeHtml(ch.recordTitleKeywords || "")}">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
                 <td><button data-id="${ch.id}" class="removeBtn">削除</button></td>
             `;
             // 列を足したときにずれないよう、位置ではなくクラスで対象を選ぶ
@@ -107,6 +107,8 @@ async function loadChannels() {
             });
             tbody.appendChild(tr);
         }
+        // 操作のたびに読み直すため、利用者が選んだ並び順をここで掛け直す
+        applyTableSort(/** @type {HTMLTableElement} */ (table));
         for (const btn of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(".removeBtn"))) {
             btn.addEventListener("click", async () => {
                 if (!confirm("削除しますか？（通知履歴・録画ログも一緒に削除されます）")) return;
@@ -221,5 +223,6 @@ el("searchForm").addEventListener("submit", async (ev) => {
     }
 });
 
+makeTableSortable(/** @type {HTMLTableElement} */ (document.getElementById("channelTable")));
 loadPlatforms();
 loadChannels();

@@ -406,6 +406,80 @@ function toggleChannelIdReveal(td, youtubeChannelId) {
 }
 
 /**
+ * 見出し（`thead th[data-sort]`）を押すと、その列で表を並べ替えられるようにする。
+ * 全件を画面に持っている表なら API を変えずに済むため、画面の中だけで並べ替える。
+ * 状態を表の `data-sort-column` / `data-sort-direction` に持たせるのは、一覧を読み直して
+ * tbody を作り直しても表の要素そのものは残るため（読み直した後に {@link applyTableSort} を
+ * 呼べば同じ並びに戻る）。見出しの中身を button で包むのは、Tab と Enter でも押せるようにするため。
+ * 表ごとに初期化で 1 回だけ呼ぶ（呼び直すと button が二重になる）。
+ *
+ * @param {HTMLTableElement} table 並べ替えを付ける表
+ */
+function makeTableSortable(table) {
+    for (const th of /** @type {NodeListOf<HTMLTableCellElement>} */ (table.querySelectorAll("thead th[data-sort]"))) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "sortButton";
+        button.append(...th.childNodes);
+        const mark = document.createElement("span");
+        mark.className = "sortMark";
+        // 向きは aria-sort で伝わるので、記号は読み上げさせない
+        mark.setAttribute("aria-hidden", "true");
+        button.appendChild(mark);
+        th.appendChild(button);
+        button.addEventListener("click", () => {
+            const column = String(th.cellIndex);
+            const ascending = table.dataset.sortColumn === column && table.dataset.sortDirection === "ascending";
+            table.dataset.sortColumn = column;
+            table.dataset.sortDirection = ascending ? "descending" : "ascending";
+            applyTableSort(table);
+        });
+    }
+}
+
+/**
+ * {@link makeTableSortable} で選ばれた列と向きで tbody の行を並べ直し、見出しの表示を合わせる。
+ * 行は作り直さず移動するだけなので、行に付けたイベントはそのまま残る。
+ * 空の値を向きに関わらず末尾に置くのは、降順にしたとたん未設定の行が先頭に並んで
+ * 見たい行が押し出されるのを避けるため。
+ *
+ * @param {HTMLTableElement} table 並べ替える表
+ */
+function applyTableSort(table) {
+    const column = table.dataset.sortColumn;
+    if (column === undefined) return;
+    const index = Number(column);
+    const descending = table.dataset.sortDirection === "descending";
+    const headers = [.../** @type {NodeListOf<HTMLTableCellElement>} */ (table.querySelectorAll("thead th[data-sort]"))];
+    for (const th of headers) {
+        const selected = th.cellIndex === index;
+        if (selected) {
+            th.setAttribute("aria-sort", descending ? "descending" : "ascending");
+        } else {
+            th.removeAttribute("aria-sort");
+        }
+        const mark = th.querySelector(".sortMark");
+        if (mark) mark.textContent = selected ? (descending ? " ▼" : " ▲") : "";
+    }
+
+    const numeric = headers.find((th) => th.cellIndex === index)?.dataset.sort === "number";
+    /** @param {HTMLTableRowElement} row */
+    const valueOf = (row) => {
+        const cell = row.cells[index];
+        return cell ? (cell.dataset.sortValue ?? (cell.textContent ?? "").trim()) : "";
+    };
+    const tbody = table.tBodies[0];
+    const rows = [...tbody.rows].sort((a, b) => {
+        const va = valueOf(a);
+        const vb = valueOf(b);
+        if (va === "" || vb === "") return Number(va === "") - Number(vb === "");
+        const diff = numeric ? Number(va) - Number(vb) : va.localeCompare(vb, "ja", { numeric: true });
+        return descending ? -diff : diff;
+    });
+    tbody.append(...rows);
+}
+
+/**
  * 動画IDを YouTube の視聴ページへのリンクにする。
  * IDをコピーしてURLを手で組み立てる手間をなくすため、一覧のどこでも同じ形で使えるようにしている。
  *
