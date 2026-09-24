@@ -1,5 +1,6 @@
 package com.example.monitor.repository;
 
+import com.example.monitor.dto.RecordingGenreCountResponse;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
@@ -31,15 +32,6 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @return 開始時刻の降順に並んだ履歴
      */
     Page<Recording> findAllByOrderByStartedAtDesc(Pageable pageable);
-
-    /**
-     * 特定チャンネルの録画履歴を新しい順に取得する。
-     *
-     * @param channel  対象チャンネル
-     * @param pageable ページ指定
-     * @return 開始時刻の降順に並んだ履歴
-     */
-    Page<Recording> findByChannelOrderByStartedAtDesc(MonitoredChannel channel, Pageable pageable);
 
     /**
      * 指定した複数チャンネルの録画を新しい順に返す。利用者が購読しているぶんだけを見せるのに使う。
@@ -79,36 +71,89 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
                                       Pageable pageable);
 
     /**
-     * 録画履歴をキーワードと状態で絞り込んで新しい順に取得する。
+     * 録画履歴をチャンネル・キーワード・状態・期間・ジャンルで絞り込んで取得する。
      *
      * <p>キーワードは配信タイトルとチャンネル名のどちらかに部分一致すればよい
      * （利用者はどちらで覚えているか分からないため）。大文字小文字は区別しない。
      * 引数が {@code null} の条件はその条件自体を無視する、という書き方にしているので、
-     * 「キーワードだけ」「状態だけ」「両方」「どちらも無し」を 1 つのクエリで賄える。
+     * どの組み合わせも 1 つのクエリで賄える（以前はチャンネル指定だけ別メソッドに分かれていて、
+     * チャンネル一覧から来たときにキーワードで絞れなかった）。
+     *
+     * <p>並び順はクエリに書かず {@code pageable} の {@code Sort} で受ける。並び順ごとに
+     * クエリを複製すると、絞り込み条件を直すたびに全部を揃える必要が出るため。
      *
      * <p><b>チャンネルへの結合は必ず {@code LEFT JOIN} にすること（実際に発生した）。</b>
      * 以前は {@code r.channel.channelName} と書いていたが、この書き方は<b>内部結合</b>になり、
      * チャンネルに紐づかない録画（URL 指定でダウンロードしたもの）が<b>検索条件に関わらず
      * 一覧から丸ごと消える</b>。しかも 1 件取得（{@code findById}）では見えるため、
      * 「API では取れるのに一覧に出ない」という分かりにくい形で現れる。
+     * チャンネルでの絞り込みも同じ理由で {@code c.id} を見る。
      *
-     * @param keyword  検索キーワード。{@code null} なら絞り込まない
-     * @param status   絞り込む状態。{@code null} なら絞り込まない
-     * @param pageable ページ指定
-     * @return 開始時刻の降順に並んだ履歴
+     * @param channelId 絞り込むチャンネルの主キー。{@code null} なら絞り込まない
+     * @param keyword   検索キーワード。{@code null} なら絞り込まない
+     * @param status    絞り込む状態。{@code null} なら絞り込まない
+     * @param from      開始時刻の下限（この時刻を含む）。{@code null} なら絞り込まない
+     * @param to        開始時刻の上限（この時刻を含まない）。{@code null} なら絞り込まない
+     * @param genre     ジャンル（完全一致）。{@code null} なら絞り込まない
+     * @param pageable  ページ指定と並び順
+     * @return 条件に一致する録画履歴
      */
     @Query("""
             SELECT r FROM Recording r
              LEFT JOIN r.channel c
-             WHERE (:keyword IS NULL
+             WHERE (:channelId IS NULL OR c.id = :channelId)
+               AND (:keyword IS NULL
                     OR LOWER(r.videoTitle) LIKE LOWER(CONCAT('%', :keyword, '%'))
                     OR LOWER(c.channelName) LIKE LOWER(CONCAT('%', :keyword, '%')))
                AND (:status IS NULL OR r.status = :status)
-             ORDER BY r.startedAt DESC
+               AND (:from IS NULL OR r.startedAt >= :from)
+               AND (:to IS NULL OR r.startedAt < :to)
+               AND (:genre IS NULL OR r.genre = :genre)
             """)
-    Page<Recording> search(@Param("keyword") String keyword,
+    Page<Recording> search(@Param("channelId") Long channelId,
+                           @Param("keyword") String keyword,
                            @Param("status") RecordingStatus status,
+                           @Param("from") LocalDateTime from,
+                           @Param("to") LocalDateTime to,
+                           @Param("genre") String genre,
                            Pageable pageable);
+
+    /**
+     * ジャンルごとの録画件数を、件数の多い順（同数ならジャンル名順）に数える。
+     *
+     * <p>一覧画面のジャンル選択の選択肢に使う。選択肢を決め打ちにすると、録画が増えて
+     * 新しいジャンルが現れても選べないため、実データから作る。ジャンルの無い録画は含めない。
+     *
+     * @return ジャンルと件数の一覧
+     */
+    @Query("""
+            SELECT new com.example.monitor.dto.RecordingGenreCountResponse(r.genre, COUNT(r))
+              FROM Recording r
+             WHERE r.genre IS NOT NULL
+             GROUP BY r.genre
+             ORDER BY COUNT(r) DESC, r.genre ASC
+            """)
+    List<RecordingGenreCountResponse> countByGenre();
+
+    /**
+     * ジャンルが未設定でタイトルのある録画を取得する。{@code genre} 列を足す前の行を埋めるのに使う
+     * （{@link com.example.monitor.service.RecordingGenreBackfiller} 参照）。
+     *
+     * @return 対象の録画履歴
+     */
+    List<Recording> findByGenreIsNullAndVideoTitleIsNotNull();
+
+    /**
+     * ジャンルだけを書き込む。
+     *
+     * @param id    録画履歴の主キー
+     * @param genre 書き込むジャンル
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Recording r SET r.genre = :genre WHERE r.id = :id")
+    int updateGenre(@Param("id") Long id, @Param("genre") String genre);
 
     /**
      * 指定した状態の録画履歴をすべて取得する。

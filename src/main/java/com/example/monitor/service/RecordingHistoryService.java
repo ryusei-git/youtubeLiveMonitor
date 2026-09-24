@@ -3,27 +3,29 @@ package com.example.monitor.service;
 import com.example.monitor.dto.DashboardResponse.RecordingStatusSummary;
 import com.example.monitor.dto.DiskUsageResponse;
 import com.example.monitor.dto.OrphanedCleanupResponse;
+import com.example.monitor.dto.RecordingGenreCountResponse;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
-import com.example.monitor.exception.ChannelNotFoundException;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
 import com.example.monitor.repository.AppUserRepository;
-import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import com.example.monitor.util.RequestContext;
+import com.example.monitor.util.TitleGenreExtractor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 録画履歴の記録と照会を担当する。
@@ -38,7 +40,6 @@ import java.time.LocalDateTime;
 public class RecordingHistoryService {
 
     private final RecordingRepository recordingRepository;
-    private final MonitoredChannelRepository monitoredChannelRepository;
     private final RecordingFileService recordingFileService;
     private final AppUserRepository appUserRepository;
     private final AuditLogger auditLogger;
@@ -61,6 +62,7 @@ public class RecordingHistoryService {
                 .channel(channel)
                 .videoId(videoId)
                 .videoTitle(videoTitle)
+                .genre(TitleGenreExtractor.extract(videoTitle))
                 .filePath(filePath)
                 .status(RecordingStatus.RECORDING)
                 .build();
@@ -113,32 +115,47 @@ public class RecordingHistoryService {
     }
 
     /**
-     * 特定チャンネルの録画履歴を新しい順に取得する。
+     * 録画履歴を条件で絞り込んで取得する。どの条件も省略でき、組み合わせられる。
      *
-     * @param channelRecordId 監視対象チャンネルの主キー（YouTube のチャンネル ID ではない）
-     * @param pageable        ページ指定
-     * @return 開始時刻の降順に並んだ履歴
-     * @throws ChannelNotFoundException 指定 ID のチャンネルが存在しない場合
+     * <p>期間は日付で受け、{@code to} の翌日 0 時より前までを含める。利用者が
+     * 「9/1〜9/30」と指定したとき、9/30 の配信も入ってほしいため。
+     *
+     * @param channelId 監視対象チャンネルの主キー。{@code null} なら絞り込まない
+     * @param keyword   検索キーワード（配信タイトル・チャンネル名の部分一致）。
+     *                  {@code null} や空文字なら絞り込まない
+     * @param status    絞り込む状態。{@code null} なら絞り込まない
+     * @param from      開始日（この日を含む）。{@code null} なら絞り込まない
+     * @param to        終了日（この日を含む）。{@code null} なら絞り込まない
+     * @param genre     ジャンル（完全一致）。{@code null} や空文字なら絞り込まない
+     * @param pageable  ページ指定と並び順
+     * @return 条件に一致する録画履歴
      */
-    public Page<Recording> findByChannel(Long channelRecordId, Pageable pageable) {
-        MonitoredChannel channel = monitoredChannelRepository.findById(channelRecordId)
-                .orElseThrow(() -> new ChannelNotFoundException(channelRecordId));
-        return recordingRepository.findByChannelOrderByStartedAtDesc(channel, pageable);
+    public Page<Recording> search(Long channelId, String keyword, RecordingStatus status,
+                                  LocalDate from, LocalDate to, String genre, Pageable pageable) {
+        // 空文字はクエリ側で「条件なし」と区別できないため、ここで null に寄せる
+        return recordingRepository.search(channelId, blankToNull(keyword), status,
+                from == null ? null : from.atStartOfDay(),
+                to == null ? null : to.plusDays(1).atStartOfDay(),
+                blankToNull(genre), pageable);
     }
 
     /**
-     * 録画履歴をキーワードと状態で絞り込んで新しい順に取得する。
+     * ジャンルごとの録画件数を、件数の多い順に取得する。
      *
-     * @param keyword  検索キーワード（配信タイトル・チャンネル名の部分一致）。
-     *                 {@code null} や空文字なら絞り込まない
-     * @param status   絞り込む状態。{@code null} なら絞り込まない
-     * @param pageable ページ指定
-     * @return 開始時刻の降順に並んだ履歴
+     * @return ジャンルと件数の一覧
      */
-    public Page<Recording> search(String keyword, RecordingStatus status, Pageable pageable) {
-        // 空文字はクエリ側で「条件なし」と区別できないため、ここで null に寄せる
-        String normalizedKeyword = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
-        return recordingRepository.search(normalizedKeyword, status, pageable);
+    public List<RecordingGenreCountResponse> countByGenre() {
+        return recordingRepository.countByGenre();
+    }
+
+    /**
+     * 空白だけの文字列を {@code null} に、それ以外は前後の空白を除いて返す。
+     *
+     * @param value 入力値
+     * @return 正規化した値
+     */
+    private static String blankToNull(String value) {
+        return (value == null || value.isBlank()) ? null : value.trim();
     }
 
     /**

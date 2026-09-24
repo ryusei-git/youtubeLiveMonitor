@@ -79,6 +79,18 @@ public class Recording {
     private String videoTitle;
 
     /**
+     * タイトルの最初の {@code 【】} の中身（{@link com.example.monitor.util.TitleGenreExtractor} 参照）。
+     * {@code 【】} が無ければ {@code null}。
+     *
+     * <p><b>ダッシュボードと違って DB に持つ理由。</b>アーカイブ一覧はジャンルで絞り込み、
+     * ジャンルごとの件数も数える。タイトルから毎回求める方式では、数千件を読み込んで
+     * アプリ側で絞るしかなく、ページングも件数も DB に任せられない。
+     * 既存の行は {@link com.example.monitor.service.RecordingGenreBackfiller} が起動時に埋める。
+     */
+    @Column(length = 200)
+    private String genre;
+
+    /**
      * 録画ファイルの保存先パス（{@code monitor.recording.directory} からの相対パス、
      * 例: {@code UCxxxxxxxx/videoId.mp4}）。再生用の静的リソース配信 URL の組み立てに使う。
      */

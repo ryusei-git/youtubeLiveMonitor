@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
  * {@code 【尾丸ポルカ/ホロライブ】} のように配信者名が入ることが多く、ジャンルではないため。
  *
  * <p>YouTube の動画カテゴリ（Gaming など）は使わない。どのゲームの配信か区別できないほど粗く、
- * ダッシュボードで配信予定を見分ける役に立たないため。タイトルから毎回求められるので DB にも保存しない。
+ * ダッシュボードで配信予定を見分ける役に立たないため。配信予定はタイトルから毎回求める。録画（{@code Recording#genre}）は数千件を絞り込むため DB に保存する。
  */
 public final class TitleGenreExtractor {
 
