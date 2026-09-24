@@ -83,6 +83,24 @@ class LiveStreamDetectorTest {
         }
 
         @Test
+        @DisplayName("正常系：タイトルの文字参照（&amp;・&#39;・&quot;）は元の文字に戻す")
+        void testMethod09() throws IOException, InterruptedException {
+            // YouTube はタイトルの & ' " を文字参照で返す。戻さないと通知や絞り込みに &amp; のまま渡る
+            String html = """
+                    <html><head>
+                    <link rel="canonical" href="https://www.youtube.com/watch?v=abcdefg1234">
+                    <meta name="title" content="【雑談】Q&amp;A &quot;質問箱&quot; Tom&#39;s room">
+                    </head></html>
+                    """;
+            stubResponse(200, html);
+
+            LiveStreamDetection result = liveStreamDetector.detectLiveStream("UCxxxxxxxx");
+
+            assertThat(result.isLive()).isTrue();
+            assertThat(result.title()).isEqualTo("【雑談】Q&A \"質問箱\" Tom's room");
+        }
+
+        @Test
         @DisplayName("正常系：配信開始前の待機所（isUpcoming:trueを含む）はUPCOMINGと判定する")
         void testMethod03() throws IOException, InterruptedException {
             // 実際にYouTubeの待機所ページで観測されたJSON断片を模したもの。
@@ -148,6 +166,23 @@ class LiveStreamDetectorTest {
             // 正常に判定できた結果としての「配信していない」なので、判定失敗と混同してはいけない
             assertThat(result.status()).isEqualTo(LiveStreamDetection.DetectionStatus.NOT_LIVE);
             assertThat(result.isDetectionFailed()).isFalse();
+        }
+
+        @Test
+        @DisplayName("正常系：配信していないページのog:imageは文字参照を戻してアイコンURLにする")
+        void testMethod10() throws IOException, InterruptedException {
+            String html = """
+                    <html><head>
+                    <link rel="canonical" href="https://www.youtube.com/channel/UCxxxxxxxx/live">
+                    <meta property="og:image" content="https://yt3.googleusercontent.com/icon?a=1&amp;b=2">
+                    </head></html>
+                    """;
+            stubResponse(200, html);
+
+            LiveStreamDetection result = liveStreamDetector.detectLiveStream("UCxxxxxxxx");
+
+            assertThat(result.status()).isEqualTo(LiveStreamDetection.DetectionStatus.NOT_LIVE);
+            assertThat(result.channelIconUrl()).isEqualTo("https://yt3.googleusercontent.com/icon?a=1&b=2");
         }
 
         @Test
