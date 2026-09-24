@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import javax.sql.DataSource;
@@ -184,7 +185,8 @@ class DatabaseTableServiceTest {
             when(databaseMetaData.getPrimaryKeys(eq(null), eq("PUBLIC"), eq("CHANNELS"))).thenReturn(pkResultSet);
 
             when(jdbcTemplate.queryForObject(eq("SELECT COUNT(*) FROM CHANNELS"), eq(Long.class))).thenReturn(2L);
-            when(jdbcTemplate.queryForList(eq("SELECT * FROM CHANNELS LIMIT ? OFFSET ?"), eq(50), eq(0)))
+            when(jdbcTemplate.query(eq("SELECT * FROM CHANNELS LIMIT ? OFFSET ?"),
+                    any(ColumnMapRowMapper.class), eq(50), eq(0)))
                     .thenReturn(List.of(Map.of("ID", 1, "CHANNEL_NAME", "テスト")));
 
             TableDataResponse response = databaseTableService.getTableData("channels", 0, 50);
@@ -219,7 +221,8 @@ class DatabaseTableServiceTest {
             when(databaseMetaData.getPrimaryKeys(eq(null), eq("PUBLIC"), eq("UNKNOWN_TABLE"))).thenReturn(pkResultSet);
 
             when(jdbcTemplate.queryForObject(eq("SELECT COUNT(*) FROM UNKNOWN_TABLE"), eq(Long.class))).thenReturn(0L);
-            when(jdbcTemplate.queryForList(eq("SELECT * FROM UNKNOWN_TABLE LIMIT ? OFFSET ?"), eq(50), eq(0)))
+            when(jdbcTemplate.query(eq("SELECT * FROM UNKNOWN_TABLE LIMIT ? OFFSET ?"),
+                    any(ColumnMapRowMapper.class), eq(50), eq(0)))
                     .thenReturn(List.of());
 
             TableDataResponse response = databaseTableService.getTableData("UNKNOWN_TABLE", 0, 50);

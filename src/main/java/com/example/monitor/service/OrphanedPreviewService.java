@@ -26,8 +26,7 @@ public class OrphanedPreviewService {
         Path base = Path.of(properties.recording().directory()).toAbsolutePath().normalize();
         List<Candidate> candidates = new ArrayList<>();
         Set<String> skipped = new LinkedHashSet<>();
-        Set<String> known = new HashSet<>();
-        repository.findAll().forEach(r -> known.add(r.getVideoId()));
+        Set<String> known = new HashSet<>(repository.findAllVideoIds());
         if (Files.isDirectory(base)) {
             try (var files = Files.walk(base)) {
                 for (Path file : files.filter(p -> Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)).sorted().toList()) {

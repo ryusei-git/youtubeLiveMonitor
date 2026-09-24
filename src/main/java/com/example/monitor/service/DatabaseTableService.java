@@ -4,10 +4,12 @@ import com.example.monitor.dto.TableDataResponse;
 import com.example.monitor.dto.TableSummary;
 import com.example.monitor.util.CaseInsensitiveMatcher;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.sql.DataSource;
+import java.sql.Blob;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -16,6 +18,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -129,6 +132,31 @@ public class DatabaseTableService {
             )
     );
 
+    /**
+     * 行を「カラム名 → 値」にする変換。バイナリの列だけは中身ではなく「（バイナリ n バイト）」の文字にする。
+     *
+     * <p>既定の変換（{@link ColumnMapRowMapper}）は BLOB を中身ごと {@code byte[]} に読み、それが
+     * Base64 の JSON になってセルに出ていた。サムネイルの表（1 枚最大 2MB）では 1 ページで数十 MB を
+     * 読んで送るのに、画面には読めない文字列が並ぶだけだった（#184）。H2 の BLOB は長さを持っているので、
+     * {@link Blob#length()} は中身を読まずに長さを返す（H2 2.2 で確認）。
+     *
+     * <p>列の型ではなく値の型で見分けるのは、H2 が UUID の列も JDBC の型では {@code BINARY} と報告するため
+     * （値は {@link java.util.UUID} で返り、今までどおり表示される）。
+     */
+    private static final ColumnMapRowMapper BINARY_AS_LENGTH_ROW_MAPPER = new ColumnMapRowMapper() {
+        @Override
+        protected Object getColumnValue(ResultSet rs, int index) throws SQLException {
+            Object value = rs.getObject(index);
+            if (value instanceof Blob blob) {
+                return binaryLabel(blob.length());
+            }
+            if (value instanceof byte[] bytes) {
+                return binaryLabel(bytes.length);
+            }
+            return super.getColumnValue(rs, index);
+        }
+    };
+
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
 
@@ -174,6 +202,8 @@ public class DatabaseTableService {
     /**
      * 指定テーブルの内容をページ単位で取得する。
      *
+     * <p>バイナリの列は中身ではなく大きさの文字で返す（{@link #BINARY_AS_LENGTH_ROW_MAPPER}）。
+     *
      * @param requestedTableName 取得したいテーブル名（大文字小文字は区別しない）
      * @param page               ページ番号（0 始まり）
      * @param size               1 ページあたりの行数
@@ -186,8 +216,8 @@ public class DatabaseTableService {
         String primaryKeyColumn = findPrimaryKeyColumn(tableName).orElse(null);
 
         Long totalRowCount = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM " + tableName, Long.class);
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT * FROM " + tableName + " LIMIT ? OFFSET ?", size, page * size);
+        List<Map<String, Object>> rows = jdbcTemplate.query(
+                "SELECT * FROM " + tableName + " LIMIT ? OFFSET ?", BINARY_AS_LENGTH_ROW_MAPPER, size, page * size);
 
         return new TableDataResponse(
                 tableName,
@@ -226,6 +256,16 @@ public class DatabaseTableService {
             labels.put(columnName, knownLabels.getOrDefault(columnName, columnName));
         }
         return labels;
+    }
+
+    /**
+     * バイナリの列のセルに出す文字。中身の代わりに大きさだけ見せる（空か、どのくらいの大きさかは分かる）。
+     *
+     * @param length バイト数
+     * @return 「（バイナリ 12,345 バイト）」の形の文字
+     */
+    private static String binaryLabel(long length) {
+        return String.format(Locale.ROOT, "（バイナリ %,d バイト）", length);
     }
 
     /**
