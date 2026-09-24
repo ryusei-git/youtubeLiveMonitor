@@ -65,6 +65,12 @@ button:disabled { opacity: .45; cursor: default; }
 #filterForm input[type="search"] { flex: 1 1 240px; }
 #addForm { background: #fff; padding: 20px; border: 1px solid var(--border); border-radius: 12px; align-items: center; }
 #addForm label { font-size: 12px; }
+/* 配信元の選択肢は API から入るため、入る前後で幅が変わってフォームが折り返し直さないよう幅を固定する。
+   入力欄は固定幅（size 属性）だと 1 行からはみ出すので、残りの幅を分け合わせる。 */
+@media (min-width: 761px) {
+    #addForm > #addPlatform { flex: 0 0 8.5em; }
+    #addForm > #addChannelId, #addForm > #addTitleKeywords { flex: 1 1 10em; min-width: 0; }
+}
 .table-scroll { max-width: 100%; border: 1px solid var(--border); border-radius: 12px; background: #fff; margin-bottom: 16px; overflow-x: auto; }
 table { margin: 0; border: 0; }
 th, td { white-space: nowrap; padding: 13px 16px; border: 0; border-bottom: 1px solid #eeeff3; }
