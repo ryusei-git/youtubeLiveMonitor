@@ -57,16 +57,24 @@ case "${1:-start}" in
 
         cp "$ROOT/.env" "$PREVIEW/.env"
         JAR="$(ls "$PREVIEW"/build/libs/*.jar | grep -v plain | head -1)"
-        (cd "$PREVIEW" && nohup java -jar "$JAR" \
-            --server.port="$PORT" \
-            --monitor.scheduling.enabled=false \
-            --monitor.discord.webhook-url= \
-            --monitor.recording.directory="$ROOT/recordings" \
-            > "$PREVIEW/logs/preview.log" 2>&1 & echo $! > "$PID_FILE")
+        # 引数を 1 つでも付けると CLI モードで起動してしまう（YouTubeLiveMonitorApplication.main）ため、
+        # 設定は -D のシステムプロパティで渡す
+        # cd と java を 1 つのかたまりで裏に回すと、記録されるのが途中の bash の PID になり、
+        # stop で java を止められず、その bash が呼び出し元の出力を握って終わらなくなる
+        cd "$PREVIEW"
+        nohup java \
+            -Dserver.port="$PORT" \
+            -Dmonitor.scheduling.enabled=false \
+            -Dmonitor.discord.webhook-url= \
+            -Dmonitor.recording.directory="$ROOT/recordings" \
+            -jar "$JAR" \
+            > "$PREVIEW/logs/preview.log" 2>&1 < /dev/null &
+        echo $! > "$PID_FILE"
+        cd "$ROOT"
 
         echo -n "起動を待っています"
         for _ in $(seq 1 60); do
-            if curl -s -o /dev/null "http://localhost:$PORT/adminLogin.html"; then
+            if curl -s -o /dev/null --max-time 5 "http://localhost:$PORT/adminLogin.html"; then
                 echo
                 echo "確認用を起動しました: http://localhost:$PORT/adminLogin.html"
                 echo "（監視・収集・通知は止めてあります。録画の削除・ダウンロード・掃除は本物に効くので使わないこと）"
