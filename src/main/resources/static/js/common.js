@@ -1147,7 +1147,6 @@ const studioPages = {
     "logs.html": "M5 3h14v18H5z M8 7h8 M8 11h8 M8 15h5",
     "audit.html": "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4",
     "tables.html": "M3 4h18v16H3z M3 9h18 M9 9v11",
-    "playground.html": "M8 5l-6 7 6 7 M16 5l6 7-6 7 M14 3l-4 18",
     "users.html": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6",
     "invitations.html": "M3 5h18v14H3z M3 5l9 7 9-7",
     "my-channels.html": "M4 4h16v16H4z M8 9h8 M8 14h5",

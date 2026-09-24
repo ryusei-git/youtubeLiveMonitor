@@ -8,7 +8,7 @@ public final class LoginReturnPath {
     private static final Set<String> USER_PAGES = Set.of("/videos.html", "/my-channels.html", "/my-recordings.html");
     private static final Set<String> ADMIN_PAGES = Set.of("/", "/index.html", "/channels.html",
             "/recordings.html", "/player.html", "/notifications.html", "/users.html",
-            "/invitations.html", "/logs.html", "/tables.html", "/playground.html", "/audit.html");
+            "/invitations.html", "/logs.html", "/tables.html", "/audit.html");
 
     private LoginReturnPath() { }
 
