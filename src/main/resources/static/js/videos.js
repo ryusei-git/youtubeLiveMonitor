@@ -1,10 +1,18 @@
 // @ts-check
-let onlinePage = 0;
-let onlineTotalPages = 0;
-let onlineRequest = 0;
+/**
+ * 段ごとにページ送りを独立させるため、ページ・総ページ数・リクエスト番号を段ごとに持つ。
+ * @typedef {{name: string, page: number, totalPages: number, request: number, empty: string}} VideoSection
+ */
+/** @type {VideoSection[]} */
+const videoSections = [
+    {name: "now", page: 0, totalPages: 0, request: 0, empty: "配信中・配信予定の動画はありません"},
+    {name: "streams", page: 0, totalPages: 0, request: 0, empty: "配信済みの動画はありません"},
+    {name: "uploads", page: 0, totalPages: 0, request: 0, empty: "投稿済みの動画はありません"},
+];
 /** @type {Date|null} */
 let onlineLastUpdatedAt = null;
 
+// 段ごとのページは URL に残さない。3 段分を持たせると戻る操作の単位が分かりにくくなるため、絞り込み条件だけを残す。
 function syncVideoUrl(replace = false) {
     const url = new URL(location.href);
     for (const key of ["keyword", "channelId", "liveOnly", "page"]) url.searchParams.delete(key);
@@ -12,8 +20,6 @@ function syncVideoUrl(replace = false) {
     if (keyword) url.searchParams.set("keyword", keyword);
     const channelId = selectEl("videoChannel").value;
     if (channelId) url.searchParams.set("channelId", channelId);
-    if (selectEl("videoMode").value === "live") url.searchParams.set("liveOnly", "true");
-    if (onlinePage > 0) url.searchParams.set("page", String(onlinePage));
     if (url.href !== location.href) history[replace ? "replaceState" : "pushState"](null, "", url);
 }
 
@@ -23,46 +29,54 @@ function restoreVideoUrl() {
     const channel = selectEl("videoChannel");
     const channelId = params.get("channelId") || "";
     channel.value = Array.from(channel.options).some(option => option.value === channelId) ? channelId : "";
-    selectEl("videoMode").value = params.get("liveOnly") === "true" ? "live" : "all";
-    const page = params.get("page") || "";
-    onlinePage = /^\d+$/.test(page) && Number(page) <= 2147483647 ? Number(page) : 0;
     syncVideoUrl(true);
 }
 
 /** 自動更新では通知帯の読み上げを繰り返さず、利用者が操作した失敗だけ明示する。
+ * @param {VideoSection} section
  * @param {boolean} showAlert
  */
-async function loadOnlineVideos(showAlert = true) {
-    const request = ++onlineRequest;
-    const grid = el("onlineVideoGrid");
+async function loadOnlineVideos(section, showAlert = true) {
+    const request = ++section.request;
+    const grid = el(section.name + "Grid");
     setBusy(grid, true);
-    const params = new URLSearchParams({page: String(onlinePage), size: "24",
-        keyword: inputEl("videoKeyword").value.trim(), liveOnly: String(selectEl("videoMode").value === "live")});
+    const params = new URLSearchParams({section: section.name, page: String(section.page), size: "12",
+        keyword: inputEl("videoKeyword").value.trim()});
     if (selectEl("videoChannel").value) params.set("channelId", selectEl("videoChannel").value);
     try {
         const data = await apiGet("/api/videos?" + params);
-        if (request !== onlineRequest) return;
-        if (onlinePage > 0 && onlinePage >= data.totalPages) {
-            onlinePage = Math.max(0, data.totalPages - 1);
-            syncVideoUrl(true);
-            return loadOnlineVideos(showAlert);
+        if (request !== section.request) return;
+        if (section.page > 0 && section.page >= data.totalPages) {
+            section.page = Math.max(0, data.totalPages - 1);
+            return loadOnlineVideos(section, showAlert);
         }
-        clearError();
-        onlineTotalPages = data.totalPages;
+        section.totalPages = data.totalPages;
         grid.replaceChildren(...data.content.map(buildOnlineVideoCard));
-        if (!data.content.length) grid.innerHTML = emptyState("該当する動画はありません", "新着動画の取得後に表示されます。絞り込み条件も確認してください。");
-        el("videoSummary").textContent = `${data.totalElements}件`;
-        el("videoPage").textContent = data.totalPages ? `${data.number + 1} / ${data.totalPages}` : "0 / 0";
-        buttonEl("videoPrev").disabled = data.first || data.empty;
-        buttonEl("videoNext").disabled = data.last || data.empty;
-        onlineLastUpdatedAt = new Date();
-        renderRefreshStatus(el("videoRefreshStatus"), onlineLastUpdatedAt, false);
+        if (!data.content.length) grid.innerHTML = emptyState(section.empty, "新着動画の取得後に表示されます。絞り込み条件も確認してください。");
+        el(section.name + "Summary").textContent = `${data.totalElements}件`;
+        el(section.name + "Page").textContent = data.totalPages ? `${data.number + 1} / ${data.totalPages}` : "0 / 0";
+        buttonEl(section.name + "Prev").disabled = data.first || data.empty;
+        buttonEl(section.name + "Next").disabled = data.last || data.empty;
+        return true;
     } catch (error) {
-        if (request === onlineRequest) {
-            renderRefreshStatus(el("videoRefreshStatus"), onlineLastUpdatedAt, true);
-            if (showAlert) showError(errorMessage(error));
-        }
-    } finally { if (request === onlineRequest) setBusy(grid, false); }
+        if (request === section.request && showAlert) showError(errorMessage(error));
+        return false;
+    } finally { if (request === section.request) setBusy(grid, false); }
+}
+
+/** 3 段をまとめて読み直し、表示更新の時刻は全段が揃って成功したときだけ進める。
+ * @param {boolean} resetPage 絞り込みを変えたときは各段を先頭に戻す。自動更新では今のページを保つ
+ * @param {boolean} showAlert
+ */
+async function loadAllSections(resetPage, showAlert = true) {
+    if (resetPage) for (const section of videoSections) section.page = 0;
+    if (showAlert) clearError();
+    const results = await Promise.all(videoSections.map(section => loadOnlineVideos(section, showAlert)));
+    // 新しい読み直しに追い越された段は undefined を返す。その回の結果で表示時刻を決めない。
+    if (results.includes(undefined)) return;
+    const failed = results.includes(false);
+    if (!failed) onlineLastUpdatedAt = new Date();
+    renderRefreshStatus(el("videoRefreshStatus"), onlineLastUpdatedAt, failed);
 }
 
 async function loadVideoChannels() {
@@ -84,24 +98,25 @@ async function loadVideoChannels() {
 
 formEl("videoFilterForm").addEventListener("submit", event => {
     event.preventDefault();
-    onlinePage = 0;
     syncVideoUrl();
-    loadOnlineVideos();
+    loadAllSections(true);
 });
-buttonEl("videoPrev").addEventListener("click", () => {
-    if (onlinePage > 0) { onlinePage--; syncVideoUrl(); loadOnlineVideos(); }
-});
-buttonEl("videoNext").addEventListener("click", () => {
-    if (onlinePage + 1 < onlineTotalPages) { onlinePage++; syncVideoUrl(); loadOnlineVideos(); }
-});
+for (const section of videoSections) {
+    buttonEl(section.name + "Prev").addEventListener("click", () => {
+        if (section.page > 0) { section.page--; clearError(); loadOnlineVideos(section); }
+    });
+    buttonEl(section.name + "Next").addEventListener("click", () => {
+        if (section.page + 1 < section.totalPages) { section.page++; clearError(); loadOnlineVideos(section); }
+    });
+}
 buttonEl("refreshVideosBtn").addEventListener("click", async () => {
     await loadVideoChannels();
     syncVideoUrl(true);
-    await loadOnlineVideos();
+    await loadAllSections(true);
 });
-window.addEventListener("popstate", () => { restoreVideoUrl(); loadOnlineVideos(); });
-startVisibleRefresh(() => loadOnlineVideos(false));
-(async () => { await loadVideoChannels(); restoreVideoUrl(); await loadOnlineVideos(); })();
+window.addEventListener("popstate", () => { restoreVideoUrl(); loadAllSections(true); });
+startVisibleRefresh(() => loadAllSections(false, false));
+(async () => { await loadVideoChannels(); restoreVideoUrl(); await loadAllSections(true); })();
 
 // 共有画面なので、サーバーが返す権限で共通メニューを選ぶ。
 (async () => {

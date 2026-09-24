@@ -1177,14 +1177,19 @@ function openOnlineVideo(video) {
 function buildOnlineVideoCard(video) {
     const card = document.createElement("article");
     card.className = "videoCard onlineVideoCard";
-    const state = video.state === "LIVE" ? "配信中" : video.state === "UNKNOWN" ? "配信状態を確認中" : video.playable ? "動画・アーカイブ" : "配信終了・アーカイブ未取得";
+    const upcoming = video.contentKind === "UPCOMING";
+    const state = upcoming ? "配信予定" : video.state === "LIVE" ? "配信中" : video.state === "UNKNOWN" ? "配信状態を確認中" : video.playable ? "動画・アーカイブ" : "配信終了・アーカイブ未取得";
+    // 待機所の公開日時は枠を作った時刻で、視聴者が知りたいのは開始予定のほうなので差し替える。
+    const start = upcoming && video.scheduledStartTime ? new Date(video.scheduledStartTime) : null;
+    const when = !upcoming ? formatInstant(video.publishedAt) : !start || Number.isNaN(start.getTime()) ? "開始時刻不明"
+        : `${start.getMonth() + 1}/${start.getDate()}(${"日月火水木金土"[start.getDay()]}) ${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")} 開始予定`;
     card.innerHTML = `<button type="button" class="thumbLink onlinePlayButton" aria-label="${escapeHtml(video.title)}を再生" ${video.playable ? "" : "disabled"}>
         <img class="thumb" ${video.thumbnailRetryExhausted ? "hidden" : `src="${escapeHtml(video.thumbnailUrl)}"`} alt="" loading="lazy">
         <span class="thumbPlaceholder" ${video.thumbnailRetryExhausted ? "" : "hidden"}>${video.thumbnailRetryExhausted ? "サムネイル取得失敗" : "サムネイル取得待ち"}</span>
         <span class="onlinePlayMark" aria-hidden="true">▶</span>
         </button><div class="cardBody"><h3 class="cardTitle"><button type="button" class="onlineTitle" ${video.playable ? "" : "disabled"}>${escapeHtml(video.title)}</button></h3>
         <div class="muted">${escapeHtml(video.channelName)} · ${escapeHtml(video.platform)}</div>
-        <div class="muted">${escapeHtml(state)}</div><div class="muted">${escapeHtml(formatInstant(video.publishedAt))}</div></div>`;
+        <div class="muted">${escapeHtml(state)}</div><div class="muted">${escapeHtml(when)}</div></div>`;
     const thumbnail = query("img", card);
     if (!video.thumbnailRetryExhausted) {
         thumbnail.addEventListener("error", () => { thumbnail.hidden = true; query(".thumbPlaceholder", card).hidden = false; });

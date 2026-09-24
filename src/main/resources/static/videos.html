@@ -35,12 +35,11 @@
   <form id="videoFilterForm" class="inline">
     <label>検索 <input id="videoKeyword" type="search" placeholder="タイトル・チャンネル名" maxlength="200"></label>
     <label>チャンネル <select id="videoChannel"><option value="">すべて</option></select></label>
-    <label>表示 <select id="videoMode"><option value="all">すべて</option><option value="live">配信中</option></select></label>
     <button type="submit">検索</button>
   </form>
-  <p id="videoSummary" class="muted" role="status"></p>
-  <div id="onlineVideoGrid" class="videoGrid"></div>
-  <div class="inline"><button id="videoPrev">前へ</button><span id="videoPage" class="muted"></span><button id="videoNext">次へ</button></div>
+  <section class="videoSection"><h2>配信中・配信予定 <span class="muted" id="nowSummary"></span></h2><div id="nowGrid" class="videoGrid"></div><div class="inline"><button id="nowPrev">前へ</button><span id="nowPage" class="muted"></span><button id="nowNext">次へ</button></div></section>
+  <section class="videoSection"><h2>配信済み <span class="muted" id="streamsSummary"></span></h2><div id="streamsGrid" class="videoGrid"></div><div class="inline"><button id="streamsPrev">前へ</button><span id="streamsPage" class="muted"></span><button id="streamsNext">次へ</button></div></section>
+  <section class="videoSection"><h2>投稿済み <span class="muted" id="uploadsSummary"></span></h2><div id="uploadsGrid" class="videoGrid"></div><div class="inline"><button id="uploadsPrev">前へ</button><span id="uploadsPage" class="muted"></span><button id="uploadsNext">次へ</button></div></section>
   <p class="muted">新着動画は約10分ごとに取得します。収集を開始してから公開された動画と、監視中に見つかった配信を保存します。この一覧の収集では動画本体を保存しません（自動録画の設定は別です）。</p>
 </main>
 <script src="/js/common.js"></script>
