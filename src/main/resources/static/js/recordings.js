@@ -259,7 +259,7 @@
         const tr = document.createElement("tr");
         tr.innerHTML = `
             <td>${datetimeCell(r.startedAt)}</td>
-            <td>${channelLink(r.channelName, r.youtubeChannelId)}</td>
+            <td>${channelLink(r.channelName, r.channelUrl)}</td>
             <td><a href="/player.html?id=${r.id}">${escapeHtml(r.videoTitle)}</a></td>
             <td>${formatDuration(r.durationSeconds)}</td>
             <td>${formatFileSize(r.fileSizeBytes)}</td>

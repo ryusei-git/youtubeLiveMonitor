@@ -3,6 +3,7 @@ package com.example.monitor.dto;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.RecordingMark;
+import com.example.monitor.util.StreamLinkUtils;
 
 import java.time.LocalDateTime;
 
@@ -19,6 +20,8 @@ import java.time.LocalDateTime;
  * @param youtubeChannelId 録画対象チャンネルの YouTube チャンネル ID。未登録なら {@code null}
  * @param channelName    録画対象チャンネルの表示名。未登録の場合は
  *                       {@link #UNLINKED_CHANNEL_NAME}（画面に「-」とだけ出ると理由が分からないため）
+ * @param channelUrl     チャンネルページの URL。配信元ごとに形が違う（Twitch はログイン名から作る）ため
+ *                       サーバーで組み立てる。未登録、または Twitch でログイン名が無ければ {@code null}
  * @param videoId        配信の動画 ID
  * @param videoTitle     録画開始時点での配信タイトル
  * @param genre          タイトルの最初の {@code 【】} の中身。無ければ {@code null}
@@ -39,6 +42,7 @@ public record RecordingResponse(
         Long channelId,
         String youtubeChannelId,
         String channelName,
+        String channelUrl,
         String videoId,
         String videoTitle,
         String genre,
@@ -97,6 +101,8 @@ public record RecordingResponse(
                 channel == null ? null : channel.getId(),
                 channel == null ? null : channel.getYoutubeChannelId(),
                 channel == null ? UNLINKED_CHANNEL_NAME : channel.getChannelName(),
+                channel == null ? null : StreamLinkUtils.channelUrl(
+                        channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
                 recording.getVideoId(),
                 recording.getVideoTitle(),
                 recording.getGenre(),

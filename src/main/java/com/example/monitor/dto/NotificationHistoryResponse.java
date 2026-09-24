@@ -1,6 +1,8 @@
 package com.example.monitor.dto;
 
+import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.NotificationHistory;
+import com.example.monitor.util.StreamLinkUtils;
 
 import java.time.LocalDateTime;
 
@@ -13,6 +15,8 @@ import java.time.LocalDateTime;
  * @param id               履歴の主キー
  * @param youtubeChannelId 通知対象チャンネルの YouTube チャンネル ID
  * @param channelName      通知対象チャンネルの表示名
+ * @param channelUrl       チャンネルページの URL。配信元ごとに形が違う（Twitch はログイン名から作る）ため
+ *                         サーバーで組み立てる。Twitch でログイン名が無ければ {@code null}
  * @param videoId          配信の動画 ID
  * @param videoTitle       通知時点での配信タイトル
  * @param status           送信結果（{@code SUCCESS} または {@code FAILED}）
@@ -23,6 +27,7 @@ public record NotificationHistoryResponse(
         Long id,
         String youtubeChannelId,
         String channelName,
+        String channelUrl,
         String videoId,
         String videoTitle,
         String status,
@@ -37,10 +42,13 @@ public record NotificationHistoryResponse(
      * @return 変換後のレスポンス
      */
     public static NotificationHistoryResponse from(NotificationHistory history) {
+        MonitoredChannel channel = history.getChannel();
         return new NotificationHistoryResponse(
                 history.getId(),
-                history.getChannel().getYoutubeChannelId(),
-                history.getChannel().getChannelName(),
+                channel.getYoutubeChannelId(),
+                channel.getChannelName(),
+                StreamLinkUtils.channelUrl(
+                        channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
                 history.getVideoId(),
                 history.getVideoTitle(),
                 history.getStatus().name(),
