@@ -34,6 +34,8 @@ a { text-underline-offset: 3px; }
 .globalnav a { display: flex; align-items: center; gap: 12px; padding: 11px 13px; border: 0; border-radius: 9px; font-size: 13px; font-weight: 500; color: #5b5f6c; text-decoration: none; }
 .globalnav a:hover { background: #f4f3f9; color: var(--text); }
 .globalnav a.active { background: #eee9fc; color: #5839b6; font-weight: 700; box-shadow: none; border: 0; }
+.navGroupLabel { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .08em; margin-top: 14px; padding: 0 14px 6px; }
+.globalnav a.navChild { padding-left: 28px; }
 .navIcon { width: 19px; height: 19px; flex: 0 0 19px; }
 .globalnav a.navLogout { margin: auto 0 0; color: var(--text-muted); border-top: 1px solid var(--border); border-radius: 0; padding-top: 20px; }
 body:has(.globalnav) main.shell { margin: 0 0 0 210px; max-width: none; padding: 32px clamp(20px, 3vw, 48px) 56px; }
@@ -141,6 +143,8 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
     .globalnav a { padding: 9px 11px; font-size: 12px; flex-shrink: 0; gap: 7px; }
     .navIcon { width: 16px; height: 16px; flex-basis: 16px; }
     .globalnav a.navLogout { margin: 0; border: 0; padding: 9px 11px; }
+    .navGroupLabel { margin: 0; padding: 0 6px; white-space: nowrap; flex-shrink: 0; }
+    .globalnav a.navChild { padding-left: 11px; }
     body:has(.globalnav) main.shell { margin: 0; padding: 24px 16px 40px; }
     h1 { font-size: 23px; }
     .pageDescription { margin-bottom: 22px; }
