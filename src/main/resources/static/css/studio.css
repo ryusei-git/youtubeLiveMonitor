@@ -72,7 +72,8 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 .kpi .kpiValue { font-size: 30px; letter-spacing: -.04em; color: var(--text); }
 .kpi .kpiUnit { font-size: 12px; margin-left: 5px; }
 .kpi .kpiSub { font-size: 11px; margin-top: 8px; }
-.livePanel { margin-bottom: 26px; }
+/* 見出しの赤い点は配信中専用。配信予定（upcomingPanel）には付けない */
+.livePanel, .upcomingPanel { margin-bottom: 26px; }
 .livePanel h2::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #cb3754; margin-right: 9px; }
 .chartRow { gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 24px 0; }
 .chartCard { min-width: 0; border: 1px solid var(--border); border-radius: 12px; padding: 20px; }

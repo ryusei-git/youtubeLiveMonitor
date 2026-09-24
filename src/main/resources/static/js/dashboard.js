@@ -77,6 +77,59 @@ function renderRecordingStatusChart(status) {
 }
 
 /**
+ * 開始予定時刻を「今日 16:30」「明日 21:00」「9/30(水) 20:00」の形にする。
+ *
+ * <p>日付が近い予定は相対表記にして、利用者が日付を計算せず次の予定を把握できるようにする。
+ *
+ * @param {string|null} iso タイムゾーン無しの ISO 形式の日時。取得できなかった予定は null
+ * @returns {string} 表示用の文字列
+ */
+function formatScheduledStart(iso) {
+    if (!iso) return "開始時刻不明";
+    const start = new Date(iso);
+    const hm = `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const day = new Date(start);
+    day.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((day.getTime() - today.getTime()) / 86400000);
+    if (diffDays === 0) return `今日 ${hm}`;
+    if (diffDays === 1) return `明日 ${hm}`;
+    const weekday = "日月火水木金土"[start.getDay()];
+    return `${start.getMonth() + 1}/${start.getDate()}(${weekday}) ${hm}`;
+}
+
+/**
+ * 配信予定を開始時刻の近さで読み取れる一覧にする。
+ *
+ * <p>配信中の一覧と分けることで、待機所を配信開始と誤解せず、利用者が次の予定を把握できる。
+ *
+ * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string}>} streams 開始予定の早い順で返された配信予定
+ */
+function renderUpcomingStreams(streams) {
+    const box = el("upcomingStreams");
+    if (!streams || streams.length === 0) {
+        box.innerHTML = emptyState("配信予定はありません",
+            "監視中のチャンネルが YouTube で待機所を作ると、ここに開始予定の早い順で並びます。");
+        return;
+    }
+    const rows = streams.map(s => `
+        <tr>
+            <td>${statusLamp("idle", "予定")}</td>
+            <td title="${escapeHtml(s.scheduledStartTime ? formatDateTimeSimple(s.scheduledStartTime) : "")}">${escapeHtml(formatScheduledStart(s.scheduledStartTime))}</td>
+            <td>${escapeHtml(s.channelName)}</td>
+            <td>${externalLink(s.title ?? "（タイトル不明）", s.watchUrl)}</td>
+        </tr>`).join("");
+    box.innerHTML = `
+        <div class="table-scroll">
+            <table id="upcomingTable">
+                <thead><tr><th>状態</th><th>開始予定</th><th>チャンネル</th><th>タイトル</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+}
+
+/**
  * 判定に連続失敗しているチャンネルの警告を出す。
  * 該当が無い平常時は見出しごと隠し、画面を余計に占有しないようにする。
  *
@@ -228,9 +281,10 @@ let dashboardLastUpdatedAt = null;
 async function loadDashboard() {
     const request = ++dashboardRequest;
     try {
-        const [data, livePage] = await Promise.all([
+        const [data, livePage, upcoming] = await Promise.all([
             apiGet("/api/dashboard"),
             apiGet("/api/videos?liveOnly=true&size=100"),
+            apiGet("/api/channels/upcoming"),
         ]);
         if (request !== dashboardRequest) return;
         el("totalChannels").textContent = data.totalChannels;
@@ -253,6 +307,7 @@ async function loadDashboard() {
         bindDatetimeCells(startedAtCell);
 
         renderLiveVideoCards(el("liveVideos"), livePage);
+        renderUpcomingStreams(upcoming);
         dashboardLastUpdatedAt = new Date();
         renderRefreshStatus(el("dashboardRefreshStatus"), dashboardLastUpdatedAt, false);
     } catch {
