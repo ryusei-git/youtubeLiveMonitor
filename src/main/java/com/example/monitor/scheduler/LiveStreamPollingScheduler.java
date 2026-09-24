@@ -18,6 +18,7 @@ import com.example.monitor.util.ChannelLogContext;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -113,6 +114,14 @@ public class LiveStreamPollingScheduler {
     private final AtomicBoolean pollingInProgress = new AtomicBoolean(false);
 
     /**
+     * 監視を行うか。確認用の起動（{@code bin/preview.sh}）で {@code false} にし、本番と並べて
+     * 動かしても録画・通知が二重に起きないようにするため。初期値を {@code true} にしているのは、
+     * Spring を通さずに組み立てるテストでも今までどおり巡回させるため。
+     */
+    @Value("${monitor.scheduling.enabled:true}")
+    private boolean schedulingEnabled = true;
+
+    /**
      * 登録済みの全チャンネルを 1 巡する。設定された間隔で繰り返し呼ばれる。
      */
     @Scheduled(fixedDelayString = "${monitor.youtube.interval-seconds:120}", timeUnit = TimeUnit.SECONDS)
@@ -143,6 +152,10 @@ public class LiveStreamPollingScheduler {
      * @return 巡回を実行した場合 {@code true}。既に巡回中で見送った場合は {@code false}
      */
     private boolean runPollingCycle() {
+        if (!schedulingEnabled) {
+            log.debug("定期処理が無効（monitor.scheduling.enabled=false）のため、監視サイクルを行いません");
+            return false;
+        }
         if (!pollingInProgress.compareAndSet(false, true)) {
             log.info("既に監視サイクルが実行中のため、今回の実行は見送ります");
             return false;
