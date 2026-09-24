@@ -217,3 +217,14 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 /* 配信予定のチャンネル名の左に丸いアイコンを並べる。読み込み失敗時は背景色の丸だけが残る。 */
 .channelWithIcon { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .channelIcon { width: 24px; height: 24px; border-radius: 50%; flex: 0 0 24px; object-fit: cover; background: var(--border); }
+
+/* アーカイブ一覧の表示切り替えと印。押された状態は、選択中のメニューと同じ淡い紫で示す。 */
+.videoGrid[hidden] { display: none; }
+.viewToggle { display: inline-flex; }
+.viewToggle button:first-child { border-radius: 8px 0 0 8px; }
+.viewToggle button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
+.viewToggle button[aria-pressed="true"], .markBtn[aria-pressed="true"] { background: #eee9fc; border-color: #c0b4e6; color: #5839b6; }
+/* 印のボタンは空白なしで差し込まれるので、並びの間隔はボタン側に持たせる（.cardActions を変えると他画面のカードまで変わる） */
+.markBtn { font-size: 11px; min-height: 32px; padding: 5px 10px; margin-right: 6px; }
+td .markBtn { margin-right: 0; }
+.markBtn-favorite[aria-pressed="true"] { color: #b7791f; }

@@ -28,6 +28,11 @@ function renderDetail(rec) {
     const player = /** @type {HTMLVideoElement} */ (el("player"));
     // ファイル名に日本語や記号が入るため、パスとして安全な形に符号化する
     player.src = `/recordings/${encodeURI(rec.filePath)}`;
+    // 再生を始めた時点で「見た」とみなす（最後まで見たかは問わない。一覧で未視聴を探す目印にするため）。
+    // 印が付かなくても再生には関係ないので、失敗しても画面にエラーは出さない
+    player.addEventListener("play", () => {
+        apiPut(`/api/recordings/${rec.id}/watched`, { watched: true }).catch(() => {});
+    }, { once: true });
 
     query("#detailTable tbody").innerHTML = [
         detailRow("チャンネル", channelLink(rec.channelName, rec.youtubeChannelId)),

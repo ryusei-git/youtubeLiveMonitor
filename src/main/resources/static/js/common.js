@@ -23,6 +23,7 @@
  * @property {string} channelName チャンネルの表示名。未登録なら "(未登録チャンネル)"
  * @property {string} videoId 配信の動画ID
  * @property {string} videoTitle 録画開始時点の配信タイトル
+ * @property {string|null} genre タイトルの最初の【】の中身。無ければ null
  * @property {string} filePath 録画ディレクトリからの相対パス
  * @property {number|null} fileSizeBytes ファイルサイズ。録画中・失敗時は null
  * @property {number|null} durationSeconds 再生時間。未取得なら null
@@ -30,6 +31,8 @@
  * @property {"RECORDING"|"COMPLETED"|"PARTIAL"|"FAILED"} status 録画の状態
  * @property {string} startedAt 録画を開始した時刻（ISO形式）
  * @property {string|null} completedAt 完了・失敗した時刻。録画中は null
+ * @property {boolean} watched ログイン中の利用者が視聴済みにしたか
+ * @property {boolean} favorite ログイン中の利用者がお気に入りにしたか
  */
 
 /* ============================================================
@@ -580,9 +583,12 @@ function thumbnailContent(recording) {
  *        スクリーンリーダーにも「押せば何が起きるか」が伝わらない。
  *        ボタンにすることで Tab 移動・Enter/Space・読み上げのすべてが
  *        ブラウザの標準機能で揃う（実際に指摘を受けた）。
+ * @param {((recording: Recording, kind: RecordingMarkKind, button: HTMLButtonElement) => void)|null} onToggleMark
+ *        視聴済み・お気に入りのボタンを押したときの処理。渡したときだけボタンを出す
+ *        （印を扱うのはアーカイブ一覧だけで、利用者向けの画面や再生画面の関連一覧の見た目は変えないため）。
  * @returns {HTMLElement} カード要素
  */
-function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null) {
+function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null, onToggleMark = null) {
     const card = document.createElement("div");
     card.className = "videoCard";
 
@@ -628,21 +634,79 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null)
         playBtn.addEventListener("click", () => onPlay(recording, playBtn));
     }
 
+    if (onToggleMark) {
+        const actions = query(".cardActions", card);
+        actions.prepend(...RECORDING_MARK_KINDS.map((kind) => recordingMarkButton(recording, kind, onToggleMark)));
+    }
+
     const deleteBtn = card.querySelector(".deleteBtn");
     if (deleteBtn && onDelete) {
-        deleteBtn.addEventListener("click", async () => {
-            if (!confirm("この録画を削除しますか？（録画ファイルも一緒に削除されます）")) return;
-            try {
-                await apiDelete(`/api/recordings/${recording.id}`);
-                clearError();
-                showToast(`「${recording.videoTitle}」を削除しました`, "danger");
-                onDelete();
-            } catch (e) {
-                showError(errorMessage(e));
-            }
-        });
+        deleteBtn.addEventListener("click", () => deleteRecording(recording, onDelete));
     }
     return card;
+}
+
+/**
+ * 確認してから録画を削除する。アーカイブ一覧のカードと表の両方から呼ぶため、
+ * 確認文言・通知の出し方を 1 か所にまとめている。
+ *
+ * @param {Recording} recording 削除する録画
+ * @param {() => void} onDelete 削除後に呼ぶ処理
+ */
+async function deleteRecording(recording, onDelete) {
+    if (!confirm("この録画を削除しますか？（録画ファイルも一緒に削除されます）")) return;
+    try {
+        await apiDelete(`/api/recordings/${recording.id}`);
+        clearError();
+        showToast(`「${recording.videoTitle}」を削除しました`, "danger");
+        onDelete();
+    } catch (e) {
+        showError(errorMessage(e));
+    }
+}
+
+/** @typedef {"watched"|"favorite"} RecordingMarkKind 録画に付ける印の種類。API のパスと本文のキーを兼ねる */
+
+/** @type {RecordingMarkKind[]} */
+const RECORDING_MARK_KINDS = ["watched", "favorite"];
+
+/**
+ * 印ごとの表示。読み上げ名（name）は状態によらず固定にし、状態は aria-pressed で伝える。
+ * 見た目の文字（「視聴済み」/「未視聴」）まで読み上げ名にすると、押すたびに別のボタンに聞こえるため。
+ */
+const RECORDING_MARK_LABEL = {
+    watched: { name: "視聴済み", on: "視聴済み", off: "未視聴" },
+    favorite: { name: "お気に入り", on: "★", off: "☆" },
+};
+
+/**
+ * 印の切り替えボタンの表示を状態に合わせる。押した直後と失敗して戻すときの両方で使う。
+ *
+ * @param {HTMLButtonElement} button 対象のボタン
+ * @param {RecordingMarkKind} kind 印の種類
+ * @param {boolean} on 印が付いているか
+ */
+function renderRecordingMarkButton(button, kind, on) {
+    button.setAttribute("aria-pressed", String(on));
+    button.textContent = on ? RECORDING_MARK_LABEL[kind].on : RECORDING_MARK_LABEL[kind].off;
+}
+
+/**
+ * 印の切り替えボタンを作る。カードと表で同じ見た目・同じ操作にするため共通化している。
+ *
+ * @param {Recording} recording 対象の録画
+ * @param {RecordingMarkKind} kind 印の種類
+ * @param {(recording: Recording, kind: RecordingMarkKind, button: HTMLButtonElement) => void} onToggle 押したときの処理
+ * @returns {HTMLButtonElement} ボタン
+ */
+function recordingMarkButton(recording, kind, onToggle) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `markBtn markBtn-${kind}`;
+    button.setAttribute("aria-label", RECORDING_MARK_LABEL[kind].name);
+    renderRecordingMarkButton(button, kind, Boolean(recording[kind]));
+    button.addEventListener("click", () => onToggle(recording, kind, button));
+    return button;
 }
 
 /* ============================================================
