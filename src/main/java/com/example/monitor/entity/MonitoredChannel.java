@@ -127,6 +127,16 @@ public class MonitoredChannel {
     @Column(length = 512)
     private String channelIconUrl;
 
+    /**
+     * Twitch のログイン名（{@code twitch.tv/<ログイン名>}）。チャンネルページへのリンクを作るためだけに持つ。
+     *
+     * <p>ログイン名は配信者が変更できるため、監視の識別子には使わない（監視は {@link #youtubeChannelId} の
+     * ユーザー ID で行う）。改名に追従するよう、動画の収集のたびに取り直す。
+     * YouTube のチャンネルと、まだ取得できていない Twitch のチャンネルでは {@code null}。
+     */
+    @Column(length = 64)
+    private String channelLogin;
+
     /** 通知や録画が行われなかった理由を、ログを掘る前に確認できるようにする。 */
     @Column(length = 2048)
     private String lastDecision;

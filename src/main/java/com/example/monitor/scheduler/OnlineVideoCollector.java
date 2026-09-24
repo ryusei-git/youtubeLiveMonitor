@@ -37,7 +37,9 @@ public class OnlineVideoCollector {
     }
 
     public void collect() {
-        for (var channel : channels.findAll()) {
+        var all = channels.findAll();
+        refreshTwitchLogins(all);
+        for (var channel : all) {
             if (Thread.currentThread().isInterrupted()) return;
             try {
                 var since = tracker.querySince(channel);
@@ -65,6 +67,26 @@ public class OnlineVideoCollector {
             // APIのエラーURLにはキーが含まれうるので、例外本文をログに出さない。
             try { return youtubeUploads.fetch(channelId, since); }
             catch (java.io.IOException failure) { throw new java.io.IOException("フィード・公式APIとも新着動画を取得できません（設定・クォータを確認してください）"); }
+        }
+    }
+
+    /** ログイン名は改名されうるので、リンク用に毎回取り直す。失敗しても前の値を残し、収集は続ける。 */
+    private void refreshTwitchLogins(java.util.List<com.example.monitor.entity.MonitoredChannel> all) {
+        var twitchChannels = all.stream().filter(c -> c.getPlatform() == Platform.TWITCH).toList();
+        if (twitchChannels.isEmpty()) return;
+        try {
+            var logins = new java.util.HashMap<String, String>();
+            for (var user : twitch.findUsersByIds(twitchChannels.stream().map(c -> c.getYoutubeChannelId()).toList())) {
+                logins.put(user.id(), user.login());
+            }
+            for (var channel : twitchChannels) {
+                String login = logins.get(channel.getYoutubeChannelId());
+                if (login != null && !login.isBlank() && !login.equals(channel.getChannelLogin())) {
+                    channels.updateChannelLogin(channel.getId(), login);
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("Twitch のログイン名を取得できません（収集は継続）: reason={}", e.getMessage());
         }
     }
 

@@ -18,4 +18,10 @@ public final class StreamLinkUtils {
         return platform == Platform.YOUTUBE && channelId != null
                 ? "https://www.youtube.com/channel/" + channelId : null;
     }
+
+    /** TwitchのURLはユーザーIDでは開けないため、保存済みのログイン名があるときだけ作る。 */
+    public static String channelUrl(Platform platform, String channelId, String login) {
+        if (platform != Platform.TWITCH) return channelUrl(platform, channelId);
+        return login != null && !login.isBlank() ? "https://www.twitch.tv/" + login : null;
+    }
 }
