@@ -20,6 +20,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -125,6 +126,103 @@ class TwitchStreamPlatformTest {
                     .isInstanceOf(IllegalArgumentException.class);
 
             verifyNoInteractions(twitchApiClient);
+        }
+
+        @Test
+        @DisplayName("正常系：数字だけの入力がログイン名としてだけ見つかれば、そのログインのユーザーIDを返す")
+        void testMethod08() {
+            when(twitchApiClient.findUserByLogin("12345"))
+                    .thenReturn(Optional.of(new TwitchUser("500000001", "12345", "12345", null)));
+            when(twitchApiClient.findUsersByIds(List.of("12345"))).thenReturn(List.of());
+
+            assertThat(platform.normalizeChannelInput("12345")).isEqualTo("500000001");
+        }
+
+        @Test
+        @DisplayName("正常系：数字だけの入力がユーザーIDとしてだけ見つかれば、そのIDを返す")
+        void testMethod09() {
+            when(twitchApiClient.findUserByLogin("12826")).thenReturn(Optional.empty());
+            when(twitchApiClient.findUsersByIds(List.of("12826")))
+                    .thenReturn(List.of(new TwitchUser("12826", "testuser", "TestUser", null)));
+
+            assertThat(platform.normalizeChannelInput("12826")).isEqualTo("12826");
+        }
+
+        @Test
+        @DisplayName("正常系：数字だけの入力がログイン名とIDの両方で同じチャンネルに当たれば、そのIDを返す")
+        void testMethod10() {
+            TwitchUser user = new TwitchUser("12345", "12345", "12345", null);
+            when(twitchApiClient.findUserByLogin("12345")).thenReturn(Optional.of(user));
+            when(twitchApiClient.findUsersByIds(List.of("12345"))).thenReturn(List.of(user));
+
+            assertThat(platform.normalizeChannelInput("12345")).isEqualTo("12345");
+        }
+
+        @Test
+        @DisplayName("異常系：数字だけの入力がログイン名とIDで別のチャンネルに当たれば、URLでの指定を促す例外を投げる")
+        void testMethod11() {
+            // 実例：xQc のユーザーID 71092938 は、同じ数字をログイン名に持つ別アカウントもあった。
+            // どちらかを黙って選ぶと、利用者に別人を購読させてしまう
+            when(twitchApiClient.findUserByLogin("71092938"))
+                    .thenReturn(Optional.of(new TwitchUser("500000001", "71092938", "71092938", null)));
+            when(twitchApiClient.findUsersByIds(List.of("71092938")))
+                    .thenReturn(List.of(new TwitchUser("71092938", "xqc", "xQc", null)));
+
+            // 貼られた数字は一覧のユーザーIDである可能性が高いため、IDで当たった方のURLを案内する
+            assertThatThrownBy(() -> platform.normalizeChannelInput("71092938"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("https://www.twitch.tv/xqc");
+        }
+
+        @Test
+        @DisplayName("異常系：数字だけの入力がログイン名でもIDでも見つからなければ例外を投げる")
+        void testMethod12() {
+            when(twitchApiClient.findUserByLogin("12345")).thenReturn(Optional.empty());
+            when(twitchApiClient.findUsersByIds(List.of("12345"))).thenReturn(List.of());
+
+            assertThatThrownBy(() -> platform.normalizeChannelInput("12345"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("見つかりませんでした");
+        }
+
+        @Test
+        @DisplayName("異常系：数字だけでないログイン名が見つからなければ、IDとしては問い合わせずに例外を投げる")
+        void testMethod13() {
+            // 数字を含んでいても、数字だけでなければユーザーIDではありえない
+            when(twitchApiClient.findUserByLogin("notfound2026")).thenReturn(Optional.empty());
+
+            // 文言も見る：数字の判定を誤ると NumberFormatException（IllegalArgumentException の子）になり、型だけでは区別できない
+            assertThatThrownBy(() -> platform.normalizeChannelInput("notfound2026"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("見つかりませんでした");
+            verify(twitchApiClient, never()).findUsersByIds(anyList());
+        }
+
+        @Test
+        @DisplayName("異常系：32ビット整数に収まらない数字はIDとして問い合わせず、ログイン名で見つからなければ例外を投げる")
+        void testMethod14() {
+            // Twitch は 32 ビット整数に収まらない ID を HTTP 400 で拒む。問い合わせると、
+            // 存在しないだけの入力が「見つかりませんでした」ではなくサーバーエラーになる
+            String input = String.valueOf(Integer.MAX_VALUE + 1L);
+            when(twitchApiClient.findUserByLogin(input)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> platform.normalizeChannelInput(input))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("見つかりませんでした");
+            verify(twitchApiClient, never()).findUsersByIds(anyList());
+        }
+
+        @Test
+        @DisplayName("正常系：URLや@付きの入力は、中身が数字でもログイン名としてだけ探す")
+        void testMethod15() {
+            // Twitch の URL はログイン名でしか開けない。曖昧なときに案内する URL で
+            // 1 つに決まるよう、ID としては探さない
+            when(twitchApiClient.findUserByLogin("12345"))
+                    .thenReturn(Optional.of(new TwitchUser("500000001", "12345", "12345", null)));
+
+            assertThat(platform.normalizeChannelInput("https://www.twitch.tv/12345")).isEqualTo("500000001");
+            assertThat(platform.normalizeChannelInput("@12345")).isEqualTo("500000001");
+            verify(twitchApiClient, never()).findUsersByIds(anyList());
         }
     }
 
