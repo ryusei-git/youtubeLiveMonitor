@@ -14,6 +14,7 @@ import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
+import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
@@ -80,6 +81,12 @@ class VideoDownloadServiceTest {
     @Mock
     private MonitoredChannelRepository monitoredChannelRepository;
 
+    @Mock
+    private AppUserRepository appUserRepository;
+
+    @Mock
+    private AuditLogger auditLogger;
+
     @BeforeEach
     void stubAsyncCompletionPath() {
         // 完了待ちは別の仮想スレッドで動くため、テストスレッドの進行とは無関係に
@@ -98,7 +105,8 @@ class VideoDownloadServiceTest {
                 new MonitorProperties.AdminProperties("admin", ""));
         return new VideoDownloadService(properties, streamPlatformRegistry, videoSourceProbe,
                 processLauncher, recordingHistoryService, recordingSalvager,
-                recordingRepository, monitoredChannelRepository, new ActiveVideoJobs());
+                recordingRepository, monitoredChannelRepository, appUserRepository, auditLogger,
+                new ActiveVideoJobs());
     }
 
     /**
@@ -121,7 +129,8 @@ class VideoDownloadServiceTest {
                 new MonitorProperties.AdminProperties("admin", ""));
         return new VideoDownloadService(properties, streamPlatformRegistry, videoSourceProbe,
                 processLauncher, recordingHistoryService, recordingSalvager,
-                recordingRepository, monitoredChannelRepository, activeVideoJobs);
+                recordingRepository, monitoredChannelRepository, appUserRepository, auditLogger,
+                activeVideoJobs);
     }
 
     /**

@@ -3,18 +3,23 @@ package com.example.monitor.service;
 import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.dto.DownloadResponse;
 import com.example.monitor.dto.VideoSource;
+import com.example.monitor.entity.AppUser;
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
+import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.ChannelLogContext;
 import com.example.monitor.util.ProcessTermination;
+import com.example.monitor.util.RequestContext;
 import com.example.monitor.util.YtDlpFormatSelector;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -84,6 +89,8 @@ public class VideoDownloadService {
     private final RecordingSalvager recordingSalvager;
     private final RecordingRepository recordingRepository;
     private final MonitoredChannelRepository monitoredChannelRepository;
+    private final AppUserRepository appUserRepository;
+    private final AuditLogger auditLogger;
 
     /**
      * ダウンロード中の動画 ID の予約。同じ動画を二重にダウンロードしないために使う。
@@ -147,6 +154,7 @@ public class VideoDownloadService {
 
             DownloadResponse accepted = launch(platform, source, url);
             started = true;
+            recordDownloadRequest(accepted, url);
             return accepted;
         } finally {
             if (!started) {
@@ -167,6 +175,25 @@ public class VideoDownloadService {
      */
     public boolean isDownloading(String videoId) {
         return activeVideoJobs.isActive(videoId);
+    }
+
+    /**
+     * URL 指定ダウンロードの要求を監査ログへ記録する。
+     *
+     * <p>{@code MonitoredChannelService.recordChannelAction()} と同じ考え方で操作者を解決する。
+     * {@code rawUrl} は利用者が入力した動画の URL そのものであり、認証情報を含まないため
+     * そのまま {@code detail} に残してよい。
+     *
+     * @param accepted 受け付けたダウンロードの内容
+     * @param rawUrl   利用者が入力した動画の URL
+     */
+    private void recordDownloadRequest(DownloadResponse accepted, String rawUrl) {
+        String username = RequestContext.currentUsername();
+        Long userId = username == null ? null
+                : appUserRepository.findByUsername(username).map(AppUser::getId).orElse(null);
+        auditLogger.record(AuditAction.DOWNLOAD_REQUEST, AuditOutcome.SUCCESS, userId, username, null,
+                "RECORDING", String.valueOf(accepted.recordingId()),
+                "url=" + rawUrl + ", video=" + accepted.videoId());
     }
 
     /**
