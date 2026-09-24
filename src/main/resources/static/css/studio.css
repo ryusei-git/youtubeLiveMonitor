@@ -228,3 +228,23 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 .markBtn { font-size: 11px; min-height: 32px; padding: 5px 10px; margin-right: 6px; }
 td .markBtn { margin-right: 0; }
 .markBtn-favorite[aria-pressed="true"] { color: #b7791f; }
+
+/* ダッシュボードの「リソース」。カードは項目数（5）が上の KPI（4）と違うため、列数を幅に任せる。 */
+.kpiGrid.resourceGrid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 16px; }
+.resourceGrid .kpiValue { font-size: 22px; }
+.resourceGrid .kpiUnit { white-space: nowrap; }
+.resourceRate { display: block; font-size: 16px; }
+.resourceMeter { height: 6px; margin-top: 10px; }
+/* 注意の対象になっている値は、枠と値を警告の色にして先頭の警告文と対応づける。 */
+.kpi.is-warning { border-color: var(--danger); }
+.kpi.is-warning .kpiValue, .kpi.is-warning .kpiLabel { color: var(--danger); }
+.resourceWarning { font-size: 16px; font-weight: 700; margin: 0 0 12px; }
+.processChild { padding-left: 1.2em; }
+.resourceCharts { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
+.lineChart svg { display: block; width: 100%; height: auto; }
+.lineChart + .lineChart { margin-top: 12px; }
+.lineGrid { stroke: var(--border); stroke-width: 1; }
+.lineAxis { font-size: 9px; fill: var(--text-muted); }
+.lineLegend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; margin-top: 6px; }
+.lineLegend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lineLegend em { width: 12px; height: 3px; border-radius: 2px; }
