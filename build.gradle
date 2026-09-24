@@ -47,6 +47,9 @@ dependencies {
     // Discord Webhook
     implementation 'club.minnced:discord-webhooks:0.8.4'
 
+    // リソース計測（端末全体・プロセスごとの CPU / メモリ）
+    implementation 'com.github.oshi:oshi-core:7.6.1'
+
     // Configuration
     implementation 'org.springframework.boot:spring-boot-configuration-processor'
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
@@ -85,6 +88,14 @@ jacocoTestReport {
 // bootJar（実行可能jar）のみ生成し、紛らわしい -plain.jar は作らない
 tasks.named('jar') {
     enabled = false
+}
+
+// OSHI が使う JNA はネイティブライブラリを読み込むため、JDK 22 以降は起動のたびに
+// 「restricted method が呼ばれた」警告がログに出る。起動コマンドを変えずに許可するため jar に書く
+tasks.named('bootJar') {
+    manifest {
+        attributes 'Enable-Native-Access': 'ALL-UNNAMED'
+    }
 }
 
 // JavaDoc（./gradlew javadoc で build/docs/javadoc に生成）
