@@ -710,6 +710,124 @@ function recordingMarkButton(recording, kind, onToggle) {
 }
 
 /* ============================================================
+   再生
+   ============================================================ */
+
+/**
+ * ロック画面・通知・キーボードのメディアキーに、再生中の録画の情報と操作を出す。
+ *
+ * 画面を消したり別のアプリへ切り替えたりしたとき、ブラウザの外から一時停止・再開・早送りが
+ * できないと、録画を聞き続ける使い方が成り立たないため。
+ * Media Session API に対応していないブラウザでは何もしない（出なくても再生そのものは変わらない）。
+ *
+ * @param {HTMLVideoElement} video 操作の対象
+ * @param {{title: string, artist: string, artworkUrl: string|null}} metadata
+ *        題名（配信タイトル）・アーティスト（チャンネル名）・画像の URL（サムネイルが無ければ null）
+ */
+function bindMediaSession(video, metadata) {
+    if (!("mediaSession" in navigator)) return;
+    const session = navigator.mediaSession;
+    session.metadata = new MediaMetadata({
+        title: metadata.title,
+        artist: metadata.artist,
+        artwork: metadata.artworkUrl ? [{ src: metadata.artworkUrl }] : [],
+    });
+
+    /** @param {number} seconds 進める秒数（負なら戻す）。先頭より前・末尾より後へは行かない */
+    const seekBy = (seconds) => {
+        video.currentTime = Math.min(Math.max(0, video.currentTime + seconds), video.duration);
+    };
+    /** @type {Array<[MediaSessionAction, MediaSessionActionHandler]>} */
+    const handlers = [
+        // 直後の一時停止で中断された等の失敗は、再生されないこと自体で分かるため何も出さない
+        ["play", () => { video.play().catch(() => {}); }],
+        ["pause", () => video.pause()],
+        ["seekbackward", (details) => seekBy(-(details.seekOffset ?? 10))],
+        ["seekforward", (details) => seekBy(details.seekOffset ?? 10)],
+        ["seekto", (details) => {
+            if (details.seekTime !== undefined) video.currentTime = details.seekTime;
+        }],
+    ];
+    for (const [action, handler] of handlers) {
+        // 未対応の操作を渡すと例外を投げるブラウザがある。出せる操作だけ出せればよいので 1 つずつ無視する
+        try {
+            session.setActionHandler(action, handler);
+        } catch {
+            // 未対応の操作
+        }
+    }
+
+    // ロック画面のシークバーを実際の再生位置に合わせる。長さが分かる前（読み込み前）は渡せない
+    const updatePosition = () => {
+        if (!Number.isFinite(video.duration)) return;
+        try {
+            session.setPositionState({
+                duration: video.duration,
+                playbackRate: video.playbackRate,
+                position: video.currentTime,
+            });
+        } catch {
+            // setPositionState の無いブラウザ。位置が出ないだけで操作はできる
+        }
+    };
+    for (const type of ["loadedmetadata", "seeked", "ratechange", "play", "pause"]) {
+        video.addEventListener(type, updatePosition);
+    }
+}
+
+/**
+ * Safari の独自の小窓 API。lib.dom に型が無いため、使う分だけ補う。
+ * Safari 以外には無いので、webkitSupportsPresentationMode の有無を確かめてから使う。
+ *
+ * @typedef {object} WebkitPresentationVideo
+ * @property {((mode: string) => boolean)|undefined} webkitSupportsPresentationMode 指定の表示方法に対応しているか
+ * @property {(mode: string) => void} webkitSetPresentationMode 表示方法を切り替える
+ * @property {string} webkitPresentationMode 今の表示方法（"inline"・"picture-in-picture"・"fullscreen"）
+ */
+
+/**
+ * 小窓（Picture-in-Picture）の切り替えボタンを動画に結びつける。
+ *
+ * ほかのアプリやタブを見ながら再生を続けるため。ブラウザ標準の小窓は Chrome ではメニューの奥にあって
+ * 気づきにくいので、ボタンとして画面に出す。標準の API が無い Safari は独自の API で切り替え、
+ * どちらも無いブラウザではボタンを隠す（押しても何も起きないボタンを出さないため）。
+ *
+ * @param {HTMLButtonElement} button 切り替えボタン（最初の文言は「小窓で再生」にしておく）
+ * @param {HTMLVideoElement} video 小窓にする動画
+ */
+function bindPictureInPictureButton(button, video) {
+    /** @param {boolean} active 小窓の表示中か */
+    const render = (active) => { button.textContent = active ? "小窓を閉じる" : "小窓で再生"; };
+    const safari = /** @type {HTMLVideoElement & WebkitPresentationVideo} */ (video);
+    /** @type {() => unknown} */
+    let toggle;
+    if (document.pictureInPictureEnabled && !video.disablePictureInPicture) {
+        video.addEventListener("enterpictureinpicture", () => render(true));
+        video.addEventListener("leavepictureinpicture", () => render(false));
+        toggle = () => (document.pictureInPictureElement === video
+            ? document.exitPictureInPicture()
+            : video.requestPictureInPicture());
+    } else if (typeof safari.webkitSupportsPresentationMode === "function"
+            && safari.webkitSupportsPresentationMode("picture-in-picture")) {
+        const inPictureInPicture = () => safari.webkitPresentationMode === "picture-in-picture";
+        video.addEventListener("webkitpresentationmodechanged", () => render(inPictureInPicture()));
+        toggle = () => safari.webkitSetPresentationMode(inPictureInPicture() ? "inline" : "picture-in-picture");
+    } else {
+        button.hidden = true;
+        return;
+    }
+    button.addEventListener("click", async () => {
+        try {
+            await toggle();
+        } catch (e) {
+            // 読み込み前に押した等。ブラウザが理由を返すのでそのまま見せる
+            showError(errorMessage(e));
+        }
+    });
+    button.hidden = false;
+}
+
+/* ============================================================
    グラフ
    チャート用ライブラリは入れず、素の SVG を組み立てる。
    必要なのはドーナツと横棒だけで依存を増やす理由が無く、色を CSS カスタムプロパティで
