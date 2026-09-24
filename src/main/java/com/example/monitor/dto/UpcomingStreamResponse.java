@@ -22,6 +22,7 @@ import java.time.LocalDateTime;
  * @param scheduledStartTime 開始予定時刻。取得できなかった場合は {@code null}
  * @param watchUrl 配信予定の視聴 URL
  * @param genre タイトルの最初の {@code 【】} から求めたジャンル。求められない場合は {@code null}
+ * @param channelIconUrl チャンネルのアイコン URL。まだ読み取れていない場合は {@code null}
  */
 public record UpcomingStreamResponse(
         Long channelId,
@@ -32,7 +33,8 @@ public record UpcomingStreamResponse(
         String title,
         LocalDateTime scheduledStartTime,
         String watchUrl,
-        String genre
+        String genre,
+        String channelIconUrl
 ) {
 
     /**
@@ -54,6 +56,7 @@ public record UpcomingStreamResponse(
                 channel.getUpcomingTitle(),
                 channel.getUpcomingScheduledStartTime(),
                 YouTubeWatchUrl.of(channel.getUpcomingVideoId()),
-                TitleGenreExtractor.extract(channel.getUpcomingTitle()));
+                TitleGenreExtractor.extract(channel.getUpcomingTitle()),
+                channel.getChannelIconUrl());
     }
 }

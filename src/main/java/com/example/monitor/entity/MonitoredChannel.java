@@ -117,6 +117,16 @@ public class MonitoredChannel {
     /** {@link #upcomingVideoId} の開始予定時刻。取得できなかった場合は {@code null}。 */
     private LocalDateTime upcomingScheduledStartTime;
 
+    /**
+     * チャンネルのアイコン URL。巡回で取得している {@code /live} の HTML から読み取る
+     * （配信していなければ {@code og:image}、動画ページなら {@code videoOwnerRenderer}）。
+     *
+     * <p>{@code null} はまだ読み取れていないか、Twitch のチャンネル（扱っていない）であることを表す。
+     * 一度読めた値は、後で読めなかった回があっても消さない（一時的な失敗で表示を欠かさないため）。
+     */
+    @Column(length = 512)
+    private String channelIconUrl;
+
     /** 通知や録画が行われなかった理由を、ログを掘る前に確認できるようにする。 */
     @Column(length = 2048)
     private String lastDecision;

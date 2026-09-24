@@ -32,10 +32,12 @@ import java.time.LocalDateTime;
  * @param watchUrl 配信の視聴 URL。録画時に {@code yt-dlp} へ渡す URL でもある。
  *                 {@link DetectionStatus#LIVE} 以外では {@code null}
  * @param scheduledStartTime 配信開始予定時刻。待機所で取得できなかった場合は {@code null}
+ * @param channelIconUrl チャンネルのアイコン URL。YouTube の検知だけが入れる。
+ *                       読み取れなかった場合は {@code null}
  */
 public record LiveStreamDetection(
         DetectionStatus status, String videoId, String title, String category, String watchUrl,
-        LocalDateTime scheduledStartTime) {
+        LocalDateTime scheduledStartTime, String channelIconUrl) {
 
     /** 判定の結果。 */
     public enum DetectionStatus {
@@ -59,7 +61,7 @@ public record LiveStreamDetection(
      * @return 判定結果
      */
     public static LiveStreamDetection live(String videoId, String title, String category, String watchUrl) {
-        return new LiveStreamDetection(DetectionStatus.LIVE, videoId, title, category, watchUrl, null);
+        return new LiveStreamDetection(DetectionStatus.LIVE, videoId, title, category, watchUrl, null, null);
     }
 
     /**
@@ -73,7 +75,7 @@ public record LiveStreamDetection(
      */
     public static LiveStreamDetection upcoming(
             String videoId, String title, String watchUrl, LocalDateTime scheduledStartTime) {
-        return new LiveStreamDetection(DetectionStatus.UPCOMING, videoId, title, null, watchUrl, scheduledStartTime);
+        return new LiveStreamDetection(DetectionStatus.UPCOMING, videoId, title, null, watchUrl, scheduledStartTime, null);
     }
 
     /**
@@ -82,7 +84,7 @@ public record LiveStreamDetection(
      * @return 判定結果
      */
     public static LiveStreamDetection notLive() {
-        return new LiveStreamDetection(DetectionStatus.NOT_LIVE, null, null, null, null, null);
+        return new LiveStreamDetection(DetectionStatus.NOT_LIVE, null, null, null, null, null, null);
     }
 
     /**
@@ -91,7 +93,20 @@ public record LiveStreamDetection(
      * @return 判定結果
      */
     public static LiveStreamDetection failed() {
-        return new LiveStreamDetection(DetectionStatus.DETECTION_FAILED, null, null, null, null, null);
+        return new LiveStreamDetection(DetectionStatus.DETECTION_FAILED, null, null, null, null, null, null);
+    }
+
+    /**
+     * アイコンの URL だけを差し替えた結果を返す。
+     *
+     * <p>ファクトリの引数に足さずにこの形にしたのは、アイコンを読むのが YouTube の検知だけで、
+     * Twitch 側やテストの呼び出しまで直す必要をなくすため。
+     *
+     * @param channelIconUrl チャンネルのアイコン URL。読み取れなかった場合は {@code null}
+     * @return アイコン以外は同じ値を持つ判定結果
+     */
+    public LiveStreamDetection withChannelIcon(String channelIconUrl) {
+        return new LiveStreamDetection(status, videoId, title, category, watchUrl, scheduledStartTime, channelIconUrl);
     }
 
     /**

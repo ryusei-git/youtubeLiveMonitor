@@ -73,6 +73,16 @@ public class LiveStreamDetector {
     /** 待機所ページの JSON に含まれる開始予定時刻（エポック秒）。 */
     private static final Pattern SCHEDULED_START_TIME = Pattern.compile("\"scheduledStartTime\":\"(\\d+)\"");
 
+    /**
+     * 動画ページ（配信中・待機所）に埋め込まれた、配信者のアイコン URL。
+     * 動画ページの {@code og:image} は動画のサムネイルなので使えない。
+     */
+    private static final Pattern VIDEO_OWNER_ICON = Pattern.compile(
+            "\"videoOwnerRenderer\":\\{\"thumbnail\":\\{\"thumbnails\":\\[\\{\"url\":\"([^\"]+)\"");
+
+    /** アイコン画像のサイズ指定（{@code =s900-} など）。 */
+    private static final Pattern ICON_SIZE = Pattern.compile("=s\\d+-");
+
     /** ブラウザ以外からのアクセスとみなされて簡易版 HTML を返されるのを避けるための User-Agent。 */
     private static final String BROWSER_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
@@ -147,10 +157,14 @@ public class LiveStreamDetector {
         Matcher matcher = VIDEO_ID_IN_URL.matcher(canonicalUrl);
         if (!matcher.find()) {
             log.debug("配信していません: channel={}", youtubeChannelId);
-            return LiveStreamDetection.notLive();
+            // 配信していないときはチャンネルページが返るので、og:image がチャンネルのアイコンになる
+            return LiveStreamDetection.notLive().withChannelIcon(
+                    normalizeIconUrl(document.select("meta[property=og:image]").attr("content")));
         }
 
         String videoId = matcher.group(1);
+        Matcher iconMatcher = VIDEO_OWNER_ICON.matcher(html);
+        String channelIconUrl = iconMatcher.find() ? normalizeIconUrl(iconMatcher.group(1)) : null;
 
         if (html.contains(UPCOMING_MARKER)) {
             Matcher scheduledStartMatcher = SCHEDULED_START_TIME.matcher(html);
@@ -166,13 +180,32 @@ public class LiveStreamDetector {
             log.debug("配信はまだ開始していません（待機所）: channel={}, video={}, scheduledStartTime={}",
                     youtubeChannelId, videoId, scheduledStartTime);
             return LiveStreamDetection.upcoming(videoId, title.isBlank() ? null : title,
-                    YouTubeWatchUrl.of(videoId), scheduledStartTime);
+                    YouTubeWatchUrl.of(videoId), scheduledStartTime).withChannelIcon(channelIconUrl);
         }
 
         String title = document.select("meta[name=title]").attr("content");
         log.debug("配信中を検知しました: channel={}, video={}", youtubeChannelId, videoId);
         // カテゴリは null。YouTube には配信ごとにカテゴリを申告する項目が無い
         return LiveStreamDetection.live(
-                videoId, title.isBlank() ? null : title, null, YouTubeWatchUrl.of(videoId));
+                videoId, title.isBlank() ? null : title, null, YouTubeWatchUrl.of(videoId))
+                .withChannelIcon(channelIconUrl);
+    }
+
+    /**
+     * 読み取ったアイコン URL を、保存してよい形に揃える。
+     *
+     * <p>アイコンが読めないことは判定失敗にしない（表示が欠けるだけで、配信の判定には関係ないため）。
+     * YouTube のアイコン配信ホスト以外を弾くのは、動画サムネイルなど別の画像を取り違えないため。
+     * サイズを {@code s88} に揃えるのは、{@code og:image} は 900px と大きすぎ、
+     * {@code videoOwnerRenderer} は 48px と小さすぎるため（表示サイズの 2 倍）。
+     *
+     * @param url HTML から読み取った URL。空文字の場合もある
+     * @return 揃えた URL。アイコンとみなせない場合は {@code null}
+     */
+    private static String normalizeIconUrl(String url) {
+        if (!url.startsWith("https://yt3.ggpht.com/") && !url.startsWith("https://yt3.googleusercontent.com/")) {
+            return null;
+        }
+        return ICON_SIZE.matcher(url).replaceFirst("=s88-");
     }
 }
