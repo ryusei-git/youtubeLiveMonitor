@@ -28,7 +28,7 @@ a { text-underline-offset: 3px; }
 .brand::before { content: '▶'; display: grid; place-items: center; background: var(--navy-800); color: #fff; width: 34px; height: 34px; border-radius: 10px; font-size: 15px; padding-left: 2px; }
 .brand-name { font-size: 16px; font-weight: 800; letter-spacing: .035em; color: var(--text); }
 .brand-sub { border-left: 1px solid var(--border); padding-left: 20px; font-size: 12px; color: var(--text-muted); letter-spacing: .02em; }
-.globalnav { position: fixed; top: 68px; bottom: 0; left: 0; width: 210px; border-right: 1px solid var(--border); border-bottom: 0; background: #fff; z-index: 20; overflow-y: auto; }
+.globalnav { position: fixed; top: 68px; bottom: 0; left: 0; width: 236px; border-right: 1px solid var(--border); border-bottom: 0; background: #fff; z-index: 20; overflow-y: auto; }
 .globalnav .shell { display: flex; flex-direction: column; gap: 5px; padding: 26px 14px; min-height: 100%; }
 .globalnav .shell::before { content: 'ワークスペース'; font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 0 14px 12px; letter-spacing: .08em; }
 .globalnav a { display: flex; align-items: center; gap: 12px; padding: 11px 13px; border: 0; border-radius: 9px; font-size: 13px; font-weight: 500; color: #5b5f6c; text-decoration: none; }
@@ -38,7 +38,7 @@ a { text-underline-offset: 3px; }
 .globalnav a.navChild { padding-left: 28px; }
 .navIcon { width: 19px; height: 19px; flex: 0 0 19px; }
 .globalnav a.navLogout { margin: auto 0 0; color: var(--text-muted); border-top: 1px solid var(--border); border-radius: 0; padding-top: 20px; }
-body:has(.globalnav) main.shell { margin: 0 0 0 210px; max-width: none; padding: 32px clamp(20px, 3vw, 48px) 56px; }
+body:has(.globalnav) main.shell { margin: 0 0 0 236px; max-width: none; padding: 32px clamp(20px, 3vw, 48px) 56px; }
 main.shell > * { min-width: 0; }
 h1 { font-size: 26px; letter-spacing: -.04em; font-weight: 750; color: var(--text); border: 0; padding: 0; margin: 0; line-height: 1.5; }
 h2 { font-size: 16px; color: var(--text); border: 0; padding: 0; margin: 26px 0 14px; letter-spacing: -.02em; }
@@ -119,8 +119,8 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 .skipLink { position: fixed; top: -80px; left: 20px; z-index: 100; background: #fff; padding: 12px; border: 2px solid var(--link); }
 .skipLink:focus { top: 10px; }
 @media (max-width: 1150px) {
-    .globalnav { width: 180px; }
-    body:has(.globalnav) main.shell { margin-left: 180px; padding: 24px; }
+    /* 「登録済みチャンネル一覧」を一行で収めるため、幅は狭めない（236px が下限） */
+    body:has(.globalnav) main.shell { padding: 24px; }
     .brand-sub { display: none; }
     .kpi { padding: 16px; }
     .kpi .kpiValue { font-size: 25px; }
