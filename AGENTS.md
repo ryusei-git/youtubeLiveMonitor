@@ -112,8 +112,8 @@ gh api graphql -f query='{repository(owner:"ryusei-git",name:"youtubeLiveMonitor
 
 ## 踏み抜きやすい落とし穴
 
-実際に壊れた事例と再発防止の決まりは **[docs/pitfalls.md](docs/pitfalls.md)** にある
-。毎回全文を読む必要はないが、**触る領域に該当するものは着手前に読むこと。**
+実際に壊れた事例と再発防止の決まりは **[docs/pitfalls.md](docs/pitfalls.md)** にある。
+毎回全文を読む必要はないが、**触る領域に該当するものは着手前に読むこと。**
 ここに載っているのは、読まずに踏んで時間を溶かした実例そのもの。
 
 **検知・通知（配信の状態を扱うとき）**
