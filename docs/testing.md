@@ -1,7 +1,8 @@
 # テストの書き方
 
 ```bash
-./gradlew test                 # 実行。build/reports/jacoco/test/html/index.html にカバレッジも生成される
+./gradlew test                 # 実行（カバレッジのレポートは作らない）
+./gradlew test jacocoTestReport   # カバレッジのレポートも作る（build/reports/jacoco/test/html/index.html）
 ./gradlew test --tests "com.example.monitor.service.*"   # パッケージ単位で実行
 ```
 

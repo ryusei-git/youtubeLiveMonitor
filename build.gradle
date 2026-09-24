@@ -51,13 +51,17 @@ dependencies {
     implementation 'com.github.oshi:oshi-core:7.6.1'
 
     // Configuration
-    implementation 'org.springframework.boot:spring-boot-configuration-processor'
+    // configuration-processor と Lombok はコンパイル時に働くだけで（設定の説明の JSON・getter などを生成する）、
+    // 生成後のクラスは参照しない。implementation だと実行用の jar（BOOT-INF/lib）に入って無駄なので入れない（#194）
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
     implementation 'me.paulschwarz:spring-dotenv:4.0.0'
 
     // Utilities
-    implementation 'org.projectlombok:lombok:1.18.30'
+    // compileOnly と annotationProcessor はテストのコンパイルに引き継がれないため、テスト側にも同じ指定をする
+    compileOnly 'org.projectlombok:lombok:1.18.30'
     annotationProcessor 'org.projectlombok:lombok:1.18.30'
+    testCompileOnly 'org.projectlombok:lombok:1.18.30'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.30'
 
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
@@ -67,10 +71,10 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
-    finalizedBy jacocoTestReport
 }
 
-// カバレッジレポート（./gradlew test で自動生成。build/reports/jacoco/test/html/index.html）
+// カバレッジレポート（./gradlew test jacocoTestReport と明示したときだけ作る。build/reports/jacoco/test/html/index.html）
+// test の finalizedBy で毎回作っていたが、普段のテスト（build を含む）では見ないのに Gradle の負荷を増やすだけだった（#194）
 jacocoTestReport {
     dependsOn test
     reports {
