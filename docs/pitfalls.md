@@ -240,6 +240,35 @@ yt-dlp はそれらをスキップして残りを最後までダウンロード�
 `StreamRecorder` は既に `RecordingHistoryService` に依存しているため、逆方向の依存を
 足すと循環参照になる。どちらにも依存しない `RecordingReconciler` に切り出すことで解消している。
 
+### 外部プロセスの出力を JVM へのパイプにすると、再起動で yt-dlp が止まる（実際に発生した）
+
+`ProcessBuilder` の既定では、子プロセスの標準出力・標準エラーは JVM へのパイプになる。
+JVM が止まるとパイプの読み手がいなくなり、子プロセスは次に出力した時点で書き込みに失敗する
+（yt-dlp は Python 製なので `BrokenPipeError` になる）。プロセスそのものは JVM と別でも、
+出力の行き先が JVM に縛られているかぎり、JVM の停止に巻き込まれる。
+止まるのは**出力を書いたプロセス**なので、再現を試すときは子プロセス自身が書くコマンドを使う
+（`sh -c 'while :; do date; sleep 1; done'` では毎回の `date` が止まるだけで `sh` は残り、
+「パイプでも止まらない」と見誤る。`echo` のようにシェル自身が書くなら `sh` ごと止まる）。
+
+2026-09-24 21:22:32 の `bin/service.sh restart` で、録画中だった `rmJOQEMzZlk` の映像
+（`rmJOQEMzZlk.f299.mp4`）が 21:22:43 で止まり、最後の結合（映像＋音声 → mp4）も行われなかった。
+`--live-from-start` の映像側のダウンロードとメインの処理が `BrokenPipeError` で終わり、
+音声（`f140`）のスレッドだけが翌 0 時台まで取り続けていた。チャンネルログの `[yt-dlp]` 行も
+21:22:44 で途切れ、yt-dlp の標準出力は `/dev/null` に差し替わっていた
+（yt-dlp が `BrokenPipeError` を受けたときの処理）。
+
+**JVM より長く動き続けるべきプロセス（録画）の出力はファイルへ向ける。**
+`ProcessLauncher.launch(List, Path)` は標準出力と標準エラーをまとめてファイルへ追記させる
+（録画は `logs/yt-dlp/<動画ID>.log`。録画フォルダの下に置くと録画ファイルの走査・削除・
+孤立ファイルの判定に混ざるため `logs/` に置く）。これなら JVM を止めても yt-dlp は最後まで録り、
+結合まで終える。完了・失敗の記録は前項の `RecordingReconciler` が補正する。
+短時間で終わり、出力を読んで使うもの（`ExternalCommandRunner`・`NativeDirectoryPickerService`）は
+従来の `launch(List)` のままでよい。
+
+yt-dlp の出力をファイルへ流すなら `--no-progress` を付ける。進捗行は出力のほとんどを占め
+（チャンネルログへ流していたときは 72,041 行中 71,647 行）、ローテーションの無いファイルが
+1 本で数十 MB になる。
+
 ### 巡回を起動する経路を増やすなら排他を通す
 
 `LiveStreamPollingScheduler` の巡回は定期実行（`fixedDelay`）と手動実行（`pollNow()`、
