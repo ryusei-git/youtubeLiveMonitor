@@ -282,6 +282,18 @@ yt-dlp の出力をファイルへ流すなら `--no-progress` を付ける。�
 （チャンネルログへ流していたときは 72,041 行中 71,647 行）、ローテーションの無いファイルが
 1 本で数十 MB になる。
 
+
+### 録画中かの判定は、動画 ID を含むだけの `grep`・`tail` で誤検知する（実際に発生した）
+
+`ProcessLauncher.isRunningWithCommandLineContaining()` は以前、OS 上の**すべて**のプロセスのコマンドラインを見て、
+文字列を含むものが 1 つでもあれば「まだ動いている」と答えていた。2026-09-25、録画 28 の yt-dlp を止めた直後に、
+動画 ID を含む `grep` を実行中のシェルがあったため、`RecordingReconciler` が「録画プロセスは稼働中」と判断して補正を見送った
+（シェルが終わってから再実行すると補正された）。`tail -f logs/yt-dlp/<動画ID>.log` で様子を見ているだけでも同じことが起きる
+（#152 で動画 ID の名前のログができたため）。孤立ファイルの掃除（`RecordingFileService`・`OrphanedPreviewService`）も見送られる。
+
+**対策（#160）**: 照合の対象を、このアプリが起動する種類のプロセス（実行ファイルが `yt-dlp`・`ffmpeg`・`ffprobe`、
+または `python` で引数に `yt-dlp` を含むもの）に限る。yt-dlp だけに絞らないのは、`RecordingSalvager` の ffmpeg が
+録画ファイルを詰め替えている間も掃除から守るため。
 ### 巡回を起動する経路を増やすなら排他を通す
 
 `LiveStreamPollingScheduler` の巡回は定期実行（`fixedDelay`）と手動実行（`pollNow()`、
