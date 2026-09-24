@@ -7,6 +7,7 @@ import com.example.monitor.dto.DiskUsageResponse;
 import com.example.monitor.exception.ChannelNotFoundException;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
+import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import org.junit.jupiter.api.DisplayName;
@@ -47,6 +48,12 @@ class RecordingHistoryServiceTest {
 
     @Mock
     private RecordingFileService recordingFileService;
+
+    @Mock
+    private AppUserRepository appUserRepository;
+
+    @Mock
+    private AuditLogger auditLogger;
 
     @InjectMocks
     private RecordingHistoryService recordingHistoryService;

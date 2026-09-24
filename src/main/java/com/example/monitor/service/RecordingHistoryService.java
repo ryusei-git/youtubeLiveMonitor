@@ -3,15 +3,20 @@ package com.example.monitor.service;
 import com.example.monitor.dto.DashboardResponse.RecordingStatusSummary;
 import com.example.monitor.dto.DiskUsageResponse;
 import com.example.monitor.dto.OrphanedCleanupResponse;
+import com.example.monitor.entity.AppUser;
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.exception.ChannelNotFoundException;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
+import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
+import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -35,6 +40,8 @@ public class RecordingHistoryService {
     private final RecordingRepository recordingRepository;
     private final MonitoredChannelRepository monitoredChannelRepository;
     private final RecordingFileService recordingFileService;
+    private final AppUserRepository appUserRepository;
+    private final AuditLogger auditLogger;
 
     /**
      * 録画の開始を記録する。
@@ -169,6 +176,27 @@ public class RecordingHistoryService {
         recordingRepository.deleteById(recordingId);
         recordingFileService.deleteFile(recording);
         log.info("録画履歴を削除しました: id={}, video={}", recordingId, recording.getVideoId());
+        recordAction(AuditAction.RECORDING_DELETE, recordingId,
+                "video=" + recording.getVideoId() + ", title=" + recording.getVideoTitle());
+    }
+
+    /**
+     * 操作者を解決して録画関連の監査ログへ記録する。
+     *
+     * <p>{@code MonitoredChannelService.recordChannelAction()} と同じ考え方。CLI からも
+     * 呼ばれうるため {@link RequestContext#currentUsername()} が {@code null} のときは
+     * 利用者情報を空欄のまま記録する。
+     *
+     * @param action      操作の種別
+     * @param recordingId 対象録画履歴の主キー
+     * @param detail      補足情報
+     */
+    private void recordAction(AuditAction action, Long recordingId, String detail) {
+        String username = RequestContext.currentUsername();
+        Long userId = username == null ? null
+                : appUserRepository.findByUsername(username).map(AppUser::getId).orElse(null);
+        auditLogger.record(action, AuditOutcome.SUCCESS, userId, username, null,
+                "RECORDING", String.valueOf(recordingId), detail);
     }
 
     /**
