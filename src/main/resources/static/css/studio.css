@@ -78,6 +78,8 @@ th { background: #fafbfc; color: var(--text-muted); font-size: 11px; font-weight
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: #faf9fd; }
 td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
+/* 並べ替えの見出しは押せることより見出しとして読めることを優先し、見た目は th のまま（:focus-visible の枠は共通のものを残す） */
+.sortButton, .sortButton:hover { background: none; border: 0; border-radius: 0; min-height: 0; font: inherit; color: inherit; padding: 0; cursor: pointer; }
 .kpiGrid { gap: 16px; margin: 0 0 28px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .kpi { border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; background: #fff; box-shadow: none; border-top: 1px solid var(--border); }
 .kpi .kpiLabel { font-size: 12px; font-weight: 500; margin-bottom: 10px; color: var(--text-muted); }
