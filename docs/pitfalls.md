@@ -163,6 +163,7 @@ restart しなくても壊れはしない（変更が反映されないだけ）
 ### ログ設定は `logback-spring.xml` のみ
 
 `application.yml` にも書くと二重管理になる。
+例外はテストだけで、`src/test/resources/logback-test.xml`（コンソールのみ）を使う。本番の設定のままテストすると、作業ディレクトリの `logs/channels/` にテストのチャンネルのファイルができ、本番のシステムログにテストの行が混ざっていた（#187）。このファイルを `src/main/resources` に移さないこと（本番でも優先され、チャンネル別のログが出なくなる）。
 また `<springProfile>` でログレベルを切り替える際、特定のロガーに明示レベルを設定していると
 root のレベル設定が効かない（明示 level は additivity では止まらない）。
 
