@@ -185,6 +185,18 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
     List<Recording> findByStatus(RecordingStatus status);
 
     /**
+     * 指定した状態の録画履歴を、チャンネルも同時に読み込んで取得する。
+     *
+     * <p>リソース計測で録画プロセスにチャンネル名を付けるのに使う。計測はトランザクションの外
+     * （1 分ごとの定期処理）で動くため、遅延読み込みのままではチャンネル名を読めない。
+     *
+     * @param status 対象の状態
+     * @return 該当する録画履歴（チャンネル読み込み済み）
+     */
+    @EntityGraph(attributePaths = "channel")
+    List<Recording> findWithChannelByStatus(RecordingStatus status);
+
+    /**
      * 指定した状態の録画履歴の件数を数える。
      *
      * <p>ダッシュボードの内訳グラフ用。一覧を読み込んで数えると件数が増えたときに無駄が大きいため、
