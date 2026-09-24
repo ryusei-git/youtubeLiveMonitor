@@ -2,6 +2,7 @@ package com.example.monitor.dto;
 
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.platform.Platform;
+import com.example.monitor.util.TitleGenreExtractor;
 import com.example.monitor.util.YouTubeWatchUrl;
 
 import java.time.LocalDateTime;
@@ -20,6 +21,7 @@ import java.time.LocalDateTime;
  * @param title 配信タイトル。取得できなかった場合は {@code null}
  * @param scheduledStartTime 開始予定時刻。取得できなかった場合は {@code null}
  * @param watchUrl 配信予定の視聴 URL
+ * @param genre タイトルの最初の {@code 【】} から求めたジャンル。求められない場合は {@code null}
  */
 public record UpcomingStreamResponse(
         Long channelId,
@@ -29,7 +31,8 @@ public record UpcomingStreamResponse(
         String videoId,
         String title,
         LocalDateTime scheduledStartTime,
-        String watchUrl
+        String watchUrl,
+        String genre
 ) {
 
     /**
@@ -50,6 +53,7 @@ public record UpcomingStreamResponse(
                 channel.getUpcomingVideoId(),
                 channel.getUpcomingTitle(),
                 channel.getUpcomingScheduledStartTime(),
-                YouTubeWatchUrl.of(channel.getUpcomingVideoId()));
+                YouTubeWatchUrl.of(channel.getUpcomingVideoId()),
+                TitleGenreExtractor.extract(channel.getUpcomingTitle()));
     }
 }
