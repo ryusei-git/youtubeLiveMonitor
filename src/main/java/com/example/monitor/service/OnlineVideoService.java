@@ -82,6 +82,7 @@ public class OnlineVideoService {
         return new OnlineVideoResponse(video.getId(), channel.getId(), channel.getChannelName(),
                 channel.getPlatform().name(), video.getTitle(), watchUrl,
                 "/api/videos/" + video.getId() + "/thumbnail", video.getPublishedAt(), video.getLastObservedAt(), state, playable,
-                ThumbnailRetryPolicy.exhausted(video.getThumbnailAttempts()));
+                ThumbnailRetryPolicy.exhausted(video.getThumbnailAttempts()),
+                video.getContentKind(), video.getScheduledStartTime());
     }
 }

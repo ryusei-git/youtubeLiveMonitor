@@ -35,10 +35,23 @@ public class OnlineVideoController {
     public PageResponse<OnlineVideoResponse> list(Authentication auth,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "24") int size,
             @RequestParam(defaultValue = "") String keyword, @RequestParam(required = false) Long channelId,
-            @RequestParam(defaultValue = "false") boolean liveOnly) {
+            @RequestParam(defaultValue = "false") boolean liveOnly, @RequestParam(required = false) String section) {
         if (page < 0 || size < 1 || size > 100 || keyword.length() > 200) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
-        return PageResponse.from(repository.search(admin(auth), auth.getName(), channelId, liveOnly,
-                service.startedAt(), keyword, PageRequest.of(page, size)).map(service::response));
+        boolean admin = admin(auth);
+        String user = auth.getName();
+        var pageable = PageRequest.of(page, size);
+        // 省略時はダッシュボード（liveOnly=true）が使う従来の検索のまま動きを変えない
+        var videos = section == null
+                ? repository.search(admin, user, channelId, liveOnly, service.startedAt(), keyword, pageable)
+                : switch (section) {
+                    // 画面の「配信予定」は直近 1 週間分だけを並べる
+                    case "now" -> repository.searchNow(admin, user, channelId, service.startedAt(),
+                            java.time.Instant.now().plus(java.time.Duration.ofDays(7)), keyword, pageable);
+                    case "streams" -> repository.searchStreams(admin, user, channelId, service.startedAt(), keyword, pageable);
+                    case "uploads" -> repository.searchUploads(admin, user, channelId, keyword, pageable);
+                    default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+                };
+        return PageResponse.from(videos.map(service::response));
     }
 
     @GetMapping("/{id}")

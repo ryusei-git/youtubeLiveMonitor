@@ -23,6 +23,46 @@ public interface OnlineVideoRepository extends JpaRepository<OnlineVideo, String
         @Param("channelId") Long channelId, @Param("liveOnly") boolean liveOnly,
         @Param("startedAt") Instant startedAt, @Param("keyword") String keyword, Pageable pageable);
 
+    /** 段ごとの検索で共通の絞り込み。{@link #search} と同じ認可・チャンネル・キーワード条件を全段に効かせる。 */
+    String SECTION_FILTER = ACCESS
+        + " and (:channelId is null or v.channel.id = :channelId)"
+        + " and (lower(v.title) like lower(concat('%', :keyword, '%')) or lower(v.channel.channelName) like lower(concat('%', :keyword, '%')))";
+    /** {@code liveOnly=true} と同じ「配信中」。確認できていない配信を配信中として並べない。 */
+    String LIVE_NOW = "(v.live = true and v.lastObservedAt >= :startedAt and v.channel.consecutiveDetectionFailures = 0)";
+
+    /**
+     * 配信中を先に、続けて開始予定の早い順。開始予定を過ぎてもまだ始まらない待機所も残すため、下限は設けない。
+     * 未判定（{@code contentKind} が null）の動画は種類が分からないので出さない。
+     */
+    @EntityGraph(attributePaths = "channel")
+    @Query("select v from OnlineVideo v where " + SECTION_FILTER
+        + " and v.contentKind is not null"
+        + " and (" + LIVE_NOW + " or (v.contentKind = 'UPCOMING' and v.scheduledStartTime < :until))"
+        + " order by case when " + LIVE_NOW + " then 0 else 1 end, v.scheduledStartTime asc, v.id asc")
+    Page<OnlineVideo> searchNow(@Param("admin") boolean admin, @Param("username") String username,
+        @Param("channelId") Long channelId, @Param("startedAt") Instant startedAt, @Param("until") Instant until,
+        @Param("keyword") String keyword, Pageable pageable);
+
+    /**
+     * 配信中のものは「配信中・配信予定」の段に出すため除く。状態を確認できていない配信は配信中の段に出ないので、
+     * どの段からも消えないようこちらに残す（{@link #LIVE_NOW} の否定。null を含む比較で行が落ちないよう明示的に書く）。
+     */
+    @EntityGraph(attributePaths = "channel")
+    @Query("select v from OnlineVideo v where " + SECTION_FILTER
+        + " and v.contentKind = 'STREAM'"
+        + " and (v.live = false or v.lastObservedAt is null or v.lastObservedAt < :startedAt or v.channel.consecutiveDetectionFailures <> 0)"
+        + " order by v.publishedAt desc, v.id desc")
+    Page<OnlineVideo> searchStreams(@Param("admin") boolean admin, @Param("username") String username,
+        @Param("channelId") Long channelId, @Param("startedAt") Instant startedAt,
+        @Param("keyword") String keyword, Pageable pageable);
+
+    @EntityGraph(attributePaths = "channel")
+    @Query("select v from OnlineVideo v where " + SECTION_FILTER
+        + " and v.contentKind = 'UPLOAD'"
+        + " order by v.publishedAt desc, v.id desc")
+    Page<OnlineVideo> searchUploads(@Param("admin") boolean admin, @Param("username") String username,
+        @Param("channelId") Long channelId, @Param("keyword") String keyword, Pageable pageable);
+
     @EntityGraph(attributePaths = "channel")
     @Query("select v from OnlineVideo v where v.id = :id and " + ACCESS)
     Optional<OnlineVideo> findVisible(@Param("id") String id, @Param("admin") boolean admin,
