@@ -3,6 +3,7 @@ package com.example.monitor.dto;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.UserSubscription;
 import com.example.monitor.platform.Platform;
+import com.example.monitor.util.StreamLinkUtils;
 
 import java.time.LocalDateTime;
 
@@ -31,6 +32,10 @@ import java.time.LocalDateTime;
  * @param subscribedAt        購読した時刻
  * @param recordEnabled       この購読者が自動録画を希望しているか
  * @param recordTitleKeywords この購読者の絞り込みキーワード。未設定なら {@code null}
+ * @param channelUrl          チャンネルページの URL。Twitch でログイン名をまだ取得できていない場合は {@code null}
+ * @param channelIconUrl      チャンネルのアイコン URL。まだ読み取れていない場合は {@code null}
+ * @param recordingCount      再生できる録画の件数（状態が {@code COMPLETED} と {@code PARTIAL} のもの）。
+ *                            管理者の一覧と数え方をそろえ、画面ごとに件数が食い違わないようにしている
  */
 public record SubscribedChannelResponse(
         Long id,
@@ -45,16 +50,34 @@ public record SubscribedChannelResponse(
         boolean detectionFailing,
         LocalDateTime subscribedAt,
         boolean recordEnabled,
-        String recordTitleKeywords
+        String recordTitleKeywords,
+        String channelUrl,
+        String channelIconUrl,
+        long recordingCount
 ) {
 
     /**
-     * 購読とその対象チャンネルから応答を組み立てる。
+     * 購読とその対象チャンネルから応答を組み立てる。録画件数は 0 とする。
+     *
+     * <p>購読の追加・設定変更の応答で使う。件数のためだけに録画を数える問い合わせを
+     * 走らせないよう、件数が要る一覧（{@code GET /api/my/channels}）だけが
+     * {@link #from(UserSubscription, long)} で実数を渡す。
      *
      * @param subscription 購読 1 件
      * @return 応答
      */
     public static SubscribedChannelResponse from(UserSubscription subscription) {
+        return from(subscription, 0L);
+    }
+
+    /**
+     * 購読とその対象チャンネル、録画件数から応答を組み立てる。
+     *
+     * @param subscription   購読 1 件
+     * @param recordingCount 再生できる録画の件数
+     * @return 応答
+     */
+    public static SubscribedChannelResponse from(UserSubscription subscription, long recordingCount) {
         MonitoredChannel channel = subscription.getChannel();
         return new SubscribedChannelResponse(
                 channel.getId(),
@@ -69,6 +92,10 @@ public record SubscribedChannelResponse(
                 channel.getConsecutiveDetectionFailures() > 0,
                 subscription.getSubscribedAt(),
                 subscription.isRecordEnabled(),
-                subscription.getRecordTitleKeywords());
+                subscription.getRecordTitleKeywords(),
+                StreamLinkUtils.channelUrl(
+                        channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
+                channel.getChannelIconUrl(),
+                recordingCount);
     }
 }

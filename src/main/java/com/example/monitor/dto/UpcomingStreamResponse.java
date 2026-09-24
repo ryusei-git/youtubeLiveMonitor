@@ -6,7 +6,11 @@ import com.example.monitor.util.StreamLinkUtils;
 import com.example.monitor.util.TitleGenreExtractor;
 import com.example.monitor.util.YouTubeWatchUrl;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * チャンネルに記録された配信予定を API のレスポンスとして返す形。
@@ -39,6 +43,34 @@ public record UpcomingStreamResponse(
         String channelIconUrl,
         String channelUrl
 ) {
+
+    /** 配信予定として返す範囲（今からどれだけ先の開始予定までか）。 */
+    private static final Duration WINDOW = Duration.ofDays(7);
+
+    /**
+     * チャンネルに記録された配信予定のうち、返すものを開始予定時刻の早い順に並べる。
+     *
+     * <p>返すのは開始予定が「今から 7 日後」（{@code WINDOW}）より前の予定だけ。
+     * 何か月も先のフリーチャット枠などが並ぶと、直近の予定が埋もれるため。
+     * 開始予定を過ぎてもまだ始まっていない待機所（遅れている配信）は、すぐ始まる可能性が高いので含める。
+     * 開始予定時刻を取得できなかった予定は、範囲内か判断できないので除く。
+     *
+     * <p>管理者の一覧（全チャンネル）と利用者の一覧（購読しているチャンネルだけ）で
+     * 選び方と並びが食い違わないよう、判断をここ 1 か所に置いている。
+     *
+     * @param channels 対象のチャンネル
+     * @return 配信予定の一覧
+     */
+    public static List<UpcomingStreamResponse> listWithinWindow(Collection<MonitoredChannel> channels) {
+        LocalDateTime windowEnd = LocalDateTime.now().plus(WINDOW);
+        return channels.stream()
+                .filter(channel -> channel.getUpcomingVideoId() != null)
+                .filter(channel -> channel.getUpcomingScheduledStartTime() != null
+                        && channel.getUpcomingScheduledStartTime().isBefore(windowEnd))
+                .map(UpcomingStreamResponse::from)
+                .sorted(Comparator.comparing(UpcomingStreamResponse::scheduledStartTime))
+                .toList();
+    }
 
     /**
      * エンティティから配信予定のレスポンスを組み立てる。

@@ -2,6 +2,7 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.RecordingResponse;
 import com.example.monitor.dto.SubscribedChannelResponse;
+import com.example.monitor.dto.UpcomingStreamResponse;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -72,9 +74,30 @@ public class UserSubscriptionService {
      */
     @Transactional(readOnly = true)
     public List<SubscribedChannelResponse> listMySubscriptions() {
+        // 件数はチャンネルごとに数えず、全チャンネル分を 1 回の問い合わせで数えて引き当てる
+        // （購読数ぶん問い合わせが走るのを避けるため。管理者の一覧と同じやり方）
+        Map<Long, Long> recordingCounts = monitoredChannelService.countPlayableRecordingsByChannel();
         return userSubscriptionRepository.findByUserOrderBySubscribedAtDesc(currentUser()).stream()
-                .map(SubscribedChannelResponse::from)
+                .map(subscription -> SubscribedChannelResponse.from(
+                        subscription, recordingCounts.getOrDefault(subscription.getChannel().getId(), 0L)))
                 .toList();
+    }
+
+    /**
+     * ログイン中の利用者が購読しているチャンネルの配信予定を返す。
+     *
+     * <p>選び方と並びは管理者の配信予定と同じ（{@link UpcomingStreamResponse#listWithinWindow} を共有する）で、
+     * <b>対象を購読しているチャンネルに絞る</b>だけ。
+     * 予定は巡回時にチャンネルへ記録済みのものを読むため、外部への問い合わせは発生しない。
+     *
+     * @return 直近 7 日以内に開始予定の配信（開始予定の早い順）
+     */
+    @Transactional(readOnly = true)
+    public List<UpcomingStreamResponse> listMyUpcomingStreams() {
+        return UpcomingStreamResponse.listWithinWindow(
+                userSubscriptionRepository.findByUserOrderBySubscribedAtDesc(currentUser()).stream()
+                        .map(UserSubscription::getChannel)
+                        .toList());
     }
 
     /**
