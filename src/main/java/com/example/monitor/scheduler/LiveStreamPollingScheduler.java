@@ -44,6 +44,9 @@ import java.util.stream.Collectors;
  *       100 チャンネル）ではここが 1 回の通信になり、そうでないプラットフォーム（YouTube）では
  *       既定実装が 1 件ずつ問い合わせる。YouTube はクォータを消費しない HTML 解析で判定する。
  *       <b>判定できなかった場合は配信状態に触れず、連続失敗回数だけを増やす</b></li>
+ *   <li>YouTube の待機所（配信開始前の予約枠）を検知した場合は、開始予定時刻などを
+ *       {@link MonitoredChannel#upcomingVideoId} へ記録する。配信中／配信していないに
+ *       転じたら消す</li>
  *   <li>配信中であれば、録画が有効かつタイトルフィルター（{@link MonitoredChannel#matchesFilter}）
  *       に一致するチャンネルは {@link StreamRecorder} で録画を開始する
  *       （通知の成否とは無関係、こちらも動画IDが変わるたびに1回だけ）</li>
@@ -262,8 +265,24 @@ public class LiveStreamPollingScheduler {
         // 判定できた場合のみ観測結果を記録する（通知の成否とは無関係に毎回）
         DatabaseUpdateVerifier.verify(
                 monitoredChannelRepository.updateObservedLiveState(
-                        channel.getId(), detection.isLive(), detection.videoId(), LocalDateTime.now()),
+                        channel.getId(), detection.isLive(),
+                        // UPCOMING も videoId を持つが、予約枠の ID を「配信中の動画」として残さない
+                        detection.isLive() ? detection.videoId() : null, LocalDateTime.now()),
                 "配信状態の記録", channel.getId());
+
+        // 配信予定（待機所）の記録もここで更新する。UPCOMING なら上書き、
+        // LIVE・NOT_LIVE なら消す（予定が現実になった／消えたのどちらか）。
+        // DETECTION_FAILED はここまで来ないため触れずに済む
+        if (detection.isUpcoming()) {
+            DatabaseUpdateVerifier.verify(
+                    monitoredChannelRepository.updateUpcoming(channel.getId(), detection.videoId(),
+                            detection.title(), detection.scheduledStartTime()),
+                    "配信予定の記録", channel.getId());
+        } else {
+            DatabaseUpdateVerifier.verify(
+                    monitoredChannelRepository.clearUpcoming(channel.getId()),
+                    "配信予定のクリア", channel.getId());
+        }
 
         if (!detection.isLive()) {
             // 配信が終わったので、この配信に対する通知失敗の回数は次の配信に持ち越さない

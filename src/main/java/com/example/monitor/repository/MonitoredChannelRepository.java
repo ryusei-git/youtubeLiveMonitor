@@ -89,6 +89,52 @@ public interface MonitoredChannelRepository extends JpaRepository<MonitoredChann
     int recordDetectionFailure(@Param("id") Long id, @Param("checkedAt") LocalDateTime checkedAt);
 
     /**
+     * 配信開始前の待機所として検知した予定を記録する。
+     *
+     * <p>{@code UPCOMING} を検知するたびに呼ぶこと。前回と同じ動画IDであっても、
+     * タイトルや開始予定時刻が更新されている可能性があるため毎回上書きする。
+     *
+     * @param id                 監視対象の主キー
+     * @param videoId            予約枠の動画ID
+     * @param title              予定配信のタイトル。取得できなかった場合は {@code null}
+     * @param scheduledStartTime 開始予定時刻。取得できなかった場合は {@code null}
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("""
+            UPDATE MonitoredChannel c
+               SET c.upcomingVideoId = :videoId,
+                   c.upcomingTitle = :title,
+                   c.upcomingScheduledStartTime = :scheduledStartTime
+             WHERE c.id = :id
+            """)
+    int updateUpcoming(@Param("id") Long id, @Param("videoId") String videoId,
+                        @Param("title") String title,
+                        @Param("scheduledStartTime") LocalDateTime scheduledStartTime);
+
+    /**
+     * 配信予定の記録を消す。
+     *
+     * <p>{@code LIVE}（予定が現実になった）または {@code NOT_LIVE}（予定が消えた）を
+     * 検知したときに呼ぶこと。{@code DETECTION_FAILED} のときは呼んではならない
+     * （判定できなかっただけなのに「予定が無い」と記録してしまい、区別が付かなくなるため）。
+     *
+     * @param id 監視対象の主キー
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("""
+            UPDATE MonitoredChannel c
+               SET c.upcomingVideoId = null,
+                   c.upcomingTitle = null,
+                   c.upcomingScheduledStartTime = null
+             WHERE c.id = :id
+            """)
+    int clearUpcoming(@Param("id") Long id);
+
+    /**
      * 通知済みの動画 ID のみを更新する。通知が成功したときだけ呼ぶこと。
      *
      * <p>失敗時に更新しないでおくことで、次回の監視サイクルが自動的に再送信の役割を果たす。
