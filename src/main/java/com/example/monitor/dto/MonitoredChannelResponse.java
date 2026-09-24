@@ -31,7 +31,7 @@ import java.time.LocalDateTime;
  * @param createdAt           監視対象として登録した時刻
  * @param recordingCount      再生できる録画の件数（状態が {@code COMPLETED} と {@code PARTIAL} のもの）。
  *                            録画中・失敗は見られる録画ではないため数えない
- * @param channelUrl          チャンネルページの URL。Twitch のように ID から組み立てられない場合は {@code null}
+ * @param channelUrl          チャンネルページの URL。Twitch でログイン名をまだ取得できていない場合は {@code null}
  */
 public record MonitoredChannelResponse(
         Long id,
@@ -90,7 +90,8 @@ public record MonitoredChannelResponse(
                 channel.getLastDetectionSuccessAt(),
                 channel.getCreatedAt(),
                 recordingCount,
-                StreamLinkUtils.channelUrl(channel.getPlatform(), channel.getYoutubeChannelId())
+                StreamLinkUtils.channelUrl(
+                        channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin())
         );
     }
 }

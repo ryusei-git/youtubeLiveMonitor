@@ -166,6 +166,31 @@ public class TwitchApiClient {
     }
 
     /**
+     * ユーザー ID からユーザー情報をまとめて引く。改名されうるログイン名を取り直すために使う。
+     *
+     * <p>100 件を超える場合は内部で分割して問い合わせる。存在しない ID は応答に含まれない。
+     *
+     * @param ids ユーザー ID
+     * @return 見つかったユーザー。1 件も無ければ空リスト
+     * @throws IllegalStateException 設定が未完了、または問い合わせに失敗した場合
+     */
+    public List<TwitchUser> findUsersByIds(List<String> ids) {
+        List<TwitchUser> users = new ArrayList<>();
+        for (int start = 0; start < ids.size(); start += MAX_IDS_PER_REQUEST) {
+            List<String> chunk = ids.subList(start, Math.min(start + MAX_IDS_PER_REQUEST, ids.size()));
+            JsonNode body = get(USERS_URL + "?" + buildRepeatedQuery("id", chunk));
+            for (JsonNode item : body.path("data")) {
+                users.add(new TwitchUser(
+                        item.path("id").asText(),
+                        item.path("login").asText(),
+                        item.path("display_name").asText(),
+                        item.path("profile_image_url").asText(null)));
+            }
+        }
+        return users;
+    }
+
+    /**
      * 同じ名前のクエリパラメータを値の数だけ並べた文字列を組み立てる。
      *
      * <p>Twitch API は {@code user_id=1&user_id=2&...} の形で複数指定を受け付ける。
