@@ -29,7 +29,10 @@ function restoreVideoUrl() {
     syncVideoUrl(true);
 }
 
-async function loadOnlineVideos() {
+/** 自動更新では通知帯の読み上げを繰り返さず、利用者が操作した失敗だけ明示する。
+ * @param {boolean} showAlert
+ */
+async function loadOnlineVideos(showAlert = true) {
     const request = ++onlineRequest;
     const grid = el("onlineVideoGrid");
     setBusy(grid, true);
@@ -42,7 +45,7 @@ async function loadOnlineVideos() {
         if (onlinePage > 0 && onlinePage >= data.totalPages) {
             onlinePage = Math.max(0, data.totalPages - 1);
             syncVideoUrl(true);
-            return loadOnlineVideos();
+            return loadOnlineVideos(showAlert);
         }
         clearError();
         onlineTotalPages = data.totalPages;
@@ -57,7 +60,7 @@ async function loadOnlineVideos() {
     } catch (error) {
         if (request === onlineRequest) {
             renderRefreshStatus(el("videoRefreshStatus"), onlineLastUpdatedAt, true);
-            showError(errorMessage(error));
+            if (showAlert) showError(errorMessage(error));
         }
     } finally { if (request === onlineRequest) setBusy(grid, false); }
 }
@@ -97,7 +100,7 @@ buttonEl("refreshVideosBtn").addEventListener("click", async () => {
     await loadOnlineVideos();
 });
 window.addEventListener("popstate", () => { restoreVideoUrl(); loadOnlineVideos(); });
-startVisibleRefresh(loadOnlineVideos);
+startVisibleRefresh(() => loadOnlineVideos(false));
 (async () => { await loadVideoChannels(); restoreVideoUrl(); await loadOnlineVideos(); })();
 
 // 共有画面なので、サーバーが返す権限で共通メニューを選ぶ。
