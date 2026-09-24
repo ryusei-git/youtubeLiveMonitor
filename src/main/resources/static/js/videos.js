@@ -108,5 +108,8 @@ startVisibleRefresh(() => loadOnlineVideos(false));
     try {
         const viewer = await apiGet("/api/videos/viewer");
         renderNavigationForViewer(viewer.admin);
-    } catch { /* 一覧本体のエラー表示を優先する。 */ }
+    } catch {
+        // 判定できなかったときは、権限の少ない利用者用のメニューを出す。一覧本体のエラー表示を優先する。
+        renderNavigationForViewer(false);
+    }
 })();
