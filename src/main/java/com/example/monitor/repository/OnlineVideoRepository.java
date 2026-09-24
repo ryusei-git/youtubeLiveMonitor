@@ -56,4 +56,25 @@ public interface OnlineVideoRepository extends JpaRepository<OnlineVideo, String
     int recordThumbnailFailure(@Param("id") String id, @Param("thumbnailUrl") String thumbnailUrl,
                                @Param("previousAttempts") int previousAttempts, @Param("attempts") int attempts,
                                @Param("nextAttemptAt") Instant nextAttemptAt);
+
+    /** 配信予定は開始すると種類が変わるため、未判定と一緒に判定し直す。新しく見つかった動画を先に判定する。 */
+    @EntityGraph(attributePaths = "channel")
+    @Query("""
+        select v from OnlineVideo v
+         where v.contentKind is null or v.contentKind = 'UPCOMING'
+         order by v.discoveredAt desc, v.id desc
+        """)
+    List<OnlineVideo> pendingContentKind(Pageable pageable);
+
+    /**
+     * エンティティの save() で書き戻すと、判定の通信中にライブ検知が更新した列を古い値で消すため、2 列だけを更新する。
+     * 判定中にライブ検知が {@code STREAM} にした動画は、取得済みの古い判定で上書きしない。
+     */
+    @Modifying @Transactional
+    @Query("""
+        update OnlineVideo v set v.contentKind = :kind, v.scheduledStartTime = :scheduledStartTime
+         where v.id = :id and (v.contentKind is null or v.contentKind = 'UPCOMING')
+        """)
+    int updateContentKind(@Param("id") String id, @Param("kind") String kind,
+                          @Param("scheduledStartTime") Instant scheduledStartTime);
 }

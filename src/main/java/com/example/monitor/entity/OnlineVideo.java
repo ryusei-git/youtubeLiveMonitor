@@ -13,6 +13,13 @@ import java.time.Instant;
 @Table(name = "online_videos", indexes = @Index(columnList = "published_at"))
 @Getter @Setter @NoArgsConstructor
 public class OnlineVideo {
+    /** 配信予定（待機所）。配信が始まると種類が変わるため、収集のたびに判定し直す。 */
+    public static final String KIND_UPCOMING = "UPCOMING";
+    /** 配信中・配信アーカイブ。 */
+    public static final String KIND_STREAM = "STREAM";
+    /** 通常の投稿動画・ショート。 */
+    public static final String KIND_UPLOAD = "UPLOAD";
+
     @Id @Column(length = 100)
     private String id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -37,4 +44,14 @@ public class OnlineVideo {
     private Instant lastObservedAt;
     @Column(columnDefinition = "boolean default false")
     private boolean live;
+    /**
+     * 動画の種類（{@link #KIND_UPCOMING} / {@link #KIND_STREAM} / {@link #KIND_UPLOAD}）。
+     * null は「まだ判定できていない」で、投稿動画とはみなさない（次の収集で判定し直す）。
+     * enum の {@code @Enumerated} にしないのは、H2 のネイティブ ENUM 型で作られると
+     * 種類を増やしたときに既存 DB の全更新が失敗するため（docs/pitfalls.md 参照）。
+     */
+    @Column(length = 20)
+    private String contentKind;
+    /** 配信予定の開始時刻。配信予定以外では null（予定が過ぎた・始まった枠の古い時刻を残さない）。 */
+    private Instant scheduledStartTime;
 }
