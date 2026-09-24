@@ -74,6 +74,42 @@ gh issue edit <番号> --repo ryusei-git/youtubeLiveMonitor --add-label claude
 **ラベルは付けたまま**、Issue に「どこまで終わったか」「次に何をすべきか」を
 コメントする。ラベルを外すと、相手が壊れかけの状態を引き継いでしまう。
 
+### 5. Codex に作業を依頼する場合（PRベースの運用）
+
+Claude が Codex へ Issue を割り当てるときは、直接 main へコミットさせず**PRを経由**する。
+
+```
+Codex: ブランチを切って作業 → PR作成（本文に "Closes #<Issue番号>"）
+        → ターミナルで Claude に「PR #X 準備できました」と伝える
+  ↓
+Claude: PR をレビューし、指摘があれば PR にコメントする
+        → ターミナルで Codex に「PR #X にレビューコメントを付けました」と伝える
+  ↓
+Codex: 指摘を理解して修正し、同じブランチに push
+        → ターミナルで Claude に「PR #X 対応完了しました」と伝える
+  ↓
+Claude: 対応を確認し、問題なければ PR をマージする（squash。1 Issue = 1 コミットの方針に合わせる）
+        → Issue の Status を Done にし、クローズする
+        → ターミナルで Codex に次の Issue を割り当てる
+```
+
+**ターミナルでの連絡は `orca terminal send` を使う。** ハンドルは古くなるため、
+送る直前に `orca terminal list` で取り直すこと（古いハンドルで送ると
+`terminal_handle_stale` になる）。
+
+```bash
+orca-ide terminal list --json                 # ハンドルを取り直す
+orca-ide terminal send --terminal <handle> --text "PR #12 にレビューコメントを付けました" --enter --json
+```
+
+**レビューは PR 単位で行う。** 指摘はチケット（Issue）にではなく、
+差分の文脈があるPR自体にコメントする。`Issue` はマージ後の状態更新（クローズ・
+Status 変更）のために使う。
+
+**この運用が要るのは Codex へ依頼する場合だけ。** Claude 自身の作業は、
+これまでどおり検証してから main へ直接コミットしてよい（毎回 PR を経由すると
+1人作業では確認の二度手間になるだけで、事故の防止効果もない）。
+
 ### コマンド
 
 ```bash
