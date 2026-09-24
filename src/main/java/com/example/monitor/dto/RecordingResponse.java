@@ -2,6 +2,7 @@ package com.example.monitor.dto;
 
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
+import com.example.monitor.entity.RecordingMark;
 
 import java.time.LocalDateTime;
 
@@ -30,6 +31,8 @@ import java.time.LocalDateTime;
  * @param status         録画の状態（{@code RECORDING} / {@code COMPLETED} / {@code PARTIAL} / {@code FAILED}）
  * @param startedAt      録画を開始した時刻
  * @param completedAt    録画が完了・失敗した時刻。録画中は {@code null}
+ * @param watched        ログイン中の利用者が視聴済みにしているか。印を見ない API では常に {@code false}
+ * @param favorite       ログイン中の利用者がお気に入りにしているか。印を見ない API では常に {@code false}
  */
 public record RecordingResponse(
         Long id,
@@ -45,7 +48,9 @@ public record RecordingResponse(
         String thumbnailPath,
         String status,
         LocalDateTime startedAt,
-        LocalDateTime completedAt
+        LocalDateTime completedAt,
+        boolean watched,
+        boolean favorite
 ) {
 
     /**
@@ -69,10 +74,23 @@ public record RecordingResponse(
      * 一覧・再生画面の両方がこのメソッドを通るため、ここで吸収しておけば
      * 画面側が個別に未設定の判定を書かずに済む。
      *
+     * <p>印（視聴済み・お気に入り）は付けない。利用者向けの一覧など、印を見ない経路で使う。
+     *
      * @param recording 変換元のエンティティ
      * @return 変換後のレスポンス
      */
     public static RecordingResponse from(Recording recording) {
+        return from(recording, null);
+    }
+
+    /**
+     * エンティティと利用者の印からレスポンスを組み立てる。
+     *
+     * @param recording 変換元のエンティティ
+     * @param mark      ログイン中の利用者の印。まだ付けていなければ {@code null}
+     * @return 変換後のレスポンス
+     */
+    public static RecordingResponse from(Recording recording, RecordingMark mark) {
         MonitoredChannel channel = recording.getChannel();
         return new RecordingResponse(
                 recording.getId(),
@@ -88,7 +106,9 @@ public record RecordingResponse(
                 recording.getThumbnailPath(),
                 recording.getStatus().name(),
                 recording.getStartedAt(),
-                recording.getCompletedAt()
+                recording.getCompletedAt(),
+                mark != null && mark.getWatchedAt() != null,
+                mark != null && mark.isFavorite()
         );
     }
 }

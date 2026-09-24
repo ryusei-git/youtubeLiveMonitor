@@ -89,18 +89,27 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * 「API では取れるのに一覧に出ない」という分かりにくい形で現れる。
      * チャンネルでの絞り込みも同じ理由で {@code c.id} を見る。
      *
+     * <p>視聴済み・お気に入りは、利用者の印（{@link com.example.monitor.entity.RecordingMark}）を
+     * 同じく {@code LEFT JOIN} して見る。印の行は最初に印を付けたときに初めて作るため、
+     * 行の無い録画を「未視聴・お気に入りでない」として残すには外部結合でなければならない。
+     * 結合条件に利用者を入れているので、他の利用者の印で行が増えることはない。
+     *
+     * @param userId    印を見る利用者の主キー。{@code null} なら印は無いものとして扱う
      * @param channelId 絞り込むチャンネルの主キー。{@code null} なら絞り込まない
      * @param keyword   検索キーワード。{@code null} なら絞り込まない
      * @param status    絞り込む状態。{@code null} なら絞り込まない
      * @param from      開始時刻の下限（この時刻を含む）。{@code null} なら絞り込まない
      * @param to        開始時刻の上限（この時刻を含まない）。{@code null} なら絞り込まない
      * @param genre     ジャンル（完全一致）。{@code null} なら絞り込まない
+     * @param watched   {@code true} なら視聴済みだけ、{@code false} なら未視聴だけ。{@code null} なら絞り込まない
+     * @param favoriteOnly お気に入りだけに絞るか
      * @param pageable  ページ指定と並び順
      * @return 条件に一致する録画履歴
      */
     @Query("""
             SELECT r FROM Recording r
              LEFT JOIN r.channel c
+             LEFT JOIN RecordingMark m ON m.recording = r AND m.user.id = :userId
              WHERE (:channelId IS NULL OR c.id = :channelId)
                AND (:keyword IS NULL
                     OR LOWER(r.videoTitle) LIKE LOWER(CONCAT('%', :keyword, '%'))
@@ -109,13 +118,20 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
                AND (:from IS NULL OR r.startedAt >= :from)
                AND (:to IS NULL OR r.startedAt < :to)
                AND (:genre IS NULL OR r.genre = :genre)
+               AND (:watched IS NULL
+                    OR (:watched = TRUE AND m.watchedAt IS NOT NULL)
+                    OR (:watched = FALSE AND m.watchedAt IS NULL))
+               AND (:favoriteOnly = FALSE OR m.favorite = TRUE)
             """)
-    Page<Recording> search(@Param("channelId") Long channelId,
+    Page<Recording> search(@Param("userId") Long userId,
+                           @Param("channelId") Long channelId,
                            @Param("keyword") String keyword,
                            @Param("status") RecordingStatus status,
                            @Param("from") LocalDateTime from,
                            @Param("to") LocalDateTime to,
                            @Param("genre") String genre,
+                           @Param("watched") Boolean watched,
+                           @Param("favoriteOnly") boolean favoriteOnly,
                            Pageable pageable);
 
     /**
