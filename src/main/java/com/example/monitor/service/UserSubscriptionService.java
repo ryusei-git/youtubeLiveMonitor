@@ -3,6 +3,8 @@ package com.example.monitor.service;
 import com.example.monitor.dto.RecordingResponse;
 import com.example.monitor.dto.SubscribedChannelResponse;
 import com.example.monitor.entity.AppUser;
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.UserSubscription;
 import com.example.monitor.exception.ChannelAlreadyRegisteredException;
@@ -61,6 +63,7 @@ public class UserSubscriptionService {
     private final MonitoredChannelRepository monitoredChannelRepository;
     private final RecordingRepository recordingRepository;
     private final MonitoredChannelService monitoredChannelService;
+    private final AuditLogger auditLogger;
 
     /**
      * ログイン中の利用者が購読しているチャンネルを返す。
@@ -114,6 +117,8 @@ public class UserSubscriptionService {
         subscription.setChannel(channel);
         UserSubscription saved = userSubscriptionRepository.save(subscription);
         log.info("チャンネルを購読しました: user={}, channel={}", user.getUsername(), channel.getYoutubeChannelId());
+        auditLogger.record(AuditAction.CHANNEL_SUBSCRIBE, AuditOutcome.SUCCESS, user.getId(), user.getUsername(),
+                null, "CHANNEL", String.valueOf(channel.getId()), "channel=" + channel.getYoutubeChannelId());
         return SubscribedChannelResponse.from(saved);
     }
 
@@ -144,6 +149,9 @@ public class UserSubscriptionService {
                     UserSubscription saved = userSubscriptionRepository.save(subscription);
                     log.info("購読の録画設定を変更しました: user={}, channelId={}, enabled={}, keywords={}",
                             user.getUsername(), channelId, enabled, saved.getRecordTitleKeywords());
+                    auditLogger.record(AuditAction.CHANNEL_SETTING_CHANGE, AuditOutcome.SUCCESS,
+                            user.getId(), user.getUsername(), null, "CHANNEL", String.valueOf(channelId),
+                            "enabled=" + enabled + ", keywords=" + saved.getRecordTitleKeywords());
                     return SubscribedChannelResponse.from(saved);
                 });
     }
@@ -219,6 +227,9 @@ public class UserSubscriptionService {
         int removed = userSubscriptionRepository.deleteByUserAndChannel(user, channel);
         if (removed > 0) {
             log.info("チャンネルの購読を解除しました: user={}, channelId={}", user.getUsername(), channelId);
+            auditLogger.record(AuditAction.CHANNEL_UNSUBSCRIBE, AuditOutcome.SUCCESS, user.getId(),
+                    user.getUsername(), null, "CHANNEL", String.valueOf(channelId),
+                    "channel=" + channel.getYoutubeChannelId());
         }
         return removed > 0;
     }

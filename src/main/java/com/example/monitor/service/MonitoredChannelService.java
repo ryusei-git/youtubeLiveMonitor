@@ -1,13 +1,18 @@
 package com.example.monitor.service;
 
+import com.example.monitor.entity.AppUser;
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.exception.ChannelAlreadyRegisteredException;
 import com.example.monitor.exception.ChannelNotFoundException;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
+import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
+import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +34,8 @@ public class MonitoredChannelService {
     private final MonitoredChannelRepository monitoredChannelRepository;
     private final StreamPlatformRegistry streamPlatformRegistry;
     private final ChannelLogReader channelLogReader;
+    private final AppUserRepository appUserRepository;
+    private final AuditLogger auditLogger;
 
     /**
      * 登録済みの監視対象を全件返す。
@@ -72,6 +79,8 @@ public class MonitoredChannelService {
                 new MonitoredChannel(platform, resolvedChannelId, channelName, recordEnabled, recordTitleKeywords));
         log.info("監視対象に追加しました: platform={}, name={}, channel={}, recordEnabled={}, titleKeywords={}",
                 platform, channelName, resolvedChannelId, recordEnabled, recordTitleKeywords);
+        recordChannelAction(AuditAction.CHANNEL_REGISTER, saved.getId(),
+                "platform=" + platform + ", channel=" + resolvedChannelId + ", name=" + channelName);
         return saved;
     }
 
@@ -127,6 +136,7 @@ public class MonitoredChannelService {
         channelLogReader.deleteChannelLogs(channel.getYoutubeChannelId());
 
         log.info("監視対象から削除しました: id={}, channel={}", channelRecordId, channel.getYoutubeChannelId());
+        recordChannelAction(AuditAction.CHANNEL_DELETE, channelRecordId, "channel=" + channel.getYoutubeChannelId());
     }
 
     /**
@@ -144,6 +154,7 @@ public class MonitoredChannelService {
                 monitoredChannelRepository.updateRecordEnabled(channelRecordId, recordEnabled),
                 "録画設定の変更", channelRecordId);
         log.info("録画設定を変更しました: id={}, recordEnabled={}", channelRecordId, recordEnabled);
+        recordChannelAction(AuditAction.CHANNEL_SETTING_CHANGE, channelRecordId, "recordEnabled=" + recordEnabled);
     }
 
     /**
@@ -161,6 +172,27 @@ public class MonitoredChannelService {
                 monitoredChannelRepository.updateRecordTitleKeywords(channelRecordId, titleKeywords),
                 "タイトルフィルターの変更", channelRecordId);
         log.info("録画タイトルフィルターを変更しました: id={}, titleKeywords={}", channelRecordId, titleKeywords);
+        recordChannelAction(AuditAction.CHANNEL_SETTING_CHANGE, channelRecordId, "titleKeywords=" + titleKeywords);
+    }
+
+    /**
+     * 操作者を解決してチャンネル関連の監査ログへ記録する。
+     *
+     * <p>このクラスは CLI からも呼ばれ、CLI にはログインの概念が無いため
+     * {@link RequestContext#currentUsername()} は {@code null} を返す。
+     * その場合は利用者情報を空欄のまま記録する（{@link InvitationService} の
+     * 招待受け入れ記録と同じ考え方）。
+     *
+     * @param action          操作の種別
+     * @param channelRecordId 対象チャンネルの主キー
+     * @param detail          補足情報
+     */
+    private void recordChannelAction(AuditAction action, Long channelRecordId, String detail) {
+        String username = RequestContext.currentUsername();
+        Long userId = username == null ? null
+                : appUserRepository.findByUsername(username).map(AppUser::getId).orElse(null);
+        auditLogger.record(action, AuditOutcome.SUCCESS, userId, username, null,
+                "CHANNEL", String.valueOf(channelRecordId), detail);
     }
 
 }

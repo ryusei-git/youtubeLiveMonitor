@@ -6,6 +6,7 @@ import com.example.monitor.exception.ChannelNotFoundException;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
+import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -43,6 +44,12 @@ class MonitoredChannelServiceTest {
 
     @Mock
     private ChannelLogReader channelLogReader;
+
+    @Mock
+    private AppUserRepository appUserRepository;
+
+    @Mock
+    private AuditLogger auditLogger;
 
     @InjectMocks
     private MonitoredChannelService monitoredChannelService;

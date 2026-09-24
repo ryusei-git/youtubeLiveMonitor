@@ -57,6 +57,12 @@ public enum AuditAction {
     /** チャンネルの設定（録画ON/OFF、フィルターなど）を変更した。 */
     CHANNEL_SETTING_CHANGE,
 
+    /** 利用者がチャンネルを購読した。 */
+    CHANNEL_SUBSCRIBE,
+
+    /** 利用者がチャンネルの購読を解除した。 */
+    CHANNEL_UNSUBSCRIBE,
+
     /** URL を指定した動画のダウンロードを要求した。 */
     DOWNLOAD_REQUEST,
 
