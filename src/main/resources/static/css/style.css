@@ -1175,6 +1175,7 @@ button:disabled:hover {
     .inline label:has(input[type="checkbox"]) {
         flex-direction: row;
         align-items: center;
+        white-space: nowrap;
     }
 
     /* 指で押しやすい高さを確保する */
