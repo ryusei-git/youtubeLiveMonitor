@@ -221,11 +221,21 @@ formEl("settingsForm").addEventListener("submit", async (ev) => {
     }
 });
 
+let dashboardRequest = 0;
+/** @type {Date|null} */
+let dashboardLastUpdatedAt = null;
+
 async function loadDashboard() {
+    const request = ++dashboardRequest;
     try {
-        const data = await apiGet("/api/dashboard");
+        const [data, livePage] = await Promise.all([
+            apiGet("/api/dashboard"),
+            apiGet("/api/videos?liveOnly=true&size=100"),
+        ]);
+        if (request !== dashboardRequest) return;
         el("totalChannels").textContent = data.totalChannels;
         el("liveNowCount").textContent = data.liveNowCount;
+        setLiveIndicator(data.liveNowCount);
         el("notificationsLast24h").textContent = data.notificationsLast24h;
         const failures = el("notificationFailures");
         const failureCount = data.notificationFailuresLast24h;
@@ -242,11 +252,18 @@ async function loadDashboard() {
         startedAtCell.innerHTML = datetimeCell(data.serviceStartedAt);
         bindDatetimeCells(startedAtCell);
 
-        await renderLiveVideoCards(el("liveVideos"));
-    } catch (e) {
-        showError(errorMessage(e));
+        renderLiveVideoCards(el("liveVideos"), livePage);
+        dashboardLastUpdatedAt = new Date();
+        renderRefreshStatus(el("dashboardRefreshStatus"), dashboardLastUpdatedAt, false);
+    } catch {
+        if (request === dashboardRequest) {
+            renderRefreshStatus(el("dashboardRefreshStatus"), dashboardLastUpdatedAt, true);
+        }
     }
 }
+
+buttonEl("refreshDashboardBtn").addEventListener("click", loadDashboard);
+startVisibleRefresh(loadDashboard);
 
 buttonEl("checkNowBtn").addEventListener("click", async () => {
     const btn = buttonEl("checkNowBtn");

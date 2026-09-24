@@ -1172,15 +1172,31 @@ function buildOnlineVideoCard(video) {
 
 /** 配信中のカードも投稿動画と同じ再生経路へまとめる。
  * @param {HTMLElement} target
+ * @param {any} page
  */
-async function renderLiveVideoCards(target) {
-    try {
-        const page = await apiGet("/api/videos?liveOnly=true&size=100");
-        target.replaceChildren(...page.content.map(buildOnlineVideoCard));
-        if (!page.content.length) target.innerHTML = emptyState("配信中の動画はありません", "起動直後・判定失敗時は、次の正常な確認を待って表示します。");
-    } catch (error) {
-        target.textContent = "配信動画を取得できませんでした。表示を更新して再試行してください。";
-    }
+function renderLiveVideoCards(target, page) {
+    target.replaceChildren(...page.content.map(buildOnlineVideoCard));
+    if (!page.content.length) target.innerHTML = emptyState("配信中の動画はありません", "起動直後・判定失敗時は、次の正常な確認を待って表示します。");
+}
+
+/** 非表示中の定期通信を省き、戻ってきたときだけ最新の保存済み状態を読む。
+ * @param {() => void} refresh
+ */
+function startVisibleRefresh(refresh) {
+    window.setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 60_000);
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") refresh();
+    });
+}
+
+/** 失敗時も最後に表示できた時刻を残し、画面の再試行ボタンを案内する。
+ * @param {HTMLElement} target
+ * @param {Date|null} lastUpdatedAt
+ * @param {boolean} failed
+ */
+function renderRefreshStatus(target, lastUpdatedAt, failed) {
+    const lastUpdated = lastUpdatedAt ? `最終表示更新: ${formatInstant(lastUpdatedAt.toISOString())}` : "表示を取得できていません";
+    target.textContent = failed ? `${lastUpdated}。更新に失敗しました。表示を更新して再試行してください。` : lastUpdated;
 }
 
 /** UTCの公開・取得時刻を、利用者のブラウザのタイムゾーンで表示する。

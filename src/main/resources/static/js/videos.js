@@ -2,6 +2,8 @@
 let onlinePage = 0;
 let onlineTotalPages = 0;
 let onlineRequest = 0;
+/** @type {Date|null} */
+let onlineLastUpdatedAt = null;
 
 function syncVideoUrl(replace = false) {
     const url = new URL(location.href);
@@ -50,8 +52,13 @@ async function loadOnlineVideos() {
         el("videoPage").textContent = data.totalPages ? `${data.number + 1} / ${data.totalPages}` : "0 / 0";
         buttonEl("videoPrev").disabled = data.first || data.empty;
         buttonEl("videoNext").disabled = data.last || data.empty;
+        onlineLastUpdatedAt = new Date();
+        renderRefreshStatus(el("videoRefreshStatus"), onlineLastUpdatedAt, false);
     } catch (error) {
-        if (request === onlineRequest) showError(errorMessage(error));
+        if (request === onlineRequest) {
+            renderRefreshStatus(el("videoRefreshStatus"), onlineLastUpdatedAt, true);
+            showError(errorMessage(error));
+        }
     } finally { if (request === onlineRequest) setBusy(grid, false); }
 }
 
@@ -90,6 +97,7 @@ buttonEl("refreshVideosBtn").addEventListener("click", async () => {
     await loadOnlineVideos();
 });
 window.addEventListener("popstate", () => { restoreVideoUrl(); loadOnlineVideos(); });
+startVisibleRefresh(loadOnlineVideos);
 (async () => { await loadVideoChannels(); restoreVideoUrl(); await loadOnlineVideos(); })();
 
 // 共有画面なので、サーバーが返す権限で共通メニューを選ぶ。
