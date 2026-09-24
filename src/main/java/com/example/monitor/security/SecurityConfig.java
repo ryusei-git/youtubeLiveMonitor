@@ -189,6 +189,8 @@ public class SecurityConfig {
                 // ここから下は段階4で追加したユーザー画面まわり。
                 // 「自分の購読」は一般利用者の機能なので ADMIN 限定にはしない
                 .requestMatchers("/my-channels.html", "/my-recordings.html", "/api/my/**").authenticated()
+                // 利用者画面の 1 枚のページ（#146）。/my/** は MyShellController が /my.html へ forward する
+                .requestMatchers("/my.html", "/my", "/my/**").authenticated()
                 // 再生画面は利用者も使う。見られる録画は /api/my/recordings/{id} と
                 // 録画ファイルの権限確認（購読しているぶんだけ）で絞られるので、画面自体は開いてよい
                 .requestMatchers("/player.html").authenticated()

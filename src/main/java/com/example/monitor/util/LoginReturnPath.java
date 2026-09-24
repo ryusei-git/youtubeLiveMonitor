@@ -3,7 +3,13 @@ package com.example.monitor.util;
 import java.net.URI;
 import java.util.Set;
 
-/** 再ログインの復帰先を画面だけに限定し、外部転送とAPIへの変更操作再送を防ぐ。 */
+/**
+ * 再ログインの復帰先を画面だけに限定し、外部転送とAPIへの変更操作再送を防ぐ。
+ *
+ * <p>利用者画面の 1 枚のページ（{@code /my} 配下、#146）は、画面と検索条件を URL で表すため
+ * 決め打ちの一覧に載せられない。{@code /my} 配下は丸ごと許し、ほかの画面へ抜けられる
+ * {@code .}・{@code ..} のセグメントだけを拒む。
+ */
 public final class LoginReturnPath {
     private static final Set<String> USER_PAGES = Set.of("/videos.html", "/my-channels.html", "/my-recordings.html",
             "/player.html");
@@ -37,9 +43,25 @@ public final class LoginReturnPath {
             URI uri = URI.create(value);
             String path = uri.getRawPath();
             return uri.getRawAuthority() == null && uri.getScheme() == null
-                    && (USER_PAGES.contains(path) || admin && ADMIN_PAGES.contains(path)) ? value : null;
+                    && (USER_PAGES.contains(path) || isMyPage(uri) || admin && ADMIN_PAGES.contains(path)) ? value : null;
         } catch (IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /**
+     * {@code /my} 配下の画面かを見る。{@code /my/../tables.html} のように {@code /my} の外へ
+     * 抜けるパスは拒む。{@code .} と {@code ..} は復号してから見る。ブラウザは {@code %2e} も
+     * {@code .} として扱い、{@code /my/%2e%2e/tables.html} を {@code /tables.html} へ解決するため。
+     * @param uri 要求された復帰先
+     * @return {@code /my} 配下の画面なら true
+     */
+    private static boolean isMyPage(URI uri) {
+        String path = uri.getRawPath();
+        if (!path.equals("/my") && !path.startsWith("/my/")) return false;
+        for (String segment : uri.getPath().split("/")) {
+            if (segment.equals(".") || segment.equals("..")) return false;
+        }
+        return true;
     }
 }
