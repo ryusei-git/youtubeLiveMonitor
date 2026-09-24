@@ -45,7 +45,7 @@ function showRejected(reason) {
     const box = el("rejected");
     box.style.display = "block";
     box.innerHTML = emptyState("このリンクからは登録できません", reason)
-        + `<p class="muted">既にアカウントをお持ちなら <a href="/login.html">ログイン</a> してください。</p>`;
+        + `<p class="muted">既にアカウントをお持ちなら <a href="/userLogin.html">ログイン</a> してください。</p>`;
 }
 
 el("registerForm").addEventListener("submit", async (ev) => {
@@ -69,7 +69,7 @@ el("registerForm").addEventListener("submit", async (ev) => {
         const done = el("done");
         done.style.display = "block";
         done.innerHTML = emptyState("登録が完了しました", `利用者名「${escapeHtml(username)}」で利用できます`)
-            + `<p><a href="/login.html">ログイン画面へ進む</a></p>`;
+            + `<p><a href="/userLogin.html">ログイン画面へ進む</a></p>`;
     } catch (e) {
         showError(errorMessage(e));
     } finally {

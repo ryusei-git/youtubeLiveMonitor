@@ -151,7 +151,7 @@ function errorMessage(e) {
  * @returns {string} ログイン画面のパス
  */
 function loginPagePath() {
-    return viewerIsAdmin ? "/admin-login.html" : "/login.html";
+    return viewerIsAdmin ? "/adminLogin.html" : "/userLogin.html";
 }
 
 /**
@@ -163,7 +163,7 @@ function loginPagePath() {
 async function authenticatedFetch(path, options) {
     const response = await fetch(path, options);
     if (response.status === 401) {
-        if (!["/login.html", "/admin-login.html"].includes(location.pathname) && !loginRedirectPending) {
+        if (!["/userLogin.html", "/adminLogin.html"].includes(location.pathname) && !loginRedirectPending) {
             loginRedirectPending = true;
             const target = location.pathname + location.search + location.hash;
             location.assign(loginPagePath() + "?expired=1&returnTo=" + encodeURIComponent(target));

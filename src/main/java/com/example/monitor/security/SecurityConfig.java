@@ -32,7 +32,7 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
  * <table>
  *   <caption>設計書 3.4 の表と実装の対応</caption>
  *   <tr><th>設計書の記載</th><th>実際のパス</th><th>権限</th></tr>
- *   <tr><td>/login, /css/**, /js/**</td><td>同左（+ /login.html, /admin-login.html, /error）</td><td>全員</td></tr>
+ *   <tr><td>/login, /css/**, /js/**</td><td>同左（+ /userLogin.html, /adminLogin.html, /error）</td><td>全員</td></tr>
  *   <tr><td>/api/auth/**</td><td>同左（ログイン処理・ログアウト）</td><td>全員</td></tr>
  *   <tr><td>/tables.html, /api/tables/**</td>
  *       <td>/tables.html, <b>/api/admin/tables/**</b></td><td>ADMIN</td></tr>
@@ -172,7 +172,7 @@ public class SecurityConfig {
                 // （style だけは style="display:none" を使っているため許可する）
                 .contentSecurityPolicy(csp -> csp.policyDirectives(CONTENT_SECURITY_POLICY)))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/login.html", "/admin-login.html", "/login", "/css/**", "/js/**", "/error").permitAll()
+                .requestMatchers("/userLogin.html", "/adminLogin.html", "/login", "/css/**", "/js/**", "/error").permitAll()
                 // 招待リンクからの利用者登録。まだアカウントが無い時点で開くので認証は掛けられない。
                 // 代わりに招待の token が鍵になる（推測できない乱数・1回限り・期限付き）
                 .requestMatchers("/register.html", "/api/registration/**").permitAll()
@@ -204,7 +204,7 @@ public class SecurityConfig {
                 .requestMatchers("/playground.html", "/api/playground/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .formLogin(form -> form
-                .loginPage("/login.html")
+                .loginPage("/userLogin.html")
                 .loginProcessingUrl("/api/auth/login")
                 // どの画面から来たかを PortalAwareAuthenticationProvider で役割と突き合わせる
                 .authenticationDetailsSource(PortalAwareAuthenticationProvider.PortalDetails::new)
@@ -214,7 +214,7 @@ public class SecurityConfig {
             .logout(logout -> logout
                 .logoutUrl("/api/auth/logout")
                 .addLogoutHandler(auditLogoutHandler)
-                .logoutSuccessUrl("/login.html?logout")
+                .logoutSuccessUrl("/userLogin.html?logout")
                 .permitAll());
         return http.build();
     }

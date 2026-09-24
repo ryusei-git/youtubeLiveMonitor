@@ -32,7 +32,7 @@ public class ActiveAppUserFilter extends OncePerRequestFilter {
                 response.setContentType("application/json;charset=UTF-8");
                 response.getWriter().write("{\"error\":\"ログインし直してください\"}");
             } else {
-                response.sendRedirect(request.getContextPath() + "/login.html");
+                response.sendRedirect(request.getContextPath() + "/userLogin.html");
             }
             return;
         }

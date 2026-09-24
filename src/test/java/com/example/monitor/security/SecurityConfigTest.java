@@ -77,7 +77,7 @@ class SecurityConfigTest {
         @Test
         @DisplayName("正常系：ログイン画面・静的資材は認証なしで200になる")
         void testMethod01() throws Exception {
-            mockMvc.perform(get("/login.html")).andExpect(status().isOk());
+            mockMvc.perform(get("/userLogin.html")).andExpect(status().isOk());
             mockMvc.perform(get("/css/style.css")).andExpect(status().isOk());
         }
 
@@ -86,7 +86,7 @@ class SecurityConfigTest {
         void testMethod02() throws Exception {
             mockMvc.perform(get("/channels.html"))
                     .andExpect(status().is3xxRedirection())
-                    .andExpect(header().string("Location", containsString("/login.html")));
+                    .andExpect(header().string("Location", containsString("/userLogin.html")));
         }
 
         @Test
@@ -94,7 +94,7 @@ class SecurityConfigTest {
         void testMethod03() throws Exception {
             mockMvc.perform(get("/recordings/dummy-channel/dummy-video.mp4"))
                     .andExpect(status().is3xxRedirection())
-                    .andExpect(header().string("Location", containsString("/login.html")));
+                    .andExpect(header().string("Location", containsString("/userLogin.html")));
         }
     }
 
@@ -132,7 +132,7 @@ class SecurityConfigTest {
             mockMvc.perform(SecurityMockMvcRequestBuilders.formLogin("/api/auth/login")
                             .user(ADMIN_USERNAME).password("wrong-password"))
                     .andExpect(status().is3xxRedirection())
-                    .andExpect(header().string("Location", "/login.html?error"));
+                    .andExpect(header().string("Location", "/userLogin.html?error"));
         }
 
         @Test
@@ -140,7 +140,7 @@ class SecurityConfigTest {
         void testMethod04() throws Exception {
             mockMvc.perform(SecurityMockMvcRequestBuilders.logout("/api/auth/logout"))
                     .andExpect(status().is3xxRedirection())
-                    .andExpect(header().string("Location", "/login.html?logout"));
+                    .andExpect(header().string("Location", "/userLogin.html?logout"));
         }
     }
 
