@@ -15,6 +15,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.util.DisconnectedClientHelper;
 
 import java.util.Map;
 
@@ -37,6 +38,9 @@ import java.util.Map;
  *       想定内なのでスタックトレースは残さず、理由だけを 1 行で残す</li>
  *   <li>サーバー側の異常 … {@code ERROR}。原因調査が要るのでスタックトレースごと残す</li>
  * </ul>
+ *
+ * <p>ただし、動画を見ている途中でブラウザが接続を切ったのは失敗ではないので、
+ * {@code DEBUG} を 1 行だけ残す（{@link #handleUnexpected}）。
  */
 @RestControllerAdvice
 @Slf4j
@@ -180,16 +184,6 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 上記のいずれにも当てはまらない例外を 500 Internal Server Error として返す。
-     *
-     * <p><b>この受け口が無いと、想定していなかった例外はこのクラスを素通りする。</b>
-     * 応答の形式が {@code {"error": ...}} から外れて画面のエラー表示が働かなくなるうえ、
-     * ログもフレームワーク任せになり、アプリのログとして追えなくなる。
-     *
-     * @param e 発生した例外
-     * @return エラー内容を含むレスポンス
-     */
-    /**
      * 入力の検証に失敗した場合を 400 Bad Request として返す。
      *
      * <p>これを拾わないと catch-all に落ちて<b>500 になる</b>。利用者の入力誤りを
@@ -226,8 +220,32 @@ public class GlobalExceptionHandler {
         return clientError(HttpStatus.METHOD_NOT_ALLOWED, e, "この操作はこのパスでは行えません");
     }
 
+    /**
+     * 上記のいずれにも当てはまらない例外を 500 Internal Server Error として返す。
+     *
+     * <p><b>この受け口が無いと、想定していなかった例外はこのクラスを素通りする。</b>
+     * 応答の形式が {@code {"error": ...}} から外れて画面のエラー表示が働かなくなるうえ、
+     * ログもフレームワーク任せになり、アプリのログとして追えなくなる。
+     *
+     * <h4>ブラウザの切断はサーバーの異常として扱わない</h4>
+     * 録画の動画を見ている途中でシークやページ移動をすると、ブラウザは接続を切る。
+     * 送りかけの動画の書き込みが失敗してここに来るたびに、<b>スタックトレース付きの ERROR を
+     * 残していた</b>（起動 35 分で 169 回、{@code service.log} 4 万行のうち 3.9 万行、#184）。
+     * さらに、Content-Type が {@code video/mp4} のまま送り始めた応答へ JSON を書こうとして失敗し、
+     * Spring の「Failure in @ExceptionHandler」の WARN とトレースがもう 1 回出ていた。
+     * 受け取る相手はもういないので、DEBUG を 1 行だけ残し、応答には何も書かずに終える。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス。ブラウザが切断していた場合は {@code null}
+     *         （Spring は応答に何も書かない）
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleUnexpected(Exception e) {
+        if (DisconnectedClientHelper.isClientDisconnectedException(e)) {
+            log.debug("ブラウザが切断したため応答を書かずに終えます: type={}, reason={}",
+                    e.getClass().getSimpleName(), e.getMessage());
+            return null;
+        }
         // 何が飛んでくるか分からない経路。DB のエラー文やファイルパスがそのまま
         // 応答に載りうるので、利用者へは決まった文言だけを返す（詳細はログに残る）
         return serverError(e, FALLBACK_MESSAGE);
