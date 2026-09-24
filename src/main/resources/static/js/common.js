@@ -147,6 +147,14 @@ function errorMessage(e) {
    ============================================================ */
 
 /**
+ * 管理者と利用者でログイン画面を分けているため、戻す先も役割で変える。
+ * @returns {string} ログイン画面のパス
+ */
+function loginPagePath() {
+    return viewerIsAdmin ? "/admin-login.html" : "/login.html";
+}
+
+/**
  * セッション切れをJSON解析より先に扱い、同時に複数のAPIが失敗しても一度だけ遷移する。
  * @param {string} path APIパス
  * @param {RequestInit} [options] 通信設定
@@ -155,10 +163,10 @@ function errorMessage(e) {
 async function authenticatedFetch(path, options) {
     const response = await fetch(path, options);
     if (response.status === 401) {
-        if (location.pathname !== "/login.html" && !loginRedirectPending) {
+        if (!["/login.html", "/admin-login.html"].includes(location.pathname) && !loginRedirectPending) {
             loginRedirectPending = true;
             const target = location.pathname + location.search + location.hash;
-            location.assign("/login.html?expired=1&returnTo=" + encodeURIComponent(target));
+            location.assign(loginPagePath() + "?expired=1&returnTo=" + encodeURIComponent(target));
         }
         throw new Error("ログインの有効期限が切れました。ログインし直してください");
     }
@@ -166,6 +174,8 @@ async function authenticatedFetch(path, options) {
 }
 
 let loginRedirectPending = false;
+/** ログアウト後・セッション切れのときに戻すログイン画面を、見ている人の役割で決めるため。 */
+let viewerIsAdmin = false;
 
 /**
  * GET でJSONを取得する。
@@ -700,7 +710,7 @@ function initLogoutControl() {
             await fetch("/api/auth/logout", { method: "POST", headers: csrfHeaders() });
         } finally {
             // ログアウト自体が失敗しても（通信断など）、利用者をログイン画面へは戻す
-            window.location.href = "/login.html?logout";
+            window.location.href = loginPagePath() + "?logout";
         }
     });
     nav.appendChild(link);
@@ -1013,6 +1023,7 @@ const studioPages = {
  * @param {boolean} admin 管理者ならtrue
  */
 function renderNavigationForViewer(admin) {
+    viewerIsAdmin = admin;
     const nav = document.querySelector(".globalnav .shell");
     if (!nav) return;
     const logout = nav.querySelector(".navLogout");
