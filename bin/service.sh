@@ -70,9 +70,27 @@ cmd_start() {
         return 1
     fi
 
-    echo "起動しています... ($jar)"
+    # build/libs の jar を直接動かさず、コピーを動かす。
+    #
+    # 実行中の JVM は jar から必要になった時点でクラスを読む。build/libs の jar を動かしていると、
+    # 稼働中の ./gradlew build に上書きされて、まだ読んでいないクラスを読めなくなる。反映（build → restart）の
+    # たびに、止める途中で GracefulShutdownCallback や H2 の終了処理のクラスを読めず（NoClassDefFoundError）、
+    # 正常終了の待ちを使い切って kill -9 になっていた（2026-09-25、docs/pitfalls.md）。
+    # コピーなら build は触れない。restart は stop → start なので、上書きは必ず前のプロセスが止まった後になる。
+    # 名前に youtubeLiveMonitor を残すのは、上の案内の pgrep -fla youtubeLiveMonitor で見つかるようにするため。
+    local run_jar="$PID_DIR/youtubeLiveMonitor.jar"
+    cp "$jar" "$run_jar"
+
+    # ヒープの上限。指定しないと物理メモリの 1/4（この端末で 3.98GB）まで広がる。
+    # 実測（2026-09-25、起動 31 分後）は使用 271MB・確保 692MB で、1GB は使用量のおよそ 4 倍の余裕がある。
+    # G1PeriodicGCInterval（5 分）は、しばらく GC が無いときにも回して、使っていない確保分を OS へ返させるため
+    # （待機中の常駐メモリを減らす）。端末を載せ替えたときに変えられるよう、JAVA_OPTS があればそちらを使う。
+    local java_opts="${JAVA_OPTS:--Xmx1g -XX:G1PeriodicGCInterval=300000}"
+
+    echo "起動しています... ($jar を $run_jar にコピーして起動)"
     rotate_log
-    nohup java -jar "$jar" > "$LOG_FILE" 2>&1 &
+    # 複数のオプションを空白で区切って渡せるよう、java_opts はクォートせずに展開する
+    nohup java $java_opts -jar "$run_jar" > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
 
     for _ in $(seq 1 "$START_TIMEOUT"); do
