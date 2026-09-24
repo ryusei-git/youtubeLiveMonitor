@@ -54,6 +54,17 @@ public interface ProcessLauncher {
      * <b>実際にはまだ録画中のプロセスを「終わっている」と誤判定してしまう</b>。
      * {@link RecordingReconciler} が録画を失敗扱いにしてよいか判断するために使う。
      *
+     * <p><b>見るのは、このアプリが起動する種類のプロセスだけ</b>：実行ファイル名が {@code yt-dlp}・
+     * {@code ffmpeg}・{@code ffprobe} のものと、Python の処理系で引数にファイル名が {@code yt-dlp} のものを含むもの
+     * （yt-dlp は Python のスクリプトなので、実行ファイルは Python になる）。シェル・{@code grep}・{@code tail}・
+     * エディタなどは見ない。呼び出し元（{@link RecordingReconciler}・{@link RecordingFileService}・
+     * {@link OrphanedPreviewService}）が探しているのはどれもこのアプリが起動した録画・取得・詰め替えのプロセスで、
+     * 動画 ID やチャンネル ID を含むだけの無関係なプロセスで「進行中」と判定すると、補正や掃除が見送られる
+     * （実際に発生した：録画の yt-dlp を止めた直後の「今すぐチェック」で、動画 ID を {@code grep} している
+     * シェルがあったため補正されなかった。yt-dlp の出力は {@code logs/yt-dlp/<動画ID>.log} なので、
+     * {@code tail -f} で様子を見ているだけでも同じことが起きる）。yt-dlp だけに絞らないのは、
+     * {@link RecordingSalvager} が ffmpeg で録画ファイルを詰め替えている間も掃除から守るため。
+     *
      * @param commandLineFragment 探したい文字列（録画なら動画 ID）
      * @return 該当するプロセスが動いていれば {@code true}
      */

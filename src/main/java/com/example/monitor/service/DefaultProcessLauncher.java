@@ -5,8 +5,10 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * {@link ProcessLauncher} の実運用実装。{@link ProcessBuilder} をそのまま使う。
@@ -16,6 +18,9 @@ import java.util.Optional;
  */
 @Component
 public class DefaultProcessLauncher implements ProcessLauncher {
+
+    /** 実行ファイル名だけで、このアプリが起動する種類のプロセスと分かるもの。 */
+    private static final Set<String> WORKER_EXECUTABLES = Set.of("yt-dlp", "ffmpeg", "ffprobe");
 
     @Override
     public Process launch(List<String> command) throws IOException {
@@ -38,9 +43,35 @@ public class DefaultProcessLauncher implements ProcessLauncher {
     public boolean isRunningWithCommandLineContaining(String commandLineFragment) {
         return ProcessHandle.allProcesses()
                 .map(ProcessHandle::info)
+                // 対象を絞る理由は ProcessLauncher#isRunningWithCommandLineContaining の JavaDoc を参照
+                .filter(DefaultProcessLauncher::isWorkerProcess)
                 .map(ProcessHandle.Info::commandLine)
                 // コマンドラインは OS やパーミッションによっては取得できないため、取れたものだけを見る
                 .flatMap(Optional::stream)
                 .anyMatch(commandLine -> commandLine.contains(commandLineFragment));
+    }
+
+    /**
+     * このアプリが起動する種類のプロセス（yt-dlp・ffmpeg・ffprobe）かどうか。
+     *
+     * <p>実行ファイルが取れないプロセスは対象外にしてよい。このアプリが起動したプロセスは同じユーザーで動くため、
+     * 実行ファイルを取れる（取れないのは他のユーザーのプロセスや、終了して回収待ちのプロセスなど）。
+     */
+    private static boolean isWorkerProcess(ProcessHandle.Info info) {
+        String executable = info.command().map(DefaultProcessLauncher::fileName).orElse("");
+        if (WORKER_EXECUTABLES.contains(executable)) {
+            return true;
+        }
+        // yt-dlp は Python のスクリプトなので、実行ファイルは Python の処理系になり、yt-dlp は引数の側に入る
+        return executable.startsWith("python") && info.arguments().stream()
+                .flatMap(Arrays::stream)
+                .map(DefaultProcessLauncher::fileName)
+                .anyMatch("yt-dlp"::equals);
+    }
+
+    /** パスの最後の要素。{@code /} のように要素が無いものは空文字にする。 */
+    private static String fileName(String path) {
+        Path name = Path.of(path).getFileName();
+        return name == null ? "" : name.toString();
     }
 }
