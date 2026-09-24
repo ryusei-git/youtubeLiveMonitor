@@ -61,8 +61,15 @@ case "${1:-start}" in
         # 設定は -D のシステムプロパティで渡す
         # cd と java を 1 つのかたまりで裏に回すと、記録されるのが途中の bash の PID になり、
         # stop で java を止められず、その bash が呼び出し元の出力を握って終わらなくなる
+        # メモリの設定は bin/service.sh の既定と同じにする。付けないとヒープの上限が物理メモリの 1/4
+        # （この端末で 3.98GB）になり、本番と並べて動かす確認用が本番より多くのメモリを抱えうる（#188）。
+        #   -Xmx1g: 本番の実測（2026-09-25）は使用 271MB・確保 692MB で、使用量のおよそ 4 倍の余裕がある
+        #   G1PeriodicGCInterval・TrimNativeHeapInterval（5 分）: 待機中も、使っていないヒープと malloc の
+        #     領域を OS へ返させる（本番ではヒープの外に 250〜290MB あり、縮んだ後のヒープより大きかった）
+        #   MALLOC_ARENA_MAX=2: malloc のアリーナを既定の 8 × コア数（64）から絞る（本番では 66 個あった）
         cd "$PREVIEW"
-        nohup java \
+        MALLOC_ARENA_MAX=2 nohup java \
+            -Xmx1g -XX:G1PeriodicGCInterval=300000 -XX:TrimNativeHeapInterval=300000 \
             -Dserver.port="$PORT" \
             -Dmonitor.scheduling.enabled=false \
             -Dmonitor.discord.webhook-url= \
