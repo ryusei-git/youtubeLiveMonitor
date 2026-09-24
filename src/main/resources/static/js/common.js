@@ -488,9 +488,17 @@ function thumbnailContent(recording) {
  *        リンクにするか。{@code false} にすると素の要素になり、カード側で
  *        クリックを拾ってその場で再生できる（利用者向けの画面はこちら。
  *        {@code /player.html} は管理者専用のため、リンクのままだと 403 になる）
+ * @param {((recording: Recording, button: HTMLButtonElement) => void)|null} onPlay
+ *        再生ボタンを押したときの処理。{@code linkToPlayer} が {@code true} の
+ *        画面では渡さない（リンクで飛べるためボタンが要らない）。
+ *
+ *        <p>カード全体のクリックだけで再生させると、マウスでしか操作できず、
+ *        スクリーンリーダーにも「押せば何が起きるか」が伝わらない。
+ *        ボタンにすることで Tab 移動・Enter/Space・読み上げのすべてが
+ *        ブラウザの標準機能で揃う（実際に指摘を受けた）。
  * @returns {HTMLElement} カード要素
  */
-function buildVideoCard(recording, onDelete, linkToPlayer = true) {
+function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null) {
     const card = document.createElement("div");
     card.className = "videoCard";
 
@@ -511,6 +519,14 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true) {
     const status = recordingStatusLabel(recording.status);
     // 録画中は中断させたくないので削除ボタンを出さない（API 側も 409 で弾く）
     const deletable = onDelete !== null && recording.status !== "RECORDING";
+    const playable = PLAYABLE_RECORDING_STATUSES.includes(recording.status);
+    // 再生できない録画でもボタン自体は出す。消してしまうと「なぜ操作できないか」が
+    // スクリーンリーダーにも見た目にも伝わらない。disabled にして title で理由を添える
+    const playButton = onPlay
+        ? `<button type="button" class="playBtn" aria-label="${escapeHtml(recording.videoTitle)}を再生する"`
+          + ` ${playable ? "" : "disabled"}`
+          + ` title="${playable ? "" : "この録画は再生できるファイルが残っていません"}">再生</button>`
+        : "";
 
     card.innerHTML = `
         ${thumbnail}
@@ -519,9 +535,14 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true) {
           <div class="muted">${channelLink(recording.channelName, recording.youtubeChannelId)}</div>
           <div class="muted">${datetimeCell(recording.startedAt)} ・ ${status}`
         + ` ・ ${formatFileSize(recording.fileSizeBytes)}</div>
-          <div class="cardActions">${deletable ? '<button class="deleteBtn">削除</button>' : ""}</div>
+          <div class="cardActions">${playButton}${deletable ? '<button class="deleteBtn">削除</button>' : ""}</div>
         </div>
     `;
+
+    const playBtn = /** @type {HTMLButtonElement|null} */ (card.querySelector(".playBtn"));
+    if (playBtn && onPlay) {
+        playBtn.addEventListener("click", () => onPlay(recording, playBtn));
+    }
 
     const deleteBtn = card.querySelector(".deleteBtn");
     if (deleteBtn && onDelete) {

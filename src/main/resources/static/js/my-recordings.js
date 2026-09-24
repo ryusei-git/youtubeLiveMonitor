@@ -8,6 +8,10 @@
  * 一覧の中に {@code <video>} を出せば、HTTP Range 対応を含めてブラウザ任せで済む。
  */
 
+/** 再生を開いた後、閉じたときにフォーカスを戻す先のボタン。 */
+/** @type {HTMLButtonElement|null} */
+let lastPlayButton = null;
+
 /** 今表示しているページ番号（0 始まり）。 */
 let currentPage = 0;
 
@@ -21,13 +25,17 @@ let latestRequest = 0;
  * 録画をその場で再生する。
  *
  * @param {any} recording 録画1件
+ * @param {HTMLButtonElement|null} triggerButton 再生を開始した操作の起点。
+ *        閉じたときにここへフォーカスを戻す（フォーカスが失われると、
+ *        キーボード操作の利用者がどこにいるか分からなくなる）
  */
-function play(recording) {
+function play(recording, triggerButton = null) {
     // 失敗した録画には再生できるファイルが無い。押しても無反応にせず理由を伝える
     if (!PLAYABLE_RECORDING_STATUSES.includes(recording.status)) {
         showToast("この録画は再生できるファイルが残っていません", "danger");
         return;
     }
+    lastPlayButton = triggerButton;
 
     const box = el("playerBox");
     const video = /** @type {HTMLVideoElement} */ (el("player"));
@@ -50,6 +58,11 @@ function closePlayer() {
     video.removeAttribute("src");
     video.load();
     el("playerBox").style.display = "none";
+    // 開いた場所へフォーカスを戻す。一覧は再読み込みしていないのでボタンはまだ存在する
+    if (lastPlayButton && document.contains(lastPlayButton)) {
+        lastPlayButton.focus();
+    }
+    lastPlayButton = null;
 }
 
 /** 録画を読み込んで並べる。 */
@@ -83,10 +96,11 @@ async function loadMyRecordings() {
         for (const recording of data.content) {
             // 削除は利用者にはさせない（保存先は共有で、他の購読者の録画でもあるため）。
             // 再生画面（/player.html）は管理者専用なのでリンクにもしない
-            const card = buildVideoCard(recording, null, false);
+            // 再生の起点は再生ボタン（キーボード・スクリーンリーダーで操作できる）。
+            // カード全体のクリックはマウス操作の近道として残すが、ボタンや
+            // リンクの上でのクリックはそちらの動作を優先する
+            const card = buildVideoCard(recording, null, false, play);
             card.addEventListener("click", (ev) => {
-                // 折りたたみやリンクの操作を再生で奪わない
-                // 外部リンク（YouTube へ飛ぶ）や折りたたみの操作は再生で奪わない
                 const target = /** @type {HTMLElement} */ (ev.target);
                 if (target.closest("a, details, button")) return;
                 play(recording);
