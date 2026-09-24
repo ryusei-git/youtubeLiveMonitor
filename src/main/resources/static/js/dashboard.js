@@ -77,26 +77,18 @@ function renderRecordingStatusChart(status) {
 }
 
 /**
- * 開始予定時刻を「今日 16:30」「明日 21:00」「9/30(水) 20:00」の形にする。
- *
- * <p>日付が近い予定は相対表記にして、利用者が日付を計算せず次の予定を把握できるようにする。
- *
- * @param {string|null} iso タイムゾーン無しの ISO 形式の日時。取得できなかった予定は null
- * @returns {string} 表示用の文字列
+ * 開始予定を日付・曜日・時間の列に分ける。列ごとに並べ替えや目視での比較をしやすくするため。
+ * @param {string|null} iso 開始予定時刻
+ * @returns {{date: string, weekday: string, time: string}} 表示用の文字列。不明なら全て "-"
  */
-function formatScheduledStart(iso) {
-    if (!iso) return "開始時刻不明";
+function splitScheduledStart(iso) {
+    if (!iso) return { date: "-", weekday: "-", time: "-" };
     const start = new Date(iso);
-    const hm = `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const day = new Date(start);
-    day.setHours(0, 0, 0, 0);
-    const diffDays = Math.round((day.getTime() - today.getTime()) / 86400000);
-    if (diffDays === 0) return `今日 ${hm}`;
-    if (diffDays === 1) return `明日 ${hm}`;
-    const weekday = "日月火水木金土"[start.getDay()];
-    return `${start.getMonth() + 1}/${start.getDate()}(${weekday}) ${hm}`;
+    return {
+        date: `${start.getMonth() + 1}/${start.getDate()}`,
+        weekday: "日月火水木金土"[start.getDay()],
+        time: `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
+    };
 }
 
 /**
@@ -104,7 +96,7 @@ function formatScheduledStart(iso) {
  *
  * <p>配信中の一覧と分けることで、待機所を配信開始と誤解せず、利用者が次の予定を把握できる。
  *
- * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string}>} streams 開始予定の早い順で返された配信予定
+ * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string, genre?: string|null}>} streams 開始予定の早い順で返された配信予定
  */
 function renderUpcomingStreams(streams) {
     const box = el("upcomingStreams");
@@ -113,17 +105,22 @@ function renderUpcomingStreams(streams) {
             "監視中のチャンネルが YouTube で待機所を作ると、ここに開始予定の早い順で並びます。");
         return;
     }
-    const rows = streams.map(s => `
+    const rows = streams.map(s => {
+        const start = splitScheduledStart(s.scheduledStartTime);
+        return `
         <tr>
-            <td>${statusLamp("idle", "予定")}</td>
-            <td title="${escapeHtml(s.scheduledStartTime ? formatDateTimeSimple(s.scheduledStartTime) : "")}">${escapeHtml(formatScheduledStart(s.scheduledStartTime))}</td>
+            <td>${escapeHtml(start.date)}</td>
+            <td>${escapeHtml(start.weekday)}</td>
+            <td>${escapeHtml(start.time)}</td>
             <td>${escapeHtml(s.channelName)}</td>
+            <td>${escapeHtml(s.genre || "未設定")}</td>
             <td>${externalLink(s.title ?? "（タイトル不明）", s.watchUrl)}</td>
-        </tr>`).join("");
+        </tr>`;
+    }).join("");
     box.innerHTML = `
         <div class="table-scroll">
             <table id="upcomingTable">
-                <thead><tr><th>状態</th><th>開始予定</th><th>チャンネル</th><th>タイトル</th></tr></thead>
+                <thead><tr><th>日付</th><th>曜日</th><th>時間</th><th>チャンネル名</th><th>ジャンル</th><th>タイトル</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>
         </div>`;
