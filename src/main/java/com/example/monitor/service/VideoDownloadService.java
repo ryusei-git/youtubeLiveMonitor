@@ -21,14 +21,12 @@ import com.example.monitor.util.ChannelLogContext;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.RequestContext;
 import com.example.monitor.util.YtDlpFormatSelector;
+import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -59,8 +57,10 @@ import java.util.List;
  * 完了の記録は仮想スレッドに任せる（録画と同じ作り）。進捗は録画履歴の状態
  * （{@code RECORDING} → {@code COMPLETED} / {@code PARTIAL} / {@code FAILED}）で分かる。
  *
- * <p>アプリを再起動すると完了を待つ仮想スレッドは失われるが、
- * {@link RecordingReconciler} が {@code RECORDING} のまま残った履歴を
+ * <p>{@code yt-dlp} の出力は JVM へのパイプではなく {@link YtDlpLogFile} のファイルへ書かせている。
+ * パイプだと、アプリを再起動したときに読み手がいなくなり、{@code yt-dlp} が次の出力で止まるため
+ * （{@link StreamRecorder} のクラス JavaDoc 参照）。ファイルなら再起動しても最後までダウンロードする。
+ * 完了を待つ仮想スレッドは失われるが、{@link RecordingReconciler} が {@code RECORDING} のまま残った履歴を
  * 実ファイルの有無で補正するため、録画と同じように救済される。
  */
 @Service
@@ -233,10 +233,10 @@ public class VideoDownloadService {
 
         Process process;
         try {
-            process = processLauncher.launch(buildCommand(url, videoId, outputDirectory));
+            process = processLauncher.launch(buildCommand(url, videoId, outputDirectory), YtDlpLogFile.of(videoId));
         } catch (IOException e) {
             throw new IllegalStateException(
-                    "yt-dlp を起動できませんでした（インストールされていない可能性があります）");
+                    "yt-dlp を起動できませんでした（インストールされていないか、出力先のログファイルを作れない可能性があります）");
         }
 
         // タイトルが取れなかった場合も一覧で見分けが付くよう、動画IDで代用する
@@ -281,6 +281,9 @@ public class VideoDownloadService {
      * <p>{@code --merge-output-format mp4} で最終ファイル名を録画開始前に確定させている理由は
      * {@link StreamRecorder} のクラス JavaDoc を参照。
      *
+     * <p>{@code --no-progress} を付けるのは、進捗行が出力のほとんどを占め、ローテーションの無い
+     * {@link YtDlpLogFile} のファイルが 1 本で数十 MB になるため（録画と同じ理由）。
+     *
      * @param url             ダウンロード対象の URL
      * @param videoId         動画 ID（出力ファイル名に使う）
      * @param outputDirectory 保存先ディレクトリ
@@ -291,6 +294,7 @@ public class VideoDownloadService {
         return List.of(
                 "yt-dlp",
                 "--no-part",
+                "--no-progress",
                 "--no-playlist",
                 "--merge-output-format", "mp4",
                 "-f", YtDlpFormatSelector.of(monitorProperties.recording().maxHeight()),
@@ -299,7 +303,7 @@ public class VideoDownloadService {
     }
 
     /**
-     * ダウンロードプロセスの出力を読み切り、終了を待って結果を記録する。
+     * ダウンロードプロセスの終了を待って結果を記録する。
      *
      * @param process     起動済みのダウンロードプロセス
      * @param recordingId {@link RecordingHistoryService#recordStart}で発行された録画履歴の主キー
@@ -324,7 +328,9 @@ public class VideoDownloadService {
     }
 
     /**
-     * プロセスの出力を読み切って終了を待ち、結果を録画履歴に反映する。
+     * プロセスの終了を待ち、結果を録画履歴に反映する。
+     *
+     * <p>出力は {@link YtDlpLogFile} のファイルへ向けているため（クラスの JavaDoc 参照）、ここでは読まない。
      *
      * @param process     起動済みのダウンロードプロセス
      * @param recordingId 録画履歴の主キー
@@ -332,16 +338,6 @@ public class VideoDownloadService {
      * @param outputFile  完成予定のファイルのパス
      */
     private void runToCompletion(Process process, Long recordingId, String videoId, Path outputFile) {
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                log.debug("[yt-dlp] {}", line);
-            }
-        } catch (IOException e) {
-            log.warn("ダウンロードプロセスの出力読み取り中にエラーが発生しました: video={}", videoId, e);
-        }
-
         try {
             recordOutcome(recordingId, videoId, outputFile, process.waitFor());
         } catch (InterruptedException e) {
