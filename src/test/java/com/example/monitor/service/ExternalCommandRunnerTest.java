@@ -65,19 +65,22 @@ class ExternalCommandRunnerTest {
         }
 
         @Test
-        @DisplayName("正常系：大量出力でもパイプが詰まらず完走する")
+        @DisplayName("正常系：大量出力でもパイプが詰まらず完走し、溜める出力は上限で止まる")
         @Timeout(value = 10, unit = TimeUnit.SECONDS)
         void testMethod03() {
             // OS のパイプバッファ（Linuxでは既定64KB程度）を大きく超える量を短時間で書き出させる。
             // 読み取りを完了待ちと並行させていないと、バッファが一杯になった時点で
             // プロセス側の書き込みがブロックし、waitFor も readLine も進まなくなる
             // （読み切ってから待つ設計・待ってから読む設計のどちらでも起きる）。
+            // 上限（1MB）を超えた分を読まずに放っておいても同じように詰まり、打ち切られて空が返る。
             Optional<String> result =
                     runner.run(List.of("bash", "-c", "yes | head -c 5000000"), "large-output-test", 10);
 
             assertThat(result).isPresent();
-            // "y\n" の繰り返し（1行2バイト）なので、5,000,000バイトからそう変わらない長さになる
-            assertThat(result.get().length()).isGreaterThan(4_000_000);
+            // "y\n" の繰り返し（1行2文字）なので、上限ちょうど（1024 * 1024 文字）で止まり、省略の印が付く
+            assertThat(result.get())
+                    .hasSize(1024 * 1024 + "（以下省略）".length())
+                    .endsWith("y\n（以下省略）");
         }
     }
 }

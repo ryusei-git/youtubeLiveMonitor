@@ -134,7 +134,9 @@ public class RecordingSalvager {
     private SalvageOutcome remux(List<Path> inputs, Path outputFile) {
         Path workFile = outputFile.resolveSibling(outputFile.getFileName() + WORK_FILE_SUFFIX);
 
-        List<String> command = new ArrayList<>(List.of("ffmpeg", "-y"));
+        // 進捗と警告は出させない。出力は使わない（成否は終了コードと出来たファイルで見る）のに、
+        // 壊れた入力ではパケットごとに警告が出て、読んで溜める費用だけがかかる
+        List<String> command = new ArrayList<>(List.of("ffmpeg", "-y", "-v", "error", "-nostats"));
         for (Path input : inputs) {
             command.add("-i");
             command.add(input.toString());
