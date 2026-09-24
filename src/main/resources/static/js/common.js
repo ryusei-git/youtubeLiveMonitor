@@ -806,18 +806,33 @@ function bindPictureInPictureButton(button, video) {
     /** @param {boolean} active 小窓の表示中か */
     const render = (active) => { button.textContent = active ? "小窓を閉じる" : "小窓で再生"; };
     const safari = /** @type {HTMLVideoElement & WebkitPresentationVideo} */ (video);
+    /**
+     * 案内をトーストに加えてボタンの横にも残す。iPhone の全画面の再生画面はページ全体を覆うため、
+     * トーストは全画面の裏で消えてしまい読めない。全画面から戻ったときに読めるようにする。
+     * @param {string} message 案内の文言
+     */
+    const guide = (message) => {
+        showToast(message);
+        let hint = button.nextElementSibling;
+        if (!(hint instanceof HTMLElement) || !hint.classList.contains("pipHint")) {
+            hint = document.createElement("span");
+            hint.className = "pipHint muted";
+            button.after(hint);
+        }
+        hint.textContent = message;
+    };
     const openFullscreenInstead = () => {
         if (typeof safari.webkitEnterFullscreen === "function") {
             try {
                 safari.webkitEnterFullscreen();
-                showToast("全画面の再生画面にある小窓のボタンで小窓にできます");
+                guide("全画面の再生画面にある小窓のボタンで小窓にできます");
                 return;
             } catch (e) {
                 // 全画面も断られた。投げ直すと何も起きないように見えるので、下の案内に落とす
                 console.warn(e);
             }
         }
-        showToast("このブラウザではこの動画を小窓にできません");
+        guide("このブラウザではこの動画を小窓にできません");
     };
     /** @type {() => unknown} */
     let toggle;
