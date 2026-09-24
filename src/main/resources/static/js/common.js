@@ -951,31 +951,68 @@ function externalLink(label, url) {
 }
 
 
+/** 削除用スクリプトがHTML上のマーカーを消した後は、共通メニューにも追加しない。 */
+const playgroundAvailable = Boolean(document.querySelector('.globalnav a[href="/playground.html"], .globalnav template[data-playground]'));
+
+/** @type {Array<[string, string]>} 管理者画面の共通メニュー順。 */
+const adminNavigation = [
+    ["/videos.html", "動画・配信"], ["/index.html", "ダッシュボード"],
+    ["/channels.html", "チャンネル"], ["/notifications.html", "通知履歴"],
+    ["/recordings.html", "録画"], ["/users.html", "利用者管理"],
+    ["/invitations.html", "招待"], ["/logs.html", "ログ"],
+    ["/tables.html", "DB管理"], ["/playground.html", "APIお試し"]
+];
+/** @type {Array<[string, string]>} 一般利用者には管理リンクを載せない。 */
+const userNavigation = [
+    ["/videos.html", "動画・配信"], ["/my-channels.html", "マイチャンネル"],
+    ["/my-recordings.html", "録画"]
+];
+
+/** @type {Record<string, [string, string]>} */
+const studioPages = {
+    "videos.html": ["", "M4 5h16v14H4z M10 9l5 3-5 3z"],
+    "index.html": ["配信の状況と録画の動きを、ここから確認できます。", "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"],
+    "channels.html": ["お気に入りの配信者を登録して、通知・録画の条件を管理。", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6"],
+    "recordings.html": ["見たい配信を見つけて、好きなときに再生。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
+    "notifications.html": ["配信開始の通知と、送信結果を確認できます。", "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4"],
+    "logs.html": ["チャンネルやログレベルを絞って、動作状況を確認。", "M5 3h14v18H5z M8 7h8 M8 11h8 M8 15h5"],
+    "tables.html": ["データの内容を確認・編集する管理者向けの画面です。", "M3 4h18v16H3z M3 9h18 M9 9v11"],
+    "playground.html": ["APIのリクエストと応答を確認する診断ツール。", "M8 5l-6 7 6 7 M16 5l6 7-6 7 M14 3l-4 18"],
+    "users.html": ["", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6"],
+    "invitations.html": ["招待リンクを発行して、サービスを共有できます。", "M3 5h18v14H3z M3 5l9 7 9-7"],
+    "my-channels.html": ["フォローしている配信者と、自分の録画設定。", "M4 4h16v16H4z M8 9h8 M8 14h5"],
+    "my-recordings.html": ["フォロー中のチャンネルの録画を、まとめて楽しむ。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
+    "player.html": ["保存した配信を再生。関連する録画もここから。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
+};
+
 /**
- * 画面ごとの役割と現在地を、同じナビゲーションの表現で伝える。
- * 既存のリンクとフォームを保持することで、権限ごとの画面構成を変えずに使える。
+ * 動画画面は閲覧者判定後に呼び直すため、ログアウト操作を付け直さず同じ要素を残す。
+ * @param {boolean} admin 管理者ならtrue
  */
-function initStudioShell() {
-    /** @type {Record<string, [string, string]>} */
-    const pages = {
-        "videos.html": ["", "M4 5h16v14H4z M10 9l5 3-5 3z"],
-        "index.html": ["配信の状況と録画の動きを、ここから確認できます。", "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"],
-        "channels.html": ["お気に入りの配信者を登録して、通知・録画の条件を管理。", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6"],
-        "recordings.html": ["見たい配信を見つけて、好きなときに再生。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
-        "notifications.html": ["配信開始の通知と、送信結果を確認できます。", "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4"],
-        "logs.html": ["チャンネルやログレベルを絞って、動作状況を確認。", "M5 3h14v18H5z M8 7h8 M8 11h8 M8 15h5"],
-        "tables.html": ["データの内容を確認・編集する管理者向けの画面です。", "M3 4h18v16H3z M3 9h18 M9 9v11"],
-        "playground.html": ["APIのリクエストと応答を確認する診断ツール。", "M8 5l-6 7 6 7 M16 5l6 7-6 7 M14 3l-4 18"],
-        "users.html": ["", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6"],
-        "invitations.html": ["招待リンクを発行して、サービスを共有できます。", "M3 5h18v14H3z M3 5l9 7 9-7"],
-        "my-channels.html": ["フォローしている配信者と、自分の録画設定。", "M4 4h16v16H4z M8 9h8 M8 14h5"],
-        "my-recordings.html": ["フォロー中のチャンネルの録画を、まとめて楽しむ。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
-        "player.html": ["保存した配信を再生。関連する録画もここから。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
-    };
+function renderNavigationForViewer(admin) {
+    const nav = document.querySelector(".globalnav .shell");
+    if (!nav) return;
+    const logout = nav.querySelector(".navLogout");
+    const page = location.pathname === "/player.html" ? "/recordings.html" : location.pathname;
+    const links = (admin ? adminNavigation : userNavigation)
+        .filter(([href]) => href !== "/playground.html" || playgroundAvailable)
+        .map(([href, label]) => {
+        const link = document.createElement("a");
+        link.href = href;
+        link.textContent = label;
+        if (href === page) { link.className = "active"; link.setAttribute("aria-current", "page"); }
+        return link;
+    });
+    nav.replaceChildren(...links, ...(logout ? [logout] : []));
+    decorateStudioNavigation();
+}
+
+/** 追加し直したリンクにも、同じアイコンとスマホの現在地表示を適用する。 */
+function decorateStudioNavigation() {
     document.querySelectorAll(".globalnav a").forEach((link) => {
         const path = (link.getAttribute("href") || "").split("/").pop() || "";
-        const icon = pages[path]?.[1] || "M9 4H4v16h5 M13 8l4 4-4 4 M8 12h13";
-        link.insertAdjacentHTML("afterbegin", `<svg class="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="${icon}"/></svg>`);
+        const icon = studioPages[path]?.[1] || "M9 4H4v16h5 M13 8l4 4-4 4 M8 12h13";
+        if (!link.querySelector(".navIcon")) link.insertAdjacentHTML("afterbegin", `<svg class="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="${icon}"/></svg>`);
         if (link.classList.contains("active")) link.setAttribute("aria-current", "page");
     });
     const navigation = document.querySelector(".globalnav");
@@ -988,6 +1025,13 @@ function initStudioShell() {
         // 既に見えている場合は何もしない
         activeLink.scrollIntoView({ inline: "nearest", block: "nearest" });
     }
+}
+
+/** 共通の補助要素を一度だけ置く。 */
+function initStudioShell() {
+    const current = location.pathname.split("/").pop();
+    if (current === "videos.html") renderNavigationForViewer(false);
+    else renderNavigationForViewer(!["my-channels.html", "my-recordings.html"].includes(current || ""));
     const main = document.querySelector("main");
     if (main) {
         main.id = "mainContent";
@@ -998,7 +1042,7 @@ function initStudioShell() {
         skip.textContent = "本文へ移動";
         document.body.prepend(skip);
         const heading = main.querySelector("h1");
-        const description = pages[location.pathname.split("/").pop() || "index.html"]?.[0];
+        const description = studioPages[location.pathname.split("/").pop() || "index.html"]?.[0];
         if (heading && description) {
             const note = document.createElement("p");
             note.className = "pageDescription";

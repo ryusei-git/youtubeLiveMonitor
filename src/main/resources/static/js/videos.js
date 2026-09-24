@@ -50,20 +50,10 @@ buttonEl("refreshVideosBtn").addEventListener("click", async () => { await loadV
 if (queryParam("liveOnly") === "true") selectEl("videoMode").value = "live";
 (async () => { await loadVideoChannels(); await loadOnlineVideos(); })();
 
-// 共通の動画ページでも、管理者が元の管理画面へ戻れる導線を維持する。
+// 共有画面なので、サーバーが返す権限で共通メニューを選ぶ。
 (async () => {
     try {
         const viewer = await apiGet("/api/videos/viewer");
-        if (!viewer.admin) return;
-        const links = document.querySelectorAll('a[href="/my-channels.html"], a[href="/my-recordings.html"]');
-        links.forEach(link => {
-            const recordings = link.getAttribute("href") === "/my-recordings.html";
-            link.setAttribute("href", recordings ? "/recordings.html" : "/channels.html");
-            if (!recordings) link.childNodes.forEach(node => {
-                if (node.nodeType === Node.TEXT_NODE && node.textContent?.includes("マイチャンネル")) node.textContent = "チャンネル";
-            });
-        });
-        const home = document.createElement("a"); home.href = "/index.html"; home.textContent = "ダッシュボードへ";
-        document.querySelector(".globalnav .shell")?.prepend(home);
+        renderNavigationForViewer(viewer.admin);
     } catch { /* 一覧本体のエラー表示を優先する。 */ }
 })();
