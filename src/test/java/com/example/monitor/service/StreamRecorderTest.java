@@ -398,7 +398,7 @@ class StreamRecorderTest {
             activeRecordingsOf(recorder).add("video001");
             stubFileExists(12345L);
 
-            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null);
+            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
 
             assertThat(recorder.isRecording("video001")).isFalse();
             verify(recordingHistoryService).markCompleted(100L, 12345L);
@@ -416,7 +416,7 @@ class StreamRecorderTest {
             activeRecordingsOf(recorder).add("video001");
             stubFileExists(736511716L);
 
-            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null);
+            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
 
             assertThat(recorder.isRecording("video001")).isFalse();
             verify(recordingHistoryService).markCompleted(100L, 736511716L);
@@ -432,7 +432,7 @@ class StreamRecorderTest {
             activeRecordingsOf(recorder).add("video001");
             stubFileMissing();
 
-            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null);
+            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
 
             assertThat(recorder.isRecording("video001")).isFalse();
             verify(recordingHistoryService).markFailed(100L);
@@ -447,7 +447,7 @@ class StreamRecorderTest {
             activeRecordingsOf(recorder).add("video001");
             stubFileMissing();
 
-            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null);
+            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
 
             verify(recordingHistoryService).markFailed(100L);
             verify(recordingHistoryService, never()).markCompleted(any(), anyLong());
@@ -464,7 +464,7 @@ class StreamRecorderTest {
             activeRecordingsOf(recorder).add("video001");
             stubFileMissing();
 
-            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null);
+            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
 
             assertThat(recorder.isRecording("video001")).isFalse();
             assertThat(Thread.interrupted()).isTrue(); // 割り込みフラグを消費して後片付けする
@@ -482,7 +482,7 @@ class StreamRecorderTest {
             activeRecordingsOf(recorder).add("video001");
             stubFileExists(555L);
 
-            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null);
+            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
 
             assertThat(Thread.interrupted()).isTrue();
             verify(recordingHistoryService).markCompleted(100L, 555L);
@@ -500,7 +500,7 @@ class StreamRecorderTest {
             activeRecordingsOf(recorder).add("video001");
             stubFileSalvaged(326000000L);
 
-            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null);
+            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
 
             verify(recordingHistoryService).markPartial(100L, 326000000L);
             verify(recordingHistoryService, never()).markCompleted(any(), anyLong());
@@ -518,7 +518,7 @@ class StreamRecorderTest {
             activeRecordingsOf(recorder).add("video001");
             stubFileExists(100L);
 
-            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null);
+            recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
 
             InOrder inOrder = inOrder(mockProcess, recordingSalvager);
             inOrder.verify(mockProcess).waitFor();

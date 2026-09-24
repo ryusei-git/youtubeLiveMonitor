@@ -157,7 +157,9 @@ public class Recording {
          * 再生できる点は同じなので一覧にも出すし再生もできるが、完全ではないことは明示する。
          *
          * <p>この状態になるのは {@link com.example.monitor.service.RecordingSalvager} が
-         * 詰め替えに成功した場合だけで、再生できないものは {@link #FAILED} のままになる。
+         * 詰め替えに成功した場合と、{@code --live-from-start} での録画に失敗して
+         * 「今の時点から」録り直せた場合（最初が欠けている）で、再生できないものは
+         * {@link #FAILED} のままになる。後者の理由は {@link com.example.monitor.service.StreamRecorder} を参照。
          */
         PARTIAL,
         /**
