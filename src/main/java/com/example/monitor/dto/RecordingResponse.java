@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
  *                       {@link #UNLINKED_CHANNEL_NAME}（画面に「-」とだけ出ると理由が分からないため）
  * @param videoId        配信の動画 ID
  * @param videoTitle     録画開始時点での配信タイトル
+ * @param genre          タイトルの最初の {@code 【】} の中身。無ければ {@code null}
  * @param filePath       録画ファイルの保存先パス（{@code monitor.recording.directory}からの相対パス）。
  *                       画面はこれを {@code /recordings/} と連結して再生用 URL を組み立てる
  * @param fileSizeBytes  ファイルサイズ（バイト）。録画中・失敗時は {@code null}
@@ -37,6 +38,7 @@ public record RecordingResponse(
         String channelName,
         String videoId,
         String videoTitle,
+        String genre,
         String filePath,
         Long fileSizeBytes,
         Integer durationSeconds,
@@ -79,6 +81,7 @@ public record RecordingResponse(
                 channel == null ? UNLINKED_CHANNEL_NAME : channel.getChannelName(),
                 recording.getVideoId(),
                 recording.getVideoTitle(),
+                recording.getGenre(),
                 recording.getFilePath(),
                 recording.getFileSizeBytes(),
                 recording.getDurationSeconds(),

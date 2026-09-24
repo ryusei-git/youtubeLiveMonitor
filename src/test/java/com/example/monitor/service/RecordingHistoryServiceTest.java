@@ -4,11 +4,9 @@ import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.dto.DiskUsageResponse;
-import com.example.monitor.exception.ChannelNotFoundException;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
 import com.example.monitor.repository.AppUserRepository;
-import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -23,6 +21,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -42,9 +41,6 @@ class RecordingHistoryServiceTest {
 
     @Mock
     private RecordingRepository recordingRepository;
-
-    @Mock
-    private MonitoredChannelRepository monitoredChannelRepository;
 
     @Mock
     private RecordingFileService recordingFileService;
@@ -128,36 +124,6 @@ class RecordingHistoryServiceTest {
     }
 
     @Nested
-    @DisplayName("findByChannel()")
-    class FindByChannel {
-
-        @Test
-        @DisplayName("正常系：存在するチャンネルIDを指定すると該当チャンネルの録画履歴を返す")
-        void testMethod01() {
-            MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
-            channel.setId(1L);
-            Pageable pageable = PageRequest.of(0, 20);
-            Page<Recording> page = new PageImpl<>(List.of());
-            when(monitoredChannelRepository.findById(1L)).thenReturn(Optional.of(channel));
-            when(recordingRepository.findByChannelOrderByStartedAtDesc(channel, pageable)).thenReturn(page);
-
-            Page<Recording> result = recordingHistoryService.findByChannel(1L, pageable);
-
-            assertThat(result).isSameAs(page);
-        }
-
-        @Test
-        @DisplayName("異常系：存在しないチャンネルIDを指定するとChannelNotFoundExceptionが発生する")
-        void testMethod02() {
-            Pageable pageable = PageRequest.of(0, 20);
-            when(monitoredChannelRepository.findById(999L)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> recordingHistoryService.findByChannel(999L, pageable))
-                    .isInstanceOf(ChannelNotFoundException.class);
-        }
-    }
-
-    @Nested
     @DisplayName("deleteRecording()")
     class DeleteRecording {
 
@@ -223,36 +189,51 @@ class RecordingHistoryServiceTest {
         @DisplayName("正常系：キーワードと状態をそのままリポジトリへ渡す")
         void testMethod01() {
             Pageable pageable = PageRequest.of(0, 20);
-            when(recordingRepository.search("ASMR", RecordingStatus.COMPLETED, pageable))
+            when(recordingRepository.search(1L, "ASMR", RecordingStatus.COMPLETED, null, null, "雑談", pageable))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            recordingHistoryService.search("ASMR", RecordingStatus.COMPLETED, pageable);
+            recordingHistoryService.search(1L, "ASMR", RecordingStatus.COMPLETED, null, null, "雑談", pageable);
 
-            verify(recordingRepository).search("ASMR", RecordingStatus.COMPLETED, pageable);
+            verify(recordingRepository).search(1L, "ASMR", RecordingStatus.COMPLETED, null, null, "雑談", pageable);
         }
 
         @Test
         @DisplayName("正常系：空白だけのキーワードは条件なし（null）として扱う")
         void testMethod02() {
             Pageable pageable = PageRequest.of(0, 20);
-            when(recordingRepository.search(null, null, pageable))
+            when(recordingRepository.search(null, null, null, null, null, null, pageable))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            recordingHistoryService.search("   ", null, pageable);
+            recordingHistoryService.search(null, "   ", null, null, null, "  ", pageable);
 
-            verify(recordingRepository).search(null, null, pageable);
+            verify(recordingRepository).search(null, null, null, null, null, null, pageable);
         }
 
         @Test
         @DisplayName("正常系：キーワードの前後の空白は取り除いて渡す")
         void testMethod03() {
             Pageable pageable = PageRequest.of(0, 20);
-            when(recordingRepository.search("ASMR", null, pageable))
+            when(recordingRepository.search(null, "ASMR", null, null, null, null, pageable))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            recordingHistoryService.search("  ASMR  ", null, pageable);
+            recordingHistoryService.search(null, "  ASMR  ", null, null, null, null, pageable);
 
-            verify(recordingRepository).search("ASMR", null, pageable);
+            verify(recordingRepository).search(null, "ASMR", null, null, null, null, pageable);
+        }
+
+        @Test
+        @DisplayName("正常系：期間は開始日の0時から終了日の翌日0時の手前までとして渡す")
+        void testMethod04() {
+            Pageable pageable = PageRequest.of(0, 20);
+            LocalDateTime from = LocalDateTime.of(2026, 9, 1, 0, 0);
+            LocalDateTime to = LocalDateTime.of(2026, 10, 1, 0, 0);
+            when(recordingRepository.search(null, null, null, from, to, null, pageable))
+                    .thenReturn(new PageImpl<>(List.of()));
+
+            recordingHistoryService.search(null, null, null,
+                    LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30), null, pageable);
+
+            verify(recordingRepository).search(null, null, null, from, to, null, pageable);
         }
     }
 

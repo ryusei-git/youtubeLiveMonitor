@@ -17,18 +17,19 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -41,12 +42,15 @@ class RecordingControllerTest {
     @InjectMocks
     private RecordingController controller;
 
+    /** 既定の並び順（開始時刻の新しい順 → 主キーの大きい順）。 */
+    private static final Sort NEWEST = Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"));
+
     @Nested
     @DisplayName("getRecordings()")
     class GetRecordings {
 
         @Test
-        @DisplayName("正常系：channelId未指定の場合は全チャンネルの録画履歴を取得する")
+        @DisplayName("正常系：channelId未指定の場合は全チャンネルの録画履歴を新しい順に取得する")
         void testMethod01() {
             MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
             Recording recording = Recording.builder()
@@ -54,47 +58,55 @@ class RecordingControllerTest {
                     .filePath("UCxxxxxxxx/video001.mp4")
                     .status(RecordingStatus.RECORDING).startedAt(LocalDateTime.now())
                     .build();
-            when(recordingHistoryService.search(null, null, PageRequest.of(0, 20)))
+            when(recordingHistoryService.search(null, null, null, null, null, null, PageRequest.of(0, 20, NEWEST)))
                     .thenReturn(new PageImpl<>(List.of(recording)));
 
-            PageResponse<RecordingResponse> result = controller.getRecordings(null, null, null, 0, 20);
+            PageResponse<RecordingResponse> result =
+                    controller.getRecordings(null, null, null, "newest", null, null, null, 0, 20);
 
             assertThat(result.content()).hasSize(1);
-            verify(recordingHistoryService, never()).findByChannel(any(), any());
         }
 
         @Test
-        @DisplayName("正常系：channelId指定時は該当チャンネルの録画履歴のみ取得する")
+        @DisplayName("正常系：channelId指定時もキーワード・状態と組み合わせて検索条件として渡す")
         void testMethod02() {
-            when(recordingHistoryService.findByChannel(eq(1L), eq(PageRequest.of(0, 20))))
+            when(recordingHistoryService.search(1L, "ASMR", RecordingStatus.COMPLETED, null, null, null,
+                    PageRequest.of(0, 20, NEWEST)))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            PageResponse<RecordingResponse> result = controller.getRecordings(1L, null, null, 0, 20);
+            PageResponse<RecordingResponse> result = controller.getRecordings(
+                    1L, "ASMR", RecordingStatus.COMPLETED, "newest", null, null, null, 0, 20);
 
             assertThat(result.content()).isEmpty();
-            verify(recordingHistoryService).findByChannel(eq(1L), eq(PageRequest.of(0, 20)));
         }
 
         @Test
-        @DisplayName("正常系：キーワードと状態を指定した場合はそのまま検索条件として渡す")
+        @DisplayName("正常系：期間・ジャンルと並び順をそのまま検索条件として渡す")
         void testMethod03() {
-            when(recordingHistoryService.search("ASMR", RecordingStatus.COMPLETED, PageRequest.of(0, 20)))
+            LocalDate from = LocalDate.of(2026, 9, 1);
+            LocalDate to = LocalDate.of(2026, 9, 30);
+            Sort longest = Sort.by(Sort.Order.desc("durationSeconds")).and(NEWEST);
+            when(recordingHistoryService.search(null, null, null, from, to, "ASMR", PageRequest.of(0, 20, longest)))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            controller.getRecordings(null, "ASMR", RecordingStatus.COMPLETED, 0, 20);
+            controller.getRecordings(null, null, null, "longest", from, to, "ASMR", 0, 20);
 
-            verify(recordingHistoryService).search("ASMR", RecordingStatus.COMPLETED, PageRequest.of(0, 20));
+            verify(recordingHistoryService).search(null, null, null, from, to, "ASMR", PageRequest.of(0, 20, longest));
         }
 
         @Test
-        @DisplayName("正常系：channelIdとキーワードが両方指定された場合はchannelIdを優先する")
+        @DisplayName("異常系：知らない並び順・範囲外の件数・逆転した期間はIllegalArgumentExceptionが発生する")
         void testMethod04() {
-            when(recordingHistoryService.findByChannel(eq(1L), eq(PageRequest.of(0, 20))))
-                    .thenReturn(new PageImpl<>(List.of()));
-
-            controller.getRecordings(1L, "ASMR", null, 0, 20);
-
-            verify(recordingHistoryService, never()).search(any(), any(), any());
+            assertThatThrownBy(() -> controller.getRecordings(null, null, null, "foo", null, null, null, 0, 20))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> controller.getRecordings(null, null, null, "newest", null, null, null, 0, 0))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> controller.getRecordings(null, null, null, "newest", null, null, null, 0, 101))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> controller.getRecordings(null, null, null, "newest",
+                    LocalDate.of(2026, 9, 2), LocalDate.of(2026, 9, 1), null, 0, 20))
+                    .isInstanceOf(IllegalArgumentException.class);
+            verifyNoInteractions(recordingHistoryService);
         }
 
         @Test
@@ -106,10 +118,11 @@ class RecordingControllerTest {
                     .filePath("UCxxxxxxxx/video001.mp4")
                     .status(RecordingStatus.COMPLETED).startedAt(LocalDateTime.now())
                     .build();
-            when(recordingHistoryService.search(null, null, PageRequest.of(0, 2)))
+            when(recordingHistoryService.search(null, null, null, null, null, null, PageRequest.of(0, 2, NEWEST)))
                     .thenReturn(new PageImpl<>(List.of(recording), PageRequest.of(0, 2), 5));
 
-            PageResponse<RecordingResponse> result = controller.getRecordings(null, null, null, 0, 2);
+            PageResponse<RecordingResponse> result =
+                    controller.getRecordings(null, null, null, "newest", null, null, null, 0, 2);
 
             assertThat(result.totalElements()).isEqualTo(5);
             assertThat(result.totalPages()).isEqualTo(3);
