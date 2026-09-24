@@ -85,12 +85,19 @@ public class TwitchStreamPlatform extends AbstractStreamPlatform {
     }
 
     /**
-     * 入力されたログイン名・URL を、不変のユーザー ID へ解決する。
+     * 入力されたログイン名・URL・ユーザー ID を、不変のユーザー ID へ解決する。
      *
      * <p>ログイン名のまま保存すると改名でサイレント故障するため、ここで必ず ID に変換する
      * （このクラスの JavaDoc 参照）。
      *
-     * @param rawInput 利用者の入力（{@code https://www.twitch.tv/foo} / {@code foo} / {@code @foo}）
+     * <p><b>数値のユーザー ID も受け付ける。</b>チャンネル一覧（管理画面・CLI の {@code channel list}）には
+     * 保存したユーザー ID が出ているため、それを貼って登録・購読されうる。
+     * ただし<b>ログイン名として探すのが先</b>。数字だけのログイン名もありうるため、ID として先に探すと
+     * 利用者が意図したチャンネルではなく、たまたまその数値を ID に持つ別人に当たる恐れがある。
+     * その代わり、貼った ID と同じ数字をログイン名に持つ別人がいると、そちらに解決される
+     * （2026-09 に実機で確認：有名配信者の ID の 1 つが、同じ数字のログイン名の別アカウントに当たった）。
+     *
+     * @param rawInput 利用者の入力（{@code https://www.twitch.tv/foo} / {@code foo} / {@code @foo} / {@code 12826}）
      * @return Twitch のユーザー ID（数値の文字列）
      * @throws IllegalArgumentException 入力が空、またはそのチャンネルが存在しない場合
      */
@@ -102,6 +109,9 @@ public class TwitchStreamPlatform extends AbstractStreamPlatform {
 
         String login = extractLogin(rawInput.trim());
         return twitchApiClient.findUserByLogin(login)
+                .or(() -> isUserIdInRange(login)
+                        ? twitchApiClient.findUsersByIds(List.of(login)).stream().findFirst()
+                        : Optional.empty())
                 .map(TwitchUser::id)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Twitch にそのチャンネルが見つかりませんでした: " + login));
@@ -257,6 +267,22 @@ public class TwitchStreamPlatform extends AbstractStreamPlatform {
             login = login.substring(HANDLE_PREFIX.length());
         }
         return login.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * ユーザー ID として Twitch に問い合わせてよい値かを判定する。
+     *
+     * <p>数字だけでも、Twitch は 32 ビット整数に収まらない ID を受け付けず HTTP 400 を返す
+     * （2026-09 に実機で確認：{@code 2147483639} は「該当なし」、{@code 2147483659} は 400）。
+     * そのまま問い合わせると、存在しないだけの入力が「見つかりませんでした」ではなく
+     * サーバーエラーになるため、収まらない値は問い合わせずに「見つからない」側へ倒す。
+     * Twitch がこの上限を超える ID を発行・受け付けるようになったら、この判定を見直すこと。
+     *
+     * @param input {@link #extractLogin} で取り出した入力
+     * @return 32 ビット整数に収まる数字だけの値なら {@code true}
+     */
+    private static boolean isUserIdInRange(String input) {
+        return input.matches("[0-9]{1,10}") && Long.parseLong(input) <= Integer.MAX_VALUE;
     }
 
     /**
