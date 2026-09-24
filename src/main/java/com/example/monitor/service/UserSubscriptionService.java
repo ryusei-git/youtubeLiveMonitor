@@ -156,10 +156,14 @@ public class UserSubscriptionService {
      * （管理者が URL を貼って取得したもの）も対象外。
      *
      * @param pageable ページ指定
+     * @param keyword タイトルの検索語
+     * @param channelId 購読チャンネルの主キー
+     * @param playableOnly 再生可能な録画のみを表示するか
      * @return 録画の一覧
      */
     @Transactional(readOnly = true)
-    public Page<RecordingResponse> listMyRecordings(Pageable pageable) {
+    public Page<RecordingResponse> listMyRecordings(Pageable pageable, String keyword,
+                                                     Long channelId, boolean playableOnly) {
         List<MonitoredChannel> channels = userSubscriptionRepository
                 .findByUserOrderBySubscribedAtDesc(currentUser()).stream()
                 .map(UserSubscription::getChannel)
@@ -168,7 +172,8 @@ public class UserSubscriptionService {
         if (channels.isEmpty()) {
             return Page.empty(pageable);
         }
-        return recordingRepository.findByChannelInOrderByStartedAtDesc(channels, pageable)
+        String normalizedKeyword = keyword == null || keyword.isBlank() ? null : keyword.trim();
+        return recordingRepository.searchSubscribed(channels, channelId, normalizedKeyword, playableOnly, pageable)
                 .map(RecordingResponse::from);
     }
 

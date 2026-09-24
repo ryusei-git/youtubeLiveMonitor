@@ -52,6 +52,33 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
             java.util.Collection<MonitoredChannel> channels, Pageable pageable);
 
     /**
+     * 購読範囲と検索条件をページング前に適用し、件数にも同じ条件を反映する。
+     * チャンネルの指定だけで購読外の録画を取得できないよう、購読範囲は常に必須にする。
+     *
+     * @param channels 購読中のチャンネル
+     * @param channelId 選択中のチャンネル。未指定なら全購読チャンネル
+     * @param keyword タイトルの検索語。未指定なら絞り込まない
+     * @param playableOnly 再生可能な録画だけに絞るか
+     * @param pageable ページ指定
+     * @return 条件に一致する録画
+     */
+    @Query("""
+            SELECT r FROM Recording r
+             WHERE r.channel IN :channels
+               AND (:channelId IS NULL OR r.channel.id = :channelId)
+               AND (:keyword IS NULL OR LOWER(r.videoTitle) LIKE LOWER(CONCAT('%', :keyword, '%')))
+               AND (:playableOnly = false OR r.status IN (
+                   com.example.monitor.entity.Recording.RecordingStatus.COMPLETED,
+                   com.example.monitor.entity.Recording.RecordingStatus.PARTIAL))
+             ORDER BY r.startedAt DESC
+            """)
+    Page<Recording> searchSubscribed(@Param("channels") Collection<MonitoredChannel> channels,
+                                      @Param("channelId") Long channelId,
+                                      @Param("keyword") String keyword,
+                                      @Param("playableOnly") boolean playableOnly,
+                                      Pageable pageable);
+
+    /**
      * 録画履歴をキーワードと状態で絞り込んで新しい順に取得する。
      *
      * <p>キーワードは配信タイトルとチャンネル名のどちらかに部分一致すればよい

@@ -14,6 +14,9 @@ let currentPage = 0;
 /** 総ページ数。 */
 let totalPages = 1;
 
+/** 連続操作で古い検索結果が新しい条件を上書きしないようにする。 */
+let latestRequest = 0;
+
 /**
  * 録画をその場で再生する。
  *
@@ -51,17 +54,31 @@ function closePlayer() {
 
 /** 録画を読み込んで並べる。 */
 async function loadMyRecordings() {
+    const request = ++latestRequest;
     const grid = el("videoGrid");
     setBusy(grid, true);
     try {
-        const data = await apiGet(`/api/my/recordings?page=${currentPage}&size=12`);
+        const params = new URLSearchParams({page: String(currentPage), size: "12",
+            playableOnly: String(inputEl("recordingPlayable").checked)});
+        const keyword = inputEl("recordingKeyword").value.trim();
+        if (keyword) params.set("keyword", keyword);
+        const channelId = selectEl("recordingChannel").value;
+        if (channelId) params.set("channelId", channelId);
+        const data = await apiGet(`/api/my/recordings?${params}`);
+        if (request !== latestRequest) return;
+        if (currentPage > 0 && currentPage >= data.totalPages) {
+            currentPage = Math.max(0, data.totalPages - 1);
+            return loadMyRecordings();
+        }
         clearError();
         totalPages = data.totalPages || 1;
         grid.replaceChildren();
 
         if (data.totalElements === 0) {
-            grid.innerHTML = emptyState("まだ録画がありません",
-                "マイチャンネルで録画を「する」にすると、条件に合う配信が自動で保存されます");
+            grid.innerHTML = keyword || channelId || inputEl("recordingPlayable").checked
+                ? emptyState("該当する録画はありません", "検索条件を変えてお試しください。")
+                : emptyState("まだ録画がありません",
+                    "マイチャンネルで録画を「する」にすると、条件に合う配信が自動で保存されます");
         }
         for (const recording of data.content) {
             // 削除は利用者にはさせない（保存先は共有で、他の購読者の録画でもあるため）。
@@ -78,16 +95,36 @@ async function loadMyRecordings() {
         }
         bindDatetimeCells(grid);
 
-        el("resultSummary").textContent =
-            data.totalElements === 0 ? "" : `${data.totalElements}件`;
+        el("resultSummary").textContent = `${data.totalElements}件`;
         updatePagination(currentPage, totalPages);
         el("pageInfo").textContent = `${currentPage + 1} / ${totalPages}`;
     } catch (e) {
-        showError(errorMessage(e));
+        if (request === latestRequest) {
+            grid.replaceChildren();
+            el("resultSummary").textContent = "";
+            el("pageInfo").textContent = "";
+            buttonEl("prevBtn").disabled = true;
+            buttonEl("nextBtn").disabled = true;
+            showError(errorMessage(e));
+        }
     } finally {
-        setBusy(grid, false);
+        if (request === latestRequest) setBusy(grid, false);
     }
 }
+
+/** チャンネル名は本人の購読 API からだけ取得する。 */
+async function loadRecordingChannels() {
+    const channels = await apiGet("/api/my/channels");
+    const select = selectEl("recordingChannel");
+    select.replaceChildren(new Option("すべて", ""));
+    for (const channel of channels) select.add(new Option(channel.channelName, String(channel.id)));
+}
+
+formEl("recordingFilterForm").addEventListener("submit", event => {
+    event.preventDefault();
+    currentPage = 0;
+    loadMyRecordings();
+});
 
 buttonEl("prevBtn").addEventListener("click", () => {
     if (currentPage > 0) { currentPage--; loadMyRecordings(); }
@@ -97,4 +134,11 @@ buttonEl("nextBtn").addEventListener("click", () => {
 });
 buttonEl("closePlayer").addEventListener("click", closePlayer);
 
-loadMyRecordings();
+(async () => {
+    try {
+        await loadRecordingChannels();
+        await loadMyRecordings();
+    } catch (error) {
+        showError(errorMessage(error));
+    }
+})();

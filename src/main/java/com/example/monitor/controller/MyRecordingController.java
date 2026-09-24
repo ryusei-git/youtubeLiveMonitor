@@ -36,14 +36,24 @@ public class MyRecordingController {
      *
      * @param page ページ番号（0 始まり）
      * @param size 1ページの件数（1〜100）
+     * @param keyword タイトルの検索語
+     * @param channelId 購読チャンネルの主キー
+     * @param playableOnly 再生可能な録画だけに絞るか
      * @return 録画の一覧
      */
     @GetMapping
     public PageResponse<RecordingResponse> listMyRecordings(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long channelId,
+            @RequestParam(defaultValue = "false") boolean playableOnly) {
+        if (keyword != null && keyword.length() > 200) {
+            throw new IllegalArgumentException("検索語は200文字以内で指定してください");
+        }
         return PageResponse.from(
-                userSubscriptionService.listMyRecordings(PageRequestUtils.bounded(page, size, 100)));
+                userSubscriptionService.listMyRecordings(
+                        PageRequestUtils.bounded(page, size, 100), keyword, channelId, playableOnly));
     }
 
     /**
@@ -53,6 +63,6 @@ public class MyRecordingController {
      */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<Map<String, String>> handleInvalidPage(MethodArgumentTypeMismatchException exception) {
-        return ResponseEntity.badRequest().body(Map.of("error", "ページ番号と件数は整数で指定してください"));
+        return ResponseEntity.badRequest().body(Map.of("error", "数値または真偽値の指定が正しくありません"));
     }
 }

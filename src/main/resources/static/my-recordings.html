@@ -35,6 +35,12 @@
     <p><button type="button" id="closePlayer">閉じる</button></p>
   </div>
 
+  <form id="recordingFilterForm" class="inline">
+    <label>タイトル <input id="recordingKeyword" type="search" maxlength="200" placeholder="録画タイトルで検索"></label>
+    <label>チャンネル <select id="recordingChannel"><option value="">すべて</option></select></label>
+    <label><input id="recordingPlayable" type="checkbox"> 再生可能のみ</label>
+    <button type="submit">検索</button>
+  </form>
   <p id="resultSummary" role="status"></p>
   <div id="videoGrid" class="videoGrid"></div>
 
