@@ -981,6 +981,7 @@ const adminNavigation = [
     ["/channels.html", "チャンネル"], ["/notifications.html", "通知履歴"],
     ["/recordings.html", "録画"], ["/users.html", "利用者管理"],
     ["/invitations.html", "招待"], ["/logs.html", "ログ"],
+    ["/audit.html", "監査ログ"],
     ["/tables.html", "DB管理"], ["/playground.html", "APIお試し"]
 ];
 /** @type {Array<[string, string]>} 一般利用者には管理リンクを載せない。 */
@@ -997,6 +998,7 @@ const studioPages = {
     "recordings.html": ["見たい配信を見つけて、好きなときに再生。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
     "notifications.html": ["配信開始の通知と、送信結果を確認できます。", "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4"],
     "logs.html": ["チャンネルやログレベルを絞って、動作状況を確認。", "M5 3h14v18H5z M8 7h8 M8 11h8 M8 15h5"],
+    "audit.html": ["認証手続きと状態変更操作の証跡を、期間や操作者で絞り込んで確認。", "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4"],
     "tables.html": ["データの内容を確認・編集する管理者向けの画面です。", "M3 4h18v16H3z M3 9h18 M9 9v11"],
     "playground.html": ["APIのリクエストと応答を確認する診断ツール。", "M8 5l-6 7 6 7 M16 5l6 7-6 7 M14 3l-4 18"],
     "users.html": ["", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6"],
