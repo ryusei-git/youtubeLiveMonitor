@@ -21,6 +21,7 @@ class OnlineVideoCollectorTest {
     @Mock TwitchApiClient twitch;
     @Mock OnlineVideoService videos;
     @Mock VideoThumbnailService thumbnails;
+    @Mock VideoContentKindService contentKinds;
     @Mock VideoCollectionTracker tracker;
     @InjectMocks OnlineVideoCollector collector;
     @Nested class Collect {

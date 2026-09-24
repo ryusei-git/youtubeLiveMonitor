@@ -55,6 +55,8 @@ public class OnlineVideoService {
         }
         video.setLiveWatchUrl(detection.watchUrl());
         video.setLive(true); video.setLastObservedAt(Instant.now());
+        // 待機所として判定済みでも、配信が始まった時点で配信済みの側へ移す。
+        video.setContentKind(OnlineVideo.KIND_STREAM); video.setScheduledStartTime(null);
         if (video.getPublishedAt() == null) video.setPublishedAt(Instant.now());
         if (video.getDiscoveredAt() == null) video.setDiscoveredAt(Instant.now());
         repository.save(video);

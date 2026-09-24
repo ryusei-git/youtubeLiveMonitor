@@ -21,6 +21,7 @@ public class OnlineVideoCollector {
     private final TwitchApiClient twitch;
     private final OnlineVideoService videos;
     private final VideoThumbnailService thumbnails;
+    private final VideoContentKindService contentKinds;
     private final VideoCollectionTracker tracker;
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile Thread worker;
@@ -53,6 +54,8 @@ public class OnlineVideoCollector {
             }
         }
         thumbnails.captureMissing();
+        // 同じ回で入った新しい動画も、次の収集を待たずに種類を判定する。
+        contentKinds.classifyPending();
     }
 
     private java.util.List<com.example.monitor.dto.OnlineVideoCandidate> fetchYouTube(String channelId, java.time.Instant since)
