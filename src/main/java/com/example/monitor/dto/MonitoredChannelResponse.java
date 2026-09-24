@@ -28,6 +28,8 @@ import java.time.LocalDateTime;
  * @param consecutiveDetectionFailures 配信状態の判定に連続失敗している回数。0 なら正常
  * @param lastDetectionSuccessAt       最後に判定できた時刻。一度も成功していなければ {@code null}
  * @param createdAt           監視対象として登録した時刻
+ * @param recordingCount      再生できる録画の件数（状態が {@code COMPLETED} と {@code PARTIAL} のもの）。
+ *                            録画中・失敗は見られる録画ではないため数えない
  */
 public record MonitoredChannelResponse(
         Long id,
@@ -44,16 +46,30 @@ public record MonitoredChannelResponse(
         String recordTitleKeywords,
         int consecutiveDetectionFailures,
         LocalDateTime lastDetectionSuccessAt,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        long recordingCount
 ) {
 
     /**
-     * エンティティからレスポンスを組み立てる。
+     * エンティティからレスポンスを組み立てる。録画件数は 0 とする。
+     *
+     * <p>登録直後の応答で使う。登録したばかりのチャンネルには録画が無いため、件数を数えずに済ませている。
      *
      * @param channel 変換元のエンティティ
      * @return 変換後のレスポンス
      */
     public static MonitoredChannelResponse from(MonitoredChannel channel) {
+        return from(channel, 0L);
+    }
+
+    /**
+     * エンティティと録画件数からレスポンスを組み立てる。
+     *
+     * @param channel        変換元のエンティティ
+     * @param recordingCount 再生できる録画の件数
+     * @return 変換後のレスポンス
+     */
+    public static MonitoredChannelResponse from(MonitoredChannel channel, long recordingCount) {
         return new MonitoredChannelResponse(
                 channel.getId(),
                 channel.getPlatform(),
@@ -69,7 +85,8 @@ public record MonitoredChannelResponse(
                 channel.getRecordTitleKeywords(),
                 channel.getConsecutiveDetectionFailures(),
                 channel.getLastDetectionSuccessAt(),
-                channel.getCreatedAt()
+                channel.getCreatedAt(),
+                recordingCount
         );
     }
 }

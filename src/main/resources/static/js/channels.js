@@ -92,6 +92,7 @@ async function loadChannels() {
                 <td><a href="/recordings.html?channelId=${ch.id}">${escapeHtml(ch.channelName)}</a></td>
                 <td>${channelStateLabel(ch)}</td>
                 <td><button class="recordBtn" data-id="${ch.id}" data-enabled="${ch.recordEnabled}">${ch.recordEnabled ? "自動録画：有効" : "自動録画：無効"}</button></td>
+                <td>${ch.recordingCount}件</td>
                 <td class="titleFilterCell">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
                 <td><button data-id="${ch.id}" class="removeBtn">削除</button></td>
             `;

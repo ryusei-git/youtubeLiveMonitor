@@ -27,6 +27,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 監視対象チャンネルを操作する REST API。
@@ -52,8 +53,10 @@ public class MonitoredChannelController {
      */
     @GetMapping
     public List<MonitoredChannelResponse> listChannels() {
+        Map<Long, Long> recordingCounts = monitoredChannelService.countPlayableRecordingsByChannel();
         return monitoredChannelService.findAll().stream()
-                .map(MonitoredChannelResponse::from)
+                .map(channel -> MonitoredChannelResponse.from(
+                        channel, recordingCounts.getOrDefault(channel.getId(), 0L)))
                 .toList();
     }
 

@@ -134,6 +134,23 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
     long countByStatus(RecordingStatus status);
 
     /**
+     * チャンネルごとに、指定した状態の録画の件数を数える。
+     *
+     * <p>チャンネル一覧に件数を添えるために使う。チャンネルごとに問い合わせると
+     * 登録数に比例してクエリが増えるため、1 回の GROUP BY でまとめて数える。
+     * チャンネルに紐づかない録画（URL 指定のダウンロード）は数えない。
+     *
+     * @param statuses 数える対象の状態
+     * @return 各要素が {@code [チャンネルの主キー(Long), 件数(Long)]} の配列。録画が 1 件も無いチャンネルは含まない
+     */
+    @Query("""
+            SELECT r.channel.id, COUNT(r) FROM Recording r
+             WHERE r.channel IS NOT NULL AND r.status IN :statuses
+             GROUP BY r.channel.id
+            """)
+    List<Object[]> countByChannel(@Param("statuses") Collection<RecordingStatus> statuses);
+
+    /**
      * 録画完了として記録する。
      *
      * @param id            録画履歴の主キー
