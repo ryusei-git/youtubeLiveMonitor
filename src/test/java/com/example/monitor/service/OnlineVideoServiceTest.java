@@ -103,14 +103,14 @@ class OnlineVideoServiceTest {
             service.capture(channel, candidate(Instant.now().plusSeconds(1)));
             var user = em.persistAndFlush(new AppUser("viewer", "hash", AppUser.Role.USER));
             var stranger = new UsernamePasswordAuthenticationToken("other", "", List.of(new SimpleGrantedAuthority("ROLE_USER")));
-            assertThat(controller.list(stranger, 0, 24, "", null, false).totalElements()).isZero();
+            assertThat(controller.list(stranger, 0, 24, "", null, false, null).totalElements()).isZero();
             assertThatThrownBy(() -> controller.thumbnail("YOUTUBE_" + videoId, stranger)).isInstanceOf(ResponseStatusException.class);
             var subscription = new UserSubscription(); subscription.setUser(user); subscription.setChannel(channel); em.persistAndFlush(subscription);
             var auth = new UsernamePasswordAuthenticationToken("viewer", "", List.of(new SimpleGrantedAuthority("ROLE_USER")));
-            assertThat(controller.list(auth, 0, 24, "", null, false).totalElements()).isEqualTo(1);
+            assertThat(controller.list(auth, 0, 24, "", null, false, null).totalElements()).isEqualTo(1);
             var admin = new UsernamePasswordAuthenticationToken("admin", "", List.of(new SimpleGrantedAuthority("ROLE_ADMIN")));
-            assertThat(controller.list(admin, 0, 24, "", null, false).totalElements()).isEqualTo(1);
-            assertThatThrownBy(() -> controller.list(auth, -1, 24, "", null, false)).isInstanceOf(ResponseStatusException.class);
+            assertThat(controller.list(admin, 0, 24, "", null, false, null).totalElements()).isEqualTo(1);
+            assertThatThrownBy(() -> controller.list(auth, -1, 24, "", null, false, null)).isInstanceOf(ResponseStatusException.class);
         }
 
         @Test @DisplayName("正常系：チャンネル削除では視聴メタデータと保存サムネイルも連鎖削除する")
