@@ -100,6 +100,23 @@ public class MonitoredChannel {
     @Column(length = 2048)
     private String currentWatchUrl;
 
+    /**
+     * 配信開始前の待機所として検知している予約枠の動画ID。予定が無ければ {@code null}。
+     *
+     * <p>YouTube 限定（Twitch の配信予定は別 API {@code /helix/schedule} が必要で対象外）。
+     * {@code LiveStreamDetection.DetectionStatus#UPCOMING} を検知するたびに上書きし、
+     * {@code LIVE}（予定が現実になった）または {@code NOT_LIVE}（予定が消えた）を
+     * 検知した時点で消す。{@code DETECTION_FAILED} のときは触れない
+     * （判定できなかったのに「予定が無い」と記録してしまうと区別が付かなくなる）。
+     */
+    private String upcomingVideoId;
+
+    /** {@link #upcomingVideoId} の予定タイトル。取得できなかった場合は {@code null}。 */
+    private String upcomingTitle;
+
+    /** {@link #upcomingVideoId} の開始予定時刻。取得できなかった場合は {@code null}。 */
+    private LocalDateTime upcomingScheduledStartTime;
+
     /** 通知や録画が行われなかった理由を、ログを掘る前に確認できるようにする。 */
     @Column(length = 2048)
     private String lastDecision;
