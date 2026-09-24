@@ -37,7 +37,8 @@
   <h1 id="title">読み込み中...</h1>
   <p class="pageDescription">保存した配信を再生。関連する録画もここから。</p>
 
-  <video id="player" class="player" controls></video>
+  <video id="player" class="player" controls playsinline></video>
+  <div class="inline"><button id="pipBtn" type="button" hidden>小窓で再生</button></div>
 
   <div class="table-scroll">
     <table id="detailTable">
