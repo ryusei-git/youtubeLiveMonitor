@@ -265,7 +265,9 @@ public class LiveStreamPollingScheduler {
         // 判定できた場合のみ観測結果を記録する（通知の成否とは無関係に毎回）
         DatabaseUpdateVerifier.verify(
                 monitoredChannelRepository.updateObservedLiveState(
-                        channel.getId(), detection.isLive(), detection.videoId(), LocalDateTime.now()),
+                        channel.getId(), detection.isLive(),
+                        // UPCOMING も videoId を持つが、予約枠の ID を「配信中の動画」として残さない
+                        detection.isLive() ? detection.videoId() : null, LocalDateTime.now()),
                 "配信状態の記録", channel.getId());
 
         // 配信予定（待機所）の記録もここで更新する。UPCOMING なら上書き、
