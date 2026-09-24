@@ -203,7 +203,6 @@ public class SecurityConfig {
                 // 誰がどれを購読しているかを見ないと決まらないので、静的なルールでは表せない
                 .requestMatchers("/recordings/**").access(recordingFileAuthorizationManager)
                 .requestMatchers("/api/monitor/**", "/api/dashboard/**").hasRole("ADMIN")
-                .requestMatchers("/playground.html", "/api/playground/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .formLogin(form -> form
                 .loginPage("/userLogin.html")
