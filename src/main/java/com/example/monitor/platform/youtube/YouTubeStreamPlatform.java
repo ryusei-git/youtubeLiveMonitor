@@ -112,7 +112,7 @@ public class YouTubeStreamPlatform extends AbstractStreamPlatform {
     }
 
     @Override
-    public Optional<LiveStreamDetails> fetchDetails(String videoId) {
+    public Optional<LiveStreamDetails> fetchDetails(String channelId, String videoId) {
         // 視聴 URL は YouTubeApiClient が詰めている（YouTubeWatchUrl を使用）
         return youTubeApiClient.fetchLiveStreamDetails(videoId);
     }

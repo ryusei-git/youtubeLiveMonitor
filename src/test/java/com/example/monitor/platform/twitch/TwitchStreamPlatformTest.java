@@ -314,10 +314,10 @@ class TwitchStreamPlatformTest {
         @Test
         @DisplayName("正常系：通知本文に必要な情報を詰めて返す")
         void testMethod01() {
-            when(twitchApiClient.findStreamById("320300019550"))
-                    .thenReturn(Optional.of(stream("12826", "testuser")));
+            when(twitchApiClient.fetchLiveStreams(List.of("12826")))
+                    .thenReturn(List.of(stream("12826", "testuser")));
 
-            LiveStreamDetails details = platform.fetchDetails("320300019550").orElseThrow();
+            LiveStreamDetails details = platform.fetchDetails("12826", "320300019550").orElseThrow();
 
             assertThat(details.getVideoId()).isEqualTo("320300019550");
             assertThat(details.getTitle()).isEqualTo("配信タイトル");
@@ -330,10 +330,10 @@ class TwitchStreamPlatformTest {
         @Test
         @DisplayName("正常系：サムネイルURLのプレースホルダーを実寸に置き換える")
         void testMethod02() {
-            when(twitchApiClient.findStreamById("320300019550"))
-                    .thenReturn(Optional.of(stream("12826", "testuser")));
+            when(twitchApiClient.fetchLiveStreams(List.of("12826")))
+                    .thenReturn(List.of(stream("12826", "testuser")));
 
-            assertThat(platform.fetchDetails("320300019550").orElseThrow().getThumbnailUrl())
+            assertThat(platform.fetchDetails("12826", "320300019550").orElseThrow().getThumbnailUrl())
                     .isEqualTo("https://example.com/preview-640x360.jpg")
                     .doesNotContain("{width}", "{height}");
         }
@@ -341,18 +341,18 @@ class TwitchStreamPlatformTest {
         @Test
         @DisplayName("正常系：配信が終わっていた場合は空を返す")
         void testMethod03() {
-            when(twitchApiClient.findStreamById("320300019550")).thenReturn(Optional.empty());
+            when(twitchApiClient.fetchLiveStreams(List.of("12826"))).thenReturn(List.of());
 
-            assertThat(platform.fetchDetails("320300019550")).isEmpty();
+            assertThat(platform.fetchDetails("12826", "320300019550")).isEmpty();
         }
 
         @Test
         @DisplayName("異常系：問い合わせに失敗した場合は例外を投げずに空を返す")
         void testMethod04() {
-            when(twitchApiClient.findStreamById("320300019550"))
+            when(twitchApiClient.fetchLiveStreams(List.of("12826")))
                     .thenThrow(new IllegalStateException("Twitch API への通信に失敗しました"));
 
-            assertThat(platform.fetchDetails("320300019550")).isEmpty();
+            assertThat(platform.fetchDetails("12826", "320300019550")).isEmpty();
         }
 
         @Test
@@ -361,12 +361,22 @@ class TwitchStreamPlatformTest {
             TwitchStream broken = new TwitchStream(
                     "320300019550", "12826", "testuser", "テスト配信者", "配信タイトル", "",
                     0, null, "２０２６年９月１９日");
-            when(twitchApiClient.findStreamById("320300019550")).thenReturn(Optional.of(broken));
+            when(twitchApiClient.fetchLiveStreams(List.of("12826"))).thenReturn(List.of(broken));
 
-            LiveStreamDetails details = platform.fetchDetails("320300019550").orElseThrow();
+            LiveStreamDetails details = platform.fetchDetails("12826", "320300019550").orElseThrow();
 
             assertThat(details.getActualStartTime()).isNull();
             assertThat(details.getTitle()).isEqualTo("配信タイトル");
+        }
+
+        @Test
+        @DisplayName("正常系：チャンネルの配信IDが検知した配信IDと異なる場合は空を返す")
+        void testMethod06() {
+            // 検知から通知までの間に配信が切り替わった場合、別の配信の詳細で通知しない
+            when(twitchApiClient.fetchLiveStreams(List.of("12826")))
+                    .thenReturn(List.of(stream("12826", "testuser")));
+
+            assertThat(platform.fetchDetails("12826", "999999999999")).isEmpty();
         }
     }
 }

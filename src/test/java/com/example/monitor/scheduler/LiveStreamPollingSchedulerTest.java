@@ -166,7 +166,7 @@ class LiveStreamPollingSchedulerTest {
             scheduler.pollAllChannels();
 
             verify(monitoredChannelRepository).updateObservedLiveState(eq(1L), eq(false), isNull(), any(LocalDateTime.class));
-            verify(streamPlatform, never()).fetchDetails(anyString());
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
             verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
         }
 
@@ -180,7 +180,7 @@ class LiveStreamPollingSchedulerTest {
             scheduler.pollAllChannels();
 
             verify(monitoredChannelRepository).updateObservedLiveState(eq(1L), eq(true), eq("video001"), any());
-            verify(streamPlatform, never()).fetchDetails(anyString());
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
             verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
         }
 
@@ -193,7 +193,7 @@ class LiveStreamPollingSchedulerTest {
 
             LiveStreamDetails details = LiveStreamDetails.builder()
                     .videoId("newVideo").title("新配信").build();
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.of(details));
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
 
             NotificationOutcome outcome = NotificationOutcome.success();
             when(notificationDispatcher.notifyLiveStreamStarted(details)).thenReturn(outcome);
@@ -213,7 +213,7 @@ class LiveStreamPollingSchedulerTest {
 
             LiveStreamDetails details = LiveStreamDetails.builder()
                     .videoId("newVideo").title("新配信").build();
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.of(details));
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
 
             NotificationOutcome outcome = NotificationOutcome.failure("送信エラー");
             when(notificationDispatcher.notifyLiveStreamStarted(details)).thenReturn(outcome);
@@ -230,7 +230,7 @@ class LiveStreamPollingSchedulerTest {
             MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.empty());
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.empty());
 
             scheduler.pollAllChannels();
 
@@ -263,7 +263,7 @@ class LiveStreamPollingSchedulerTest {
             target.setRecordEnabled(true);
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.empty());
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.empty());
             when(streamRecorder.startRecording(target, WATCH_URL_PREFIX + "newVideo", "newVideo", "新配信")).thenReturn(true);
 
             scheduler.pollAllChannels();
@@ -279,7 +279,7 @@ class LiveStreamPollingSchedulerTest {
             target.setRecordEnabled(false);
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.empty());
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.empty());
 
             scheduler.pollAllChannels();
 
@@ -295,7 +295,7 @@ class LiveStreamPollingSchedulerTest {
             target.setLastRecordedVideoId("newVideo");
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.empty());
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.empty());
 
             scheduler.pollAllChannels();
 
@@ -309,7 +309,7 @@ class LiveStreamPollingSchedulerTest {
             target.setRecordEnabled(true);
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.empty());
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.empty());
             when(streamRecorder.startRecording(target, WATCH_URL_PREFIX + "newVideo", "newVideo", "新配信")).thenReturn(false);
 
             scheduler.pollAllChannels();
@@ -330,7 +330,7 @@ class LiveStreamPollingSchedulerTest {
 
             verify(streamRecorder).startRecording(target, WATCH_URL_PREFIX + "newVideo", "newVideo", "新配信");
             // 通知は既に済んでいるため、詳細取得や通知処理は呼ばれない
-            verify(streamPlatform, never()).fetchDetails(any());
+            verify(streamPlatform, never()).fetchDetails(any(), any());
         }
 
         @Test
@@ -341,7 +341,7 @@ class LiveStreamPollingSchedulerTest {
             target.setRecordTitleKeywords("【ASMR】,【生配信】");
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "【ASMR】耳かき音フェチ", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.empty());
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.empty());
             when(streamRecorder.startRecording(target, WATCH_URL_PREFIX + "newVideo", "newVideo", "【ASMR】耳かき音フェチ")).thenReturn(true);
 
             scheduler.pollAllChannels();
@@ -391,7 +391,7 @@ class LiveStreamPollingSchedulerTest {
 
             scheduler.pollAllChannels();
 
-            verify(streamPlatform, never()).fetchDetails(anyString());
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
         }
 
         @Test
@@ -403,7 +403,7 @@ class LiveStreamPollingSchedulerTest {
                     .videoId("newVideo").title("【ASMR】耳かき音フェチ").build();
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "【ASMR】耳かき音フェチ", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.of(details));
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
             when(notificationDispatcher.notifyLiveStreamStarted(details))
                     .thenReturn(NotificationOutcome.success());
 
@@ -421,7 +421,7 @@ class LiveStreamPollingSchedulerTest {
                     .videoId("newVideo").title("【歌枠】カラオケ配信").build();
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "【歌枠】カラオケ配信", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.of(details));
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
             when(notificationDispatcher.notifyLiveStreamStarted(details))
                     .thenReturn(NotificationOutcome.success());
 
@@ -443,7 +443,7 @@ class LiveStreamPollingSchedulerTest {
             scheduler.pollAllChannels();
 
             verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
-            verify(streamPlatform, never()).fetchDetails(anyString());
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
         }
 
         @Test
@@ -458,7 +458,7 @@ class LiveStreamPollingSchedulerTest {
 
             LiveStreamDetails details = LiveStreamDetails.builder()
                     .videoId("newVideo").title("IM SLEEPING").build();
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.of(details));
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
             when(notificationDispatcher.notifyLiveStreamStarted(details))
                     .thenReturn(NotificationOutcome.success());
 
@@ -496,7 +496,7 @@ class LiveStreamPollingSchedulerTest {
             scheduler.pollAllChannels();
 
             verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
-            verify(streamPlatform, never()).fetchDetails(anyString());
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
         }
 
         @Test
@@ -525,7 +525,7 @@ class LiveStreamPollingSchedulerTest {
             // 配信中かどうか分からないのに false を書くと「正常に調べて配信していなかった」と区別がつかなくなる
             verify(monitoredChannelRepository, never())
                     .updateObservedLiveState(any(), anyBoolean(), any(), any());
-            verify(streamPlatform, never()).fetchDetails(anyString());
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
             verify(streamRecorder, never()).startRecording(any(), any(), any(), any());
         }
 
@@ -548,7 +548,7 @@ class LiveStreamPollingSchedulerTest {
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, "https://www.youtube.com/watch?v=newVideo"));
             LiveStreamDetails details = LiveStreamDetails.builder().videoId("newVideo").title("新配信").build();
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.of(details));
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
             when(notificationDispatcher.notifyLiveStreamStarted(details))
                     .thenReturn(NotificationOutcome.failure("送信エラー"));
 
@@ -568,7 +568,7 @@ class LiveStreamPollingSchedulerTest {
             scheduler.pollAllChannels();
 
             // 詳細取得のクォータすら使わずに諦める
-            verify(streamPlatform, never()).fetchDetails(anyString());
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
             verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
         }
 
@@ -578,7 +578,7 @@ class LiveStreamPollingSchedulerTest {
             MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.empty());
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.empty());
 
             scheduler.pollAllChannels();
 
@@ -710,7 +710,7 @@ class LiveStreamPollingSchedulerTest {
             verify(monitoredChannelRepository).resetNotificationFailureCount(1L);
             // DB を 0 に戻すだけでは足りない。このサイクルの上限判定も 0 として行われ、
             // 実際に詳細取得まで進むことを確かめる
-            verify(streamPlatform).fetchDetails("videoB");
+            verify(streamPlatform).fetchDetails(any(), eq("videoB"));
         }
 
         @Test
@@ -728,7 +728,7 @@ class LiveStreamPollingSchedulerTest {
             scheduler.pollAllChannels();
 
             verify(monitoredChannelRepository, never()).resetNotificationFailureCount(anyLong());
-            verify(streamPlatform, never()).fetchDetails(anyString());
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
         }
 
         @Test
@@ -745,7 +745,7 @@ class LiveStreamPollingSchedulerTest {
             scheduler.pollAllChannels();
 
             verify(monitoredChannelRepository, never()).resetNotificationFailureCount(anyLong());
-            verify(streamPlatform, never()).fetchDetails(anyString());
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
         }
 
         @Test
@@ -805,7 +805,7 @@ class LiveStreamPollingSchedulerTest {
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx",
                     LiveStreamDetection.live("newVideo", "配信タイトル", null, "https://www.youtube.com/watch?v=newVideo"));
-            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.empty());
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.empty());
 
             scheduler.pollAllChannels();
 

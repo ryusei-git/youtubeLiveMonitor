@@ -182,43 +182,6 @@ class TwitchApiClientTest {
     }
 
     @Nested
-    @DisplayName("findStreamById()")
-    class FindStreamById {
-
-        @Test
-        @DisplayName("正常系：配信IDが一致する配信を返す")
-        void testMethod01() throws Exception {
-            HttpResponse<String> response = mockResponse(200, streamJson("555", "alpha"));
-            when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
-
-            Optional<TwitchStream> stream = apiClient.findStreamById("555");
-
-            assertThat(stream).isPresent();
-            assertThat(stream.orElseThrow().userLogin()).isEqualTo("alpha");
-        }
-
-        @Test
-        @DisplayName("異常系：一致しないidを無視して別の配信が返ってきた場合は採用しない")
-        void testMethod02() throws Exception {
-            // Twitch は一致しない id を黙って無視し「人気配信トップ20」を返す（実機で確認）。
-            // 照合せず先頭を採用すると、無関係な配信者の情報で通知してしまう
-            HttpResponse<String> response = mockResponse(200, streamJson("999", "無関係な配信者"));
-            when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
-
-            assertThat(apiClient.findStreamById("555")).isEmpty();
-        }
-
-        @Test
-        @DisplayName("正常系：応答が空なら空を返す（配信終了済み）")
-        void testMethod03() throws Exception {
-            HttpResponse<String> response = mockResponse(200, "{\"data\":[]}");
-            when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
-
-            assertThat(apiClient.findStreamById("555")).isEmpty();
-        }
-    }
-
-    @Nested
     @DisplayName("findUserByLogin()")
     class FindUserByLogin {
 

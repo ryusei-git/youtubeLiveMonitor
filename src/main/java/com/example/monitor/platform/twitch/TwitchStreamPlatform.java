@@ -211,13 +211,29 @@ public class TwitchStreamPlatform extends AbstractStreamPlatform {
      * クォータを消費しないため、状態を抱えるより取り直す方が単純で安全なため
      * （YouTube 側はクォータ 1 を消費するので事情が異なる）。
      *
-     * @param videoId Twitch の配信 ID
+     * <p><b>配信 ID ではなくユーザー ID で問い合わせ、応答の配信 ID を照合している。</b>
+     * {@code /helix/streams} は {@code id} での絞り込みに対応しておらず、{@code ?id=} を付けても
+     * 常に無視されて人気配信の上位 20 件が返る。以前は {@code ?id=} で引いていたため、
+     * 人気上位に入らない配信は毎回「見つからない」になり、通知がほぼ送られていなかった。
+     * 照合するのは、検知から通知までの間に配信が切り替わっていた場合に
+     * 別の配信の詳細で通知しないため。
+     *
+     * @param channelId Twitch のユーザー ID
+     * @param videoId   Twitch の配信 ID
      * @return 取得できた詳細。配信が終わっていた場合や問い合わせに失敗した場合は {@link Optional#empty()}
      */
     @Override
-    public Optional<LiveStreamDetails> fetchDetails(String videoId) {
+    public Optional<LiveStreamDetails> fetchDetails(String channelId, String videoId) {
         try {
-            return twitchApiClient.findStreamById(videoId).map(this::toLiveStreamDetails);
+            Optional<LiveStreamDetails> details = twitchApiClient.fetchLiveStreams(List.of(channelId)).stream()
+                    .filter(stream -> videoId.equals(stream.id()))
+                    .findFirst()
+                    .map(this::toLiveStreamDetails);
+            if (details.isEmpty()) {
+                log.debug("指定した配信は見つかりませんでした（配信終了済みとみなします）: channel={}, stream={}",
+                        channelId, videoId);
+            }
+            return details;
         } catch (RuntimeException e) {
             log.error("Twitch の配信詳細を取得できませんでした: stream={}", videoId, e);
             return Optional.empty();

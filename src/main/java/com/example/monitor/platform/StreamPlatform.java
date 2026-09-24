@@ -228,8 +228,12 @@ public interface StreamPlatform {
      * <p>ここでも {@link LiveStreamDetails#watchUrl} に視聴 URL を入れること。
      * 通知の埋め込みリンク先になるため、入れ忘れるとリンク切れの通知が配られる。
      *
-     * @param videoId 配信の識別子
+     * <p>チャンネルの識別子も受け取るのは、配信 ID だけでは引けないプラットフォームがあるため
+     * （Twitch の {@code /helix/streams} は配信 ID での絞り込みに対応していない）。
+     *
+     * @param channelId 配信元チャンネルの識別子（{@link #normalizeChannelInput} で正規化済みのもの）
+     * @param videoId   配信の識別子
      * @return 取得できた詳細。取得できなかった場合は {@link Optional#empty()}
      */
-    Optional<LiveStreamDetails> fetchDetails(String videoId);
+    Optional<LiveStreamDetails> fetchDetails(String channelId, String videoId);
 }

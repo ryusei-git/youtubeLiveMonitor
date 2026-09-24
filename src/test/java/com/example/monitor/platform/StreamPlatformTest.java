@@ -101,7 +101,7 @@ class StreamPlatformTest {
         }
 
         @Override
-        public Optional<LiveStreamDetails> fetchDetails(String videoId) {
+        public Optional<LiveStreamDetails> fetchDetails(String channelId, String videoId) {
             return Optional.empty();
         }
     }
