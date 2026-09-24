@@ -114,6 +114,21 @@ public interface MonitoredChannelRepository extends JpaRepository<MonitoredChann
                         @Param("scheduledStartTime") LocalDateTime scheduledStartTime);
 
     /**
+     * チャンネルのアイコン URL を記録する。
+     *
+     * <p>監視ループから {@code save(entity)} を呼ぶと管理 API の変更を古い値で消すため、
+     * 個別の UPDATE にしている。
+     *
+     * @param id             監視対象の主キー
+     * @param channelIconUrl アイコン URL
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE MonitoredChannel c SET c.channelIconUrl = :channelIconUrl WHERE c.id = :id")
+    int updateChannelIconUrl(@Param("id") Long id, @Param("channelIconUrl") String channelIconUrl);
+
+    /**
      * 配信予定の記録を消す。
      *
      * <p>{@code LIVE}（予定が現実になった）または {@code NOT_LIVE}（予定が消えた）を

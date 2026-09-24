@@ -284,6 +284,15 @@ public class LiveStreamPollingScheduler {
                     "配信予定のクリア", channel.getId());
         }
 
+        // アイコンは読めた回だけ、変わっていれば記録する。null で消さないのは、
+        // 一時的に読み取れなかっただけで前の値を捨てないため
+        if (detection.channelIconUrl() != null
+                && !detection.channelIconUrl().equals(channel.getChannelIconUrl())) {
+            DatabaseUpdateVerifier.verify(
+                    monitoredChannelRepository.updateChannelIconUrl(channel.getId(), detection.channelIconUrl()),
+                    "チャンネルアイコンの記録", channel.getId());
+        }
+
         if (!detection.isLive()) {
             // 配信が終わったので、この配信に対する通知失敗の回数は次の配信に持ち越さない
             if (channel.getNotificationFailureCount() > 0) {

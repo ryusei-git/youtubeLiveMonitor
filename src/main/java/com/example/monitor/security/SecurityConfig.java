@@ -100,7 +100,9 @@ public class SecurityConfig {
             "script-src 'self'",
             // style="display:none" のようなインラインの指定を使っているため
             "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data:",
+            // チャンネルのアイコンを YouTube から直接読むため。Referrer-Policy: same-origin なので
+            // 閲覧中の URL は YouTube へ渡らない
+            "img-src 'self' data: https://yt3.ggpht.com https://yt3.googleusercontent.com",
             "media-src 'self'",
             "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv",
             "connect-src 'self'",
