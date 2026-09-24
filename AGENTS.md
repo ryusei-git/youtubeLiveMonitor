@@ -5,7 +5,7 @@
 YouTube のライブ配信を監視し、配信開始時に Discord へ通知する個人用サービス。
 Java 21 / Spring Boot 3.3.3 / Gradle / H2（ファイルモード）。
 
-セットアップ手順・API 一覧・トラブルシューティングは [README.md](../README.md) を参照。
+セットアップ手順・API 一覧・トラブルシューティングは [README.md](README.md) を参照。
 各クラスの役割と設計判断の理由は JavaDoc に記載（`./gradlew javadoc`）。
 
 ## コードを書くときの約束
@@ -33,127 +33,87 @@ Java 21 / Spring Boot 3.3.3 / Gradle / H2（ファイルモード）。
 後から書いた方が相手の変更を黙って消す。実際に「ファイルが消えた」と誤診して
 1時間を溶かし、通知履歴の検索機能を一度失った。以下は事故を繰り返さないための取り決め。
 
-残作業は [Project](https://github.com/users/ryusei-git/projects/4) で管理する
-（リポジトリの Issue と連動）。
+**状態の正本は GitHub だけ。** 残作業・担当・進捗は [Project](https://github.com/users/ryusei-git/projects/4)
+と Issue・PR に置き、会話の中にしか無い決定事項を作らない。どのセッションも
+いつ終わってよい（次のセッションが Issue と作業ツリーだけで続きを始められる）状態を保つ。
 
-### 1. 着手する前
+### 役割
 
-1. **Backlog から優先度の高いものを選ぶ**（Priority: P0 > P1 > P2、同じなら番号順）。
-2. **相手のラベル（`claude` / `codex`）が付いた Issue は選ばない。** どうしても触る
-   必要があるなら、その Issue にコメントを残して相手の判断を待つ。
-3. **`git status` と `git diff` を見る。** 相手の未コミット変更が残っていることがある。
-   **見慣れない変更を「壊れている」と決めつけて戻さない**（消えたように見えるのは、
-   相手の編集途中であることが多い）。
-4. **細分化できないか検討する。** 1コミットで終わらない大きさなら、サブイシューに割る。
-   割った親は「まとめ」として残し、実作業はサブイシューで行う。
-5. **宣言する。** Status を `In progress` にし、自分のラベルを付ける。
+| | Claude（リーダー） | Codex |
+|---|---|---|
+| Issue | 作成する（Codex が迷わない粒度・精度で書く） | 読むだけ |
+| 実装 | 難易度の高いチケットだけ | それ以外すべて |
+| PR | レビューし、**指摘は Claude 自身が直して**マージする | 作成まで。レビュー後の修正はしない |
 
-```bash
-gh issue edit <番号> --repo ryusei-git/youtubeLiveMonitor --add-label claude
-# Status の変更は Project の item-edit（下の「コマンド」参照）
-```
+どちらが担当するかは Issue 本文の「担当」欄で決まる。
 
-### 2. 作業中
+### 1 チケット ＝ 1 セッション ＝ 1 PR（1 コミット）
 
-- **1タスク＝1コミット。ついでの修正をしない。**
-- **別の問題を見つけたら、その場で直さずサブイシューを作る。**
-  脱線は必ずここへ逃がす。1タスクの途中で力尽きると手戻りが大きい。
-- **テストは触らない。** 新規作成は専用の Issue が担当する。ただし仕様変更で既存
-  テストが落ちた場合の追従は行い、**何をなぜ変えたかを Issue に書く**。
+- **チケットごとに新しいセッションで始める。** 前のチケットの会話を引きずると、
+  不要なファイル内容がコンテキストに残り続けてトークンを浪費する（実際に発生した）。
+- 依頼で渡すのは Issue 番号だけ。必要な情報は Issue 本文に書く
+  （[省トークン引き継ぎ](docs/codex-token-efficient-handoff.md)）。
+- **ついでの修正をしない。** 別の問題を見つけたら、直さずに Issue を作るか PR 本文に書く。
+- **共有の作業ディレクトリでブランチを切り替えない。** Codex の作業中に切り替えると、
+  相手の変更が別ブランチに混ざる（実際に発生した）。Claude が作業するときは
+  `git worktree add` で別ディレクトリを使う。
 
-### 3. 終わったら
+### 着手する前
 
-1. `.claude/skills/verify`（Claude）／`AGENTS.md` の完了条件（Codex）を通す。
-   `clean build javadoc` 警告ゼロ、`tsc --noEmit` 型エラーゼロ、巡回と CLI が動く。
-2. **ビルドしたら必ず `bin/service.sh restart` まで行う。**
-3. コミットしてプッシュする。コミット文に Issue 番号を書く（`#4` のように）。
-4. Status を `Done`、ラベルを外す、Issue をクローズする。
+1. **`git status` と `git diff` を見る。** 相手の未コミット変更が残っていることがある。
+   **見慣れない変更を「壊れている」と決めつけて戻さない**（相手の編集途中であることが多い）。
+2. **相手のラベル（`claude` / `codex`）が付いた Issue は触らない。**
+3. **宣言する。** 自分のラベルを付け、Project の Status を `In progress` にする。
+4. Issue に「関連する落とし穴」が挙がっていれば `docs/pitfalls.md` の該当項目を読む。
 
-### 4. 中断するとき
+### 終わったら
 
-**ラベルは付けたまま**、Issue に「どこまで終わったか」「次に何をすべきか」を
-コメントする。ラベルを外すと、相手が壊れかけの状態を引き継いでしまう。
+1. **完了条件を通す**（`.claude/skills/verify` と同じ内容）。
+   - `./gradlew clean build javadoc` が警告ゼロ
+   - `npx -y -p typescript tsc -p src/main/resources/static/jsconfig.json --noEmit` が型エラーゼロ
+   - **ビルドしたら必ず `bin/service.sh restart`**（稼働中に jar を差し替えると動いているプロセスが壊れる）
+   - `bin/api.sh POST /api/monitor/check` と `java -jar build/libs/*.jar channel list` が動く
+   - Issue の完了条件に書かれた確認
+2. **Codex**: ブランチ `codex/issue-<番号>-<要約>` で 1 コミットにまとめてプッシュし、
+   PR を作る（本文に `Closes #<番号>`、実行した確認とその結果）。Status を `In review` にし、
+   Claude のターミナルへ `PR #<番号> 準備できました` と送る。**ラベルは付けたまま。**
+3. **Claude**: squash マージし、Status を `Done`、ラベルを外し、Issue をクローズする。
 
-### 5. 役割分担（PRベースの運用）
+### 中断するとき
 
-**Claude はプロジェクトリーダーであり、実装コードは書かない。** Claude の役割は
-「どの Issue に着手するか Codex へ連絡する」「PR をレビューする」「次の作業を
-依頼する」の3つに限る。実装・修正はすべて Codex が担当し、直接 main への
-コミットはしない（**PRを経由**する）。
+**ラベルは付けたまま**、Issue に「どこまで終わったか」「次の 1 手」をコメントする。
+ラベルを外すと、相手が壊れかけの状態を引き継いでしまう。
 
-```
-Codex: ブランチを切って作業 → PR作成（本文に "Closes #<Issue番号>"）
-        → ターミナルで Claude に「PR #X 準備できました」と伝える
-  ↓
-Claude: PR をレビューし、指摘があれば PR にコメントする
-        → ターミナルで Codex に「PR #X にレビューコメントを付けました」と伝える
-  ↓
-Codex: 指摘を理解して修正し、同じブランチに push
-        → ターミナルで Claude に「PR #X 対応完了しました」と伝える
-  ↓
-Claude: 対応を確認し、問題なければ PR をマージする（squash。1 Issue = 1 コミットの方針に合わせる）
-        → Issue の Status を Done にし、クローズする
-        → ターミナルで Codex に次の Issue を割り当てる
-```
+### ターミナルでの連絡
 
-**ターミナルでの連絡は `orca terminal send` を使う。** ハンドルは古くなるため、
-送る直前に `orca terminal list` で取り直すこと（古いハンドルで送ると
-`terminal_handle_stale` になる）。
+ハンドルは古くなるため、送る直前に取り直す（古いと `terminal_handle_stale` になる）。
 
 ```bash
-orca-ide terminal list --json                 # ハンドルを取り直す
-orca-ide terminal send --terminal <handle> --text "PR #12 にレビューコメントを付けました" --enter --json
+orca-ide terminal list --json
+orca-ide terminal send --terminal <handle> --text "PR #12 準備できました" --enter --json
 ```
-
-**レビューは PR 単位で行う。** 指摘はチケット（Issue）にではなく、
-差分の文脈があるPR自体にコメントする。`Issue` はマージ後の状態更新（クローズ・
-Status 変更）のために使う。
-
-**例外は運用ドキュメントの更新だけ。** 本書（AGENTS.md / .claude/CLAUDE.md）や
-docs/ 配下の運用資料は製品コードではなくプロジェクト運営そのものなので、
-Claude が直接コミットしてよい。それ以外（src/ 配下の実装・修正・テスト）は
-すべて Codex が担当する。
-
-### 新しい Issue を登録する
-
-**`bin/create-issue.sh` を使う。** `gh issue create` → Project 登録 → 子付け → フィールド設定
-を手で叩くと、途中の出力を捨てて失敗に気づかないことがある（実際に発生した：
-Project への登録は最初から成功していたのに、確認せず「登録されていない」と誤診し、
-調査に時間を溶かした）。このスクリプトは各段階の直後に実体を問い合わせて確認する。
-
-```bash
-bin/create-issue.sh <title> <body-file> [親issue番号] [P1|P2]
-```
-
-本文は必ずファイルで渡す（インラインの長い文字列はバッククォート等でクォートが
-崩れやすい）。**Project の一覧（item-list や totalCount）は書き込み直後、
-反映が遅れることがある**（実際に確認した：登録済みの36件があるのに一覧が
-14件のまま数分続いた）。一覧で「無い」と見えても、まずこのスクリプトの
-確認結果を信じること。
 
 ### コマンド
 
 ```bash
-# 誰が何を持っているか
-gh issue list --repo ryusei-git/youtubeLiveMonitor --label claude
+bin/lead-status.sh          # 今の状態（担当中の Issue・未マージの PR・作業ツリー）をまとめて表示
+bin/create-issue.sh <title> <body-file> [親issue番号] [P1|P2]   # Issue 作成〜Project 登録まで
+
 gh issue list --repo ryusei-git/youtubeLiveMonitor --label codex
 
 # Status の変更（Project: PVT_kwHOBB07r84BkZNB / Status: PVTSSF_lAHOBB07r84BkZNBzhjJ6nM）
-gh project item-list 4 --owner ryusei-git --format json        # item id を引く
 gh project item-edit --id <item-id> --project-id PVT_kwHOBB07r84BkZNB \
   --field-id PVTSSF_lAHOBB07r84BkZNBzhjJ6nM --single-select-option-id <option>
 #   Backlog f75ad846 / Ready 61e4505c / In progress 47fc9ee4 / In review df73e18b / Done 98236657
-
-# サブイシューの作成と親子付け
-gh issue create --repo ryusei-git/youtubeLiveMonitor --title "..." --body "..."
-gh api --method POST repos/ryusei-git/youtubeLiveMonitor/issues/<親>/sub_issues \
-  -F sub_issue_id=<子の issue id（数値。番号ではなく id）>
+# item-id は Issue 側から引く（Project の一覧は書き込み直後に古い内容を返すことがある）
+gh api graphql -f query='{repository(owner:"ryusei-git",name:"youtubeLiveMonitor"){issue(number:<番号>){projectItems(first:5){nodes{id project{number}}}}}}' \
+  --jq '.data.repository.issue.projectItems.nodes[]|select(.project.number==4).id'
 ```
 
 ## 踏み抜きやすい落とし穴
 
 実際に壊れた事例と再発防止の決まりは **[docs/pitfalls.md](docs/pitfalls.md)** にある
-（31 件・約 28KB）。毎回全文を読む必要はないが、**触る領域に該当するものは着手前に読むこと。**
+。毎回全文を読む必要はないが、**触る領域に該当するものは着手前に読むこと。**
 ここに載っているのは、読まずに踏んで時間を溶かした実例そのもの。
 
 **検知・通知（配信の状態を扱うとき）**
@@ -204,6 +164,9 @@ gh api --method POST repos/ryusei-git/youtubeLiveMonitor/issues/<親>/sub_issues
 
 - エンティティを API に直接返さない
 - DB管理画面の論理名は対応表に無いテーブル・カラムでも壊れないようにする
+- `ddl-auto: update` はカラムの削除・リネームをしない
+- enum の列挙子を増やすと既存 DB で全更新が失敗する（実際に発生した）
+- 既存データがある状態で NOT NULL の boolean カラムを追加すると失敗する（実際に発生した）
 
 新しく事故を踏んだら `docs/pitfalls.md` に追記し、この索引にも 1 行足す。
 
@@ -217,99 +180,14 @@ bin/service.sh start
 
 CLI はサービス常駐中でも実行できる（H2 を `AUTO_SERVER=TRUE` で開いているため）。
 
-## スキーマ変更時の注意
-
-`ddl-auto: update` はカラムの追加はするが削除・リネームはしない。
-カラム名を変えた場合、古い NOT NULL カラムが残って INSERT が失敗する。
-開発中は `data/monitor.mv.db` を削除して作り直すのが早い。
-
-### enum の列挙子を増やすと既存 DB で全更新が失敗する（実際に発生した）
-
-`@Enumerated(EnumType.STRING)` のフィールドに `columnDefinition` を書かないと、
-Hibernate は H2 の**ネイティブ ENUM 型**として列を作る。
-
-```
-STATUS | ENUM     ← 作成時の値しか許さない
-```
-
-この型は**テーブル作成時点の値だけを許す**ため、後から列挙子を追加しても
-`ddl-auto: update` は型を更新せず、次のエラーで**その列に関わる全ての読み書きが壊れる**。
-
-```
-Value not permitted for column "('COMPLETED', 'FAILED', 'RECORDING')": "PARTIAL"
-```
-
-`Recording.RecordingStatus` に `PARTIAL` を足した際に実際に発生し、巡回 API が 500 を返した。
-
-**対策**: enum のフィールドには必ず `columnDefinition = "varchar(16)"` を書く
-（`MonitoredChannel.platform` と `Recording.status` 参照）。単なる文字列にしておけば、
-列挙子を増やしても DB 側の変更が要らない。
-
-**既にネイティブ ENUM で作られてしまった列の直し方**（データは保持される）:
-
-```sql
-ALTER TABLE recordings ALTER COLUMN status SET DATA TYPE VARCHAR(16);
-```
-
-### 既存データがある状態で NOT NULL の boolean カラムを追加すると失敗する（実際に発生した）
-
-`recordEnabled`（boolean, primitive）を `MonitoredChannel` に追加した際、登録済みチャンネルが
-既に存在する DB では `ALTER TABLE ... ADD COLUMN record_enabled BOOLEAN NOT NULL` が
-「既存行に入れる値がない」という理由で失敗し、以降すべてのクエリが
-「カラムが見つからない」エラーで壊れた（カラム追加そのものが失敗し、テーブルに列が
-作られないまま終わるため）。
-boolean の primitive フィールドを新規追加するときは、原則として
-`@Column(columnDefinition = "boolean default false")` のようにDB側のデフォルト値を
-明示すること（`recordEnabled` 参照）。
-
 ## テスト
 
 ```bash
-./gradlew test                 # 実行。build/reports/jacoco/test/html/index.html にカバレッジも生成される
-./gradlew test --tests "com.example.monitor.service.*"   # パッケージ単位で実行
+./gradlew test --tests "com.example.monitor.service.*"   # 変更箇所に近いものから実行
 ```
 
-### 命名・構成のルール
-
-- テストクラス: `<対象クラス名>Test`
-- **対象メソッドごとに `@Nested` クラスを分ける**（メソッド名のPascalCase、例: `findLiveVideoId()` → `class FindLiveVideoId`）
-- テストメソッド名: `testMethod01`, `testMethod02`, ...（`@Nested` クラス内で 01 から連番）
-- `@DisplayName`: `"正常系：〇〇"` / `"異常系：〇〇"` の形式で内容を日本語で説明する
-
-### テスト容易性のためだけに行った本番コードの変更
-
-以下は動作を変えていない、テストのためだけの変更。理由を知らずに「元に戻す」と
-またモックできなくなるので注意。
-
-- `LiveStreamDetector` の `HttpClient` はフィールド初期化子で直接 `new` していたのを
-  `HttpClientConfig` の Bean としてコンストラクタ注入に変更（モックに差し替えるため）
-- `ChannelLogReader` のログ出力先ディレクトリは `private static final Path` の定数だったのを
-  `@Value` によるコンストラクタ注入に変更（`@TempDir` を使ったテストで実ファイルシステムと
-  分離するため）
-- `StreamRecorder` の `yt-dlp` プロセス起動は `ProcessBuilder` を直接呼ばず、
-  `ProcessLauncher` インターフェース経由にした（実プロセスを起動せずにモックで
-  起動失敗・出力・終了コードをテストするため）
-
-### モック化が難しい箇所への対応
-
-- **discord-webhooks の `WebhookClient`**: `@PostConstruct` で生成されフィールドに保持されるため、
-  `ReflectionTestUtils.setField` でモックを直接注入している（`DiscordNotifierTest` 参照）
-- **google-api-services-youtube の `YouTube` 系フルーエントAPI**: `youtube.videos().list(...).setId(...).execute()`
-  のような多段チェーンは各段を個別にモックし、`setXxx()` が自分自身を返すようスタブする
-  （`YouTubeApiClientTest` 参照）。レスポンスの中身（`Video`, `VideoSnippet` 等）は
-  `GenericJson` ベースの素の POJO なので、モックせず実インスタンスを組み立てて使う
-- **CLI の Picocli 実行フロー全体**（`CliRunnerTest`）: Spring コンテキストを使わず、
-  各コマンドをモックサービスで手組みした `CommandLine.IFactory` を渡すことで、
-  実際の `new CommandLine(...)` によるサブコマンド解決・終了コード伝播まで検証している
-- **`StreamRecorder.startRecording()` が起動する仮想スレッド**: 録画完了待ち（`awaitCompletion`）は
-  別の仮想スレッドで非同期に実行されるため、そのスレッドが `process.getInputStream()` を
-  消費するタイミングはテストの実行順序と無関係。厳密スタブ（Mockito の strict stubs）のまま
-  `when(mockProcess.getInputStream())...` すると、テストスレッドの完了判定に間に合わず
-  `UnnecessaryStubbingException` になることがある（実際に発生した）。この呼び出しの
-  消費タイミングを検証しないテストでは `lenient().when(...)` を使う
-  （`StreamRecorderTest` の `StartRecording` ネストクラス参照）
-- **モックを組み立てるヘルパーを `when(...)` の引数の中で呼ばない**（実際に発生した）:
-  `when(launcher.launch(any())).thenReturn(mockProcess("5432.1", 0))` のように、
-  内部で `when(...)` を使うヘルパーを外側の `when(...)` の引数として直接書くと、
-  スタブが入れ子になり `UnfinishedStubbingException` になる。
-  先にローカル変数へ受けてから渡すこと（`VideoMetadataExtractorTest` 参照）。
+- テストクラスは `<対象クラス名>Test`、対象メソッドごとに `@Nested`、メソッド名は `testMethod01` からの連番、
+  `@DisplayName` は `"正常系：〇〇"` / `"異常系：〇〇"`
+- **テストの新規作成は専用の Issue が担当する。** 仕様変更で既存テストが落ちた場合の追従だけは行い、
+  何をなぜ変えたかを PR 本文に書く
+- モックの組み方・テストのためだけに変えた本番コードは [docs/testing.md](docs/testing.md)

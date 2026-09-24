@@ -371,3 +371,49 @@ CSS/JS/HTML を編集したのに restart だけで確認すると**古い内容
 別に登録しているためこの設定の対象外で、キャッシュはそのまま効く。
 なお **no-cache は次回取得以降に効く**ため、設定を入れる前に既にキャッシュされた分だけは
 一度ハードリロードが要る。
+
+
+### `ddl-auto: update` はカラムの削除・リネームをしない
+
+`ddl-auto: update` はカラムの追加はするが削除・リネームはしない。
+カラム名を変えた場合、古い NOT NULL カラムが残って INSERT が失敗する。
+開発中は `data/monitor.mv.db` を削除して作り直すのが早い。
+
+### enum の列挙子を増やすと既存 DB で全更新が失敗する（実際に発生した）
+
+`@Enumerated(EnumType.STRING)` のフィールドに `columnDefinition` を書かないと、
+Hibernate は H2 の**ネイティブ ENUM 型**として列を作る。
+
+```
+STATUS | ENUM     ← 作成時の値しか許さない
+```
+
+この型は**テーブル作成時点の値だけを許す**ため、後から列挙子を追加しても
+`ddl-auto: update` は型を更新せず、次のエラーで**その列に関わる全ての読み書きが壊れる**。
+
+```
+Value not permitted for column "('COMPLETED', 'FAILED', 'RECORDING')": "PARTIAL"
+```
+
+`Recording.RecordingStatus` に `PARTIAL` を足した際に実際に発生し、巡回 API が 500 を返した。
+
+**対策**: enum のフィールドには必ず `columnDefinition = "varchar(16)"` を書く
+（`MonitoredChannel.platform` と `Recording.status` 参照）。単なる文字列にしておけば、
+列挙子を増やしても DB 側の変更が要らない。
+
+**既にネイティブ ENUM で作られてしまった列の直し方**（データは保持される）:
+
+```sql
+ALTER TABLE recordings ALTER COLUMN status SET DATA TYPE VARCHAR(16);
+```
+
+### 既存データがある状態で NOT NULL の boolean カラムを追加すると失敗する（実際に発生した）
+
+`recordEnabled`（boolean, primitive）を `MonitoredChannel` に追加した際、登録済みチャンネルが
+既に存在する DB では `ALTER TABLE ... ADD COLUMN record_enabled BOOLEAN NOT NULL` が
+「既存行に入れる値がない」という理由で失敗し、以降すべてのクエリが
+「カラムが見つからない」エラーで壊れた（カラム追加そのものが失敗し、テーブルに列が
+作られないまま終わるため）。
+boolean の primitive フィールドを新規追加するときは、原則として
+`@Column(columnDefinition = "boolean default false")` のようにDB側のデフォルト値を
+明示すること（`recordEnabled` 参照）。
