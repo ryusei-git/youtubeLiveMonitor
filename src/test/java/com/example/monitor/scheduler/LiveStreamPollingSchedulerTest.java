@@ -765,6 +765,80 @@ class LiveStreamPollingSchedulerTest {
                     .updateObservedLiveState(any(), anyBoolean(), any(), any());
             verify(monitoredChannelRepository).recordDetectionFailure(eq(1L), any(LocalDateTime.class));
         }
+
+        @Test
+        @DisplayName("正常系：待機所を検知した場合はcurrentLiveVideoIdに予約枠の動画IDを書かない")
+        void testMethod40() {
+            // 配信中ではないため、updateObservedLiveState の videoId 引数には
+            // 予約枠のIDではなくnullを渡す（「配信中でなければnull」というフィールドの前提を守る）
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.upcoming("upcomingVideo", "予定タイトル",
+                    "https://www.youtube.com/watch?v=upcomingVideo", LocalDateTime.of(2026, 9, 24, 21, 0)));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository)
+                    .updateObservedLiveState(eq(1L), eq(false), isNull(), any(LocalDateTime.class));
+        }
+
+        @Test
+        @DisplayName("正常系：待機所を検知した場合は配信予定を記録する")
+        void testMethod41() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            LocalDateTime scheduledStartTime = LocalDateTime.of(2026, 9, 24, 21, 0);
+            detects("UCxxxxxxxx", LiveStreamDetection.upcoming("upcomingVideo", "予定タイトル",
+                    "https://www.youtube.com/watch?v=upcomingVideo", scheduledStartTime));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository)
+                    .updateUpcoming(1L, "upcomingVideo", "予定タイトル", scheduledStartTime);
+            verify(monitoredChannelRepository, never()).clearUpcoming(anyLong());
+        }
+
+        @Test
+        @DisplayName("正常系：配信中になったら配信予定の記録を消す（予定が現実になった）")
+        void testMethod42() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx",
+                    LiveStreamDetection.live("newVideo", "配信タイトル", null, "https://www.youtube.com/watch?v=newVideo"));
+            when(streamPlatform.fetchDetails("newVideo")).thenReturn(Optional.empty());
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository).clearUpcoming(1L);
+            verify(monitoredChannelRepository, never()).updateUpcoming(anyLong(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("正常系：配信していないと判定した場合も配信予定の記録を消す（予定が消えた）")
+        void testMethod43() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.notLive());
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository).clearUpcoming(1L);
+            verify(monitoredChannelRepository, never()).updateUpcoming(anyLong(), any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("異常系：判定できなかった場合は配信予定の記録にも触れない")
+        void testMethod44() {
+            // 分からないものを「予定が無い」と記録すると区別が付かなくなる
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.failed());
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository, never()).updateUpcoming(anyLong(), any(), any(), any());
+            verify(monitoredChannelRepository, never()).clearUpcoming(anyLong());
+        }
     }
 
     @Nested

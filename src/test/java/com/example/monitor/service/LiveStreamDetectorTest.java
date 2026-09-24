@@ -62,6 +62,8 @@ class LiveStreamDetectorTest {
             assertThat(result.isLive()).isTrue();
             assertThat(result.videoId()).isEqualTo("abcdefg1234");
             assertThat(result.title()).isEqualTo("【ASMR】耳かき音フェチ");
+            // 待機所ではないのにUPCOMINGへ倒れると、実際に配信中の枠が通知・録画の対象から漏れる
+            assertThat(result.isUpcoming()).isFalse();
         }
 
         @Test
@@ -104,6 +106,30 @@ class LiveStreamDetectorTest {
             assertThat(result.watchUrl()).isEqualTo("https://www.youtube.com/watch?v=abcdefg1234");
             assertThat(result.scheduledStartTime()).isEqualTo(LocalDateTime.ofInstant(
                     Instant.ofEpochSecond(1790251200L), ZoneId.systemDefault()));
+            assertThat(result.isDetectionFailed()).isFalse();
+            // 配信開始の146日も前から「配信中」と誤判定しDiscordに誤通知が飛んだ事故の再発防止
+            assertThat(result.isLive()).isFalse();
+        }
+
+        @Test
+        @DisplayName("正常系：待機所のHTMLに開始予定時刻が無い場合はscheduledStartTimeをnullにするが判定は壊さない")
+        void testMethod08() throws IOException, InterruptedException {
+            // isUpcoming はあるが scheduledStartTime を欠いた断片（HTML構造の変化を模す）
+            String html = """
+                    <html><head>
+                    <link rel="canonical" href="https://www.youtube.com/watch?v=abcdefg1234">
+                    <meta name="title" content="【CHAT Room】待機所">
+                    </head><body>
+                    <script>var ytInitialData = {"isUpcoming":true,"allowRatings":true};</script>
+                    </body></html>
+                    """;
+            stubResponse(200, html);
+
+            LiveStreamDetection result = liveStreamDetector.detectLiveStream("UCxxxxxxxx");
+
+            // 時刻が取れなくても、待機所であること自体は分かっているので判定失敗にはしない
+            assertThat(result.status()).isEqualTo(LiveStreamDetection.DetectionStatus.UPCOMING);
+            assertThat(result.scheduledStartTime()).isNull();
             assertThat(result.isDetectionFailed()).isFalse();
         }
 
