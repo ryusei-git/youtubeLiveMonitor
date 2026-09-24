@@ -1053,6 +1053,7 @@ function renderNavigationForViewer(admin) {
     }
     nav.replaceChildren(...items, ...(logout ? [logout] : []));
     decorateStudioNavigation();
+    document.querySelector(".globalnav")?.classList.add("navReady");
 }
 
 /** 追加し直したリンクにも、同じアイコンとスマホの現在地表示を適用する。 */
@@ -1078,8 +1079,9 @@ function decorateStudioNavigation() {
 /** 共通の補助要素を一度だけ置く。 */
 function initStudioShell() {
     const current = location.pathname.split("/").pop();
-    if (current === "videos.html") renderNavigationForViewer(false);
-    else renderNavigationForViewer(!["my-channels.html", "my-recordings.html"].includes(current || ""));
+    // 動画一覧は videos.js が閲覧者を判定してから 1 回だけ描く。
+    // 仮に利用者用を描くと、管理者には一瞬別のメニューが見えてから組み替わるため。
+    if (current !== "videos.html") renderNavigationForViewer(!["my-channels.html", "my-recordings.html"].includes(current || ""));
     const main = document.querySelector("main");
     if (main) {
         main.id = "mainContent";
