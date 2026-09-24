@@ -720,6 +720,10 @@ function recordingMarkButton(recording, kind, onToggle) {
  * できないと、録画を聞き続ける使い方が成り立たないため。
  * Media Session API に対応していないブラウザでは何もしない（出なくても再生そのものは変わらない）。
  *
+ * <p>小窓にする操作（enterpictureinpicture）も出すのは、再生中に別のタブへ移ったとき自動で小窓にするため。
+ * Chrome などはこの操作を登録したページでしか自動の小窓を使わず、登録しないと、別のタブを見ながら
+ * 再生を続けるには先に「小窓で再生」を押しておく必要がある。
+ *
  * @param {HTMLVideoElement} video 操作の対象
  * @param {{title: string, artist: string, artworkUrl: string|null}} metadata
  *        題名（配信タイトル）・アーティスト（チャンネル名）・画像の URL（サムネイルが無ければ null）
@@ -746,6 +750,13 @@ function bindMediaSession(video, metadata) {
         ["seekforward", (details) => seekBy(details.seekOffset ?? 10)],
         ["seekto", (details) => {
             if (details.seekTime !== undefined) video.currentTime = details.seekTime;
+        }],
+        // lib.dom の MediaSessionAction にまだ無い操作なので型を補う。
+        // 止めている動画まで小窓にすると、見るのをやめて別のタブへ移っただけで小窓が開いてしまうため再生中に限る。
+        // 利用者が操作していない場面なので、断られても画面には出さず、調べられるよう残すだけにする
+        [/** @type {MediaSessionAction} */ ("enterpictureinpicture"), () => {
+            if (video.paused) return;
+            video.requestPictureInPicture().catch((e) => console.warn(e));
         }],
     ];
     for (const [action, handler] of handlers) {
