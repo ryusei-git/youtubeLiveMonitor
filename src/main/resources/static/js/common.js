@@ -21,6 +21,7 @@
  *   ダウンロードした場合は null
  * @property {string|null} youtubeChannelId チャンネルID。未登録なら null
  * @property {string} channelName チャンネルの表示名。未登録なら "(未登録チャンネル)"
+ * @property {string|null} channelUrl チャンネルページの URL。未登録、またはログイン名未取得の Twitch なら null
  * @property {string} videoId 配信の動画ID
  * @property {string} videoTitle 録画開始時点の配信タイトル
  * @property {string|null} genre タイトルの最初の【】の中身。無ければ null
@@ -497,19 +498,18 @@ function videoLink(videoId) {
 }
 
 /**
- * チャンネル名を YouTube のチャンネルページへのリンクにする。
+ * チャンネル名をチャンネルページへのリンクにする。
  *
- * 未登録チャンネルの録画（URL指定でダウンロードしたもの）ではチャンネルIDが無いため、
- * その場合はリンクにせず名前だけを出す。
+ * URL は配信元ごとに形が違う（Twitch はログイン名から作る）ため、サーバーが組み立てた
+ * channelUrl をそのまま使う。未登録チャンネルの録画（URL指定でダウンロードしたもの）や
+ * ログイン名未取得の Twitch では null になり、その場合はリンクにせず名前だけを出す。
  *
  * @param {string} channelName 表示するチャンネル名
- * @param {string|null} youtubeChannelId リンク先のチャンネルID。無ければ null
+ * @param {string|null} channelUrl リンク先のチャンネルページ URL。無ければ null
  * @returns {string} セルへ差し込む HTML
  */
-function channelLink(channelName, youtubeChannelId) {
-    if (!youtubeChannelId) return escapeHtml(channelName);
-    return `<a href="https://www.youtube.com/channel/${escapeHtml(youtubeChannelId)}"`
-        + ` target="_blank" rel="noopener noreferrer">${escapeHtml(channelName)}</a>`;
+function channelLink(channelName, channelUrl) {
+    return externalLink(channelName, channelUrl);
 }
 
 /** 録画の状態を画面表示用の日本語にする。録画一覧と再生画面で同じ語を使う。 */
@@ -622,7 +622,7 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null,
         ${thumbnail}
         <div class="cardBody">
           <div class="cardTitle">${title}</div>
-          <div class="muted">${channelLink(recording.channelName, recording.youtubeChannelId)}</div>
+          <div class="muted">${channelLink(recording.channelName, recording.channelUrl)}</div>
           <div class="muted">${datetimeCell(recording.startedAt)} ・ ${status}`
         + ` ・ ${formatFileSize(recording.fileSizeBytes)}</div>
           <div class="cardActions">${playButton}${deletable ? '<button class="deleteBtn">削除</button>' : ""}</div>

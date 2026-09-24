@@ -36,7 +36,7 @@
                 const tr = document.createElement("tr");
                 tr.innerHTML = `
                     <td>${datetimeCell(h.notifiedAt)}</td>
-                    <td>${channelLink(h.channelName, h.youtubeChannelId)}</td>
+                    <td>${channelLink(h.channelName, h.channelUrl)}</td>
                     <td>${collapsibleCell(h.videoTitle)}</td>
                     <td>${videoLink(h.videoId)}</td>
                     <td>${h.status === "SUCCESS" ? "成功" : '<span class="error">失敗</span>'}</td>

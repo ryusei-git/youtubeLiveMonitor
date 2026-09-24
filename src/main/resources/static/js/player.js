@@ -35,7 +35,7 @@ function renderDetail(rec) {
     }, { once: true });
 
     query("#detailTable tbody").innerHTML = [
-        detailRow("チャンネル", channelLink(rec.channelName, rec.youtubeChannelId)),
+        detailRow("チャンネル", channelLink(rec.channelName, rec.channelUrl)),
         detailRow("元の配信", videoLink(rec.videoId)),
         detailRow("録画開始", datetimeCell(rec.startedAt)),
         detailRow("録画終了", datetimeCell(rec.completedAt)),
