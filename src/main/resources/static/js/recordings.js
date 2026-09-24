@@ -22,7 +22,16 @@
         { key: "to", id: "toFilter" },
         { key: "sort", id: "sortFilter" },
         { key: "size", id: "sizeFilter" },
+        { key: "watched", id: "watchedFilter" },
+        { key: "favorite", id: "favoriteFilter" },
     ];
+
+    /** 今の表示（カード / リスト）。既定のカードのときは URL に載せない。 */
+    let currentView = "card";
+
+    /** 今表示している録画。表示を切り替えたとき、一覧を読み直さずに描き直すため。 */
+    /** @type {Recording[]} */
+    let shownRecordings = [];
 
     /** 並び順・表示件数の既定値（HTML の先頭の選択肢と揃える）。この値のときは URL に載せない。 */
     const DEFAULT_SORT = "newest";
@@ -39,12 +48,14 @@
         const url = new URL(location.href);
         for (const { key } of URL_FILTERS) url.searchParams.delete(key);
         url.searchParams.delete("page");
+        url.searchParams.delete("view");
         for (const { key, id } of URL_FILTERS) {
             const value = inputOrSelectValue(id);
             const isDefault = !value || (key === "sort" && value === DEFAULT_SORT) || (key === "size" && value === DEFAULT_SIZE);
             if (!isDefault) url.searchParams.set(key, value);
         }
         if (currentPage > 0) url.searchParams.set("page", String(currentPage + 1));
+        if (currentView === "list") url.searchParams.set("view", "list");
         if (url.href !== location.href) history[replace ? "replaceState" : "pushState"](null, "", url);
     }
 
@@ -60,22 +71,27 @@
             const field = el(id);
             if (field instanceof HTMLSelectElement) {
                 field.value = Array.from(field.options).some(o => o.value === value) ? value : field.options[0].value;
+            } else if (inputEl(id).type === "checkbox") {
+                inputEl(id).checked = value === "true";
             } else {
                 inputEl(id).value = key === "keyword" ? value.slice(0, 200) : value;
             }
         }
         const page = Number.parseInt(params.get("page") || "", 10);
         currentPage = Number.isFinite(page) && page > 1 ? page - 1 : 0;
+        currentView = params.get("view") === "list" ? "list" : "card";
         syncRecordingUrl(true);
     }
 
     /**
      * @param {string} id 入力欄または select の ID
-     * @returns {string} 前後の空白を除いた値
+     * @returns {string} 前後の空白を除いた値。チェックボックスは付いていれば "true"、外れていれば空
      */
     function inputOrSelectValue(id) {
         const field = el(id);
-        return field instanceof HTMLSelectElement ? field.value : inputEl(id).value.trim();
+        if (field instanceof HTMLSelectElement) return field.value;
+        if (inputEl(id).type === "checkbox") return inputEl(id).checked ? "true" : "";
+        return inputEl(id).value.trim();
     }
 
     /**
@@ -198,6 +214,109 @@
         }
     }
 
+    /** 削除後は一覧とディスク使用量の両方を引き直す */
+    function afterDelete() {
+        loadRecordings();
+        loadDiskUsage();
+    }
+
+    /**
+     * 視聴済み・お気に入りを切り替える。
+     * 先に表示を変えてから API を呼ぶ（押した手応えをすぐ返すため）。一覧は読み直さず、
+     * 押したボタンだけを更新する。読み直すと、絞り込み中なら押した行が消えて何が起きたか分からなくなるため。
+     *
+     * @param {Recording} recording 対象の録画
+     * @param {RecordingMarkKind} kind 印の種類
+     * @param {HTMLButtonElement} button 押されたボタン
+     */
+    async function toggleMark(recording, kind, button) {
+        const next = !recording[kind];
+        recording[kind] = next;
+        renderRecordingMarkButton(button, kind, next);
+        button.disabled = true;
+        try {
+            await apiPut(`/api/recordings/${recording.id}/${kind}`, { [kind]: next });
+            clearError();
+        } catch (e) {
+            recording[kind] = !next;
+            renderRecordingMarkButton(button, kind, !next);
+            showError(errorMessage(e));
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    /**
+     * 表の 1 行を組み立てる。長さ・サイズ・状態・日時はカードと同じ関数で表し、
+     * 表示を切り替えても同じ録画が同じ見た目の値で並ぶようにする。
+     *
+     * @param {Recording} r 録画 1 件
+     * @returns {HTMLTableRowElement} 行
+     */
+    function buildRecordingRow(r) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${datetimeCell(r.startedAt)}</td>
+            <td>${channelLink(r.channelName, r.youtubeChannelId)}</td>
+            <td><a href="/player.html?id=${r.id}">${escapeHtml(r.videoTitle)}</a></td>
+            <td>${formatDuration(r.durationSeconds)}</td>
+            <td>${formatFileSize(r.fileSizeBytes)}</td>
+            <td>${recordingStatusLabel(r.status)}</td>
+            <td>${escapeHtml(r.genre || "-")}</td>
+            <td class="watchedCell"></td>
+            <td class="favoriteCell"></td>
+            <td class="deleteCell"></td>
+        `;
+        query(".watchedCell", tr).appendChild(recordingMarkButton(r, "watched", toggleMark));
+        query(".favoriteCell", tr).appendChild(recordingMarkButton(r, "favorite", toggleMark));
+        // カードと同じく、録画中は中断させたくないので削除ボタンを出さない（API 側も 409 で弾く）
+        if (r.status !== "RECORDING") {
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "deleteBtn";
+            btn.textContent = "削除";
+            btn.addEventListener("click", () => deleteRecording(r, afterDelete));
+            query(".deleteCell", tr).appendChild(btn);
+        }
+        return tr;
+    }
+
+    /** 今の表示（カード / リスト）で shownRecordings を描く。 */
+    function renderRecordings() {
+        const list = currentView === "list";
+        buttonEl("cardViewBtn").setAttribute("aria-pressed", String(!list));
+        buttonEl("listViewBtn").setAttribute("aria-pressed", String(list));
+
+        const grid = el("videoGrid");
+        const tbody = query("#recordingTable tbody");
+        grid.innerHTML = "";
+        tbody.innerHTML = "";
+        if (shownRecordings.length === 0) {
+            // 空のときは表示によらずカード枠に案内を出す（見出しだけの空の表より理由が伝わる）
+            grid.hidden = false;
+            el("recordingList").hidden = true;
+            grid.innerHTML = emptyState(
+                "該当する録画はありません",
+                "絞り込み条件を外すか、上の入力欄に動画URLを貼ってダウンロードできます");
+            return;
+        }
+        grid.hidden = list;
+        el("recordingList").hidden = !list;
+        for (const r of shownRecordings) {
+            if (list) tbody.appendChild(buildRecordingRow(r));
+            else grid.appendChild(buildVideoCard(r, afterDelete, true, null, toggleMark));
+        }
+        bindDatetimeCells(list ? tbody : grid);
+    }
+
+    /** @param {"card"|"list"} view 切り替え先の表示 */
+    function switchView(view) {
+        if (currentView === view) return;
+        currentView = view;
+        syncRecordingUrl();
+        renderRecordings();
+    }
+
     async function loadRecordings() {
         const request = ++loadRequest;
         try {
@@ -218,22 +337,8 @@
             clearError();
             totalPages = data.totalPages;
 
-            const grid = el("videoGrid");
-            grid.innerHTML = "";
-            for (const r of data.content) {
-                // 削除後は一覧とディスク使用量の両方を引き直す
-                grid.appendChild(buildVideoCard(r, () => {
-                    loadRecordings();
-                    loadDiskUsage();
-                }));
-            }
-            bindDatetimeCells(grid);
-
-            if (data.totalElements === 0) {
-                grid.innerHTML = emptyState(
-                    "該当する録画はありません",
-                    "絞り込み条件を外すか、上の入力欄に動画URLを貼ってダウンロードできます");
-            }
+            shownRecordings = data.content;
+            renderRecordings();
             el("resultSummary").textContent =
                 data.totalElements === 0 ? "該当する録画はありません" : `${data.totalElements}件`;
             updatePagination(currentPage, totalPages);
@@ -280,10 +385,14 @@
         for (const { id } of URL_FILTERS) {
             const field = el(id);
             if (field instanceof HTMLSelectElement) field.value = field.options[0].value;
+            else if (inputEl(id).type === "checkbox") inputEl(id).checked = false;
             else inputEl(id).value = "";
         }
         goToPage(0);
     });
+
+    el("cardViewBtn").addEventListener("click", () => switchView("card"));
+    el("listViewBtn").addEventListener("click", () => switchView("list"));
 
     el("prevBtn").addEventListener("click", () => {
         if (currentPage > 0) goToPage(currentPage - 1);

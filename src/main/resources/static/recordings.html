@@ -62,12 +62,30 @@
       <option value="48">48件ずつ</option>
       <option value="96">96件ずつ</option>
     </select>
+    <select id="watchedFilter" aria-label="視聴">
+      <option value="">すべて</option>
+      <option value="unwatched">未視聴</option>
+      <option value="watched">視聴済み</option>
+    </select>
+    <label><input type="checkbox" id="favoriteFilter"> お気に入りのみ</label>
     <button type="submit">検索</button>
     <button type="button" id="resetBtn">条件をクリア</button>
   </form>
 
-  <p id="resultSummary" class="muted"></p>
+  <div class="inline">
+    <div class="viewToggle" role="group" aria-label="表示">
+      <button type="button" id="cardViewBtn" aria-pressed="true">カード</button>
+      <button type="button" id="listViewBtn" aria-pressed="false">リスト</button>
+    </div>
+    <span id="resultSummary" class="muted"></span>
+  </div>
   <div class="videoGrid" id="videoGrid"></div>
+  <div class="table-scroll" id="recordingList" hidden>
+    <table id="recordingTable">
+      <thead><tr><th>開始日時</th><th>チャンネル</th><th>タイトル</th><th>長さ</th><th>サイズ</th><th>状態</th><th>ジャンル</th><th>視聴</th><th>★</th><th>（削除）</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
 
   <nav class="inline" aria-label="ページ送り">
     <button id="prevBtn">前へ</button>
