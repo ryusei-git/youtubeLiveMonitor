@@ -71,7 +71,7 @@ Java 21 / Spring Boot 3.3.3 / Gradle / H2（ファイルモード）。
 1. **完了条件を通す**（`.claude/skills/verify` と同じ内容）。
    - `./gradlew clean build javadoc` が警告ゼロ
    - `npx -y -p typescript tsc -p src/main/resources/static/jsconfig.json --noEmit` が型エラーゼロ
-   - **ビルドしたら必ず `bin/service.sh restart`**（稼働中に jar を差し替えると動いているプロセスが壊れる）
+   - **ビルドしたら必ず `bin/service.sh restart`**（稼働中のサービスは起動時に `run/` へコピーした jar で動くので、再起動しないと反映されない）
    - `bin/api.sh POST /api/monitor/check` と `java -jar build/libs/*.jar channel list` が動く
    - Issue の完了条件に書かれた確認
 2. **Codex**: ブランチ `codex/issue-<番号>-<要約>` で 1 コミットにまとめてプッシュし、
@@ -163,7 +163,7 @@ gh api graphql -f query='{repository(owner:"ryusei-git",name:"youtubeLiveMonitor
 
 **ビルド・起動・ログ**
 
-- サービス稼働中に `./gradlew build` すると動いているプロセスが壊れる（実際に発生した）
+- `build/libs` の jar を直接動かすと、稼働中の `./gradlew build` でプロセスが壊れる（実際に発生した）
 - `cli` プロファイルで作られない Bean に依存するコントローラーには `@Profile("!cli")` を付ける（実際に発生した）
 - ログ設定は `logback-spring.xml` のみ
 - ログ書式を変えるならパーサーも直す

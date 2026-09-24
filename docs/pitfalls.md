@@ -138,14 +138,26 @@ CLI モードは Web サーバーを起動しない（`WebApplicationType.NONE`�
 Web でしか使わないコントローラーが `!cli` の Bean に依存する場合は、
 コントローラー側にも `@Profile("!cli")` を付けること。
 
-### サービス稼働中に `./gradlew build` すると動いているプロセスが壊れる（実際に発生した）
+### `build/libs` の jar を直接動かすと、稼働中の `./gradlew build` でプロセスが壊れる（実際に発生した）
 
 実行中の JVM は jar から**必要になった時点でクラスを読み込む**。稼働中に jar を差し替えると、
 まだ読み込んでいなかったクラスが見つからなくなり、それまで正常だったリクエストが突然
 `ClassNotFoundException`（例: `ch.qos.logback.classic.spi.ThrowableProxy`）で失敗し始める。
 API が応答しなくなって原因を探すことになった。
 
-ビルドしたら**必ず `bin/service.sh restart` まで行う**こと。ビルドだけして動作確認を続けない。
+正しい反映の手順（build → restart）でも毎回踏んでいた。build が jar を上書きした後の restart で、
+止める途中のクラスを読めず（2026-09-25）、正常終了の待ち 30 秒を使い切って**毎回 `kill -9`** になっていた。
+`kill -9` では H2 のクローズなどの終了処理が走らない。
+
+```
+java.lang.NoClassDefFoundError: org/springframework/boot/web/server/GracefulShutdownCallback
+Exception in thread "Thread-2" java.lang.NoClassDefFoundError: org/h2/mvstore/db/LobStorageMap$LobRemovalInfo
+```
+
+そのため `bin/service.sh start` は `build/libs` の jar を `run/youtubeLiveMonitor.jar` にコピーし、
+**コピーの方を動かす**（#161）。build は稼働中のプロセスの jar に触れなくなり、ビルドだけして
+restart しなくても壊れはしない（変更が反映されないだけ）。反映するときは今までどおり
+**build → `bin/service.sh restart` の両方を行う**。
 （画面ファイルを直したときに `restart` だけでは反映されないのと対になる注意点。）
 
 ### ログ設定は `logback-spring.xml` のみ
