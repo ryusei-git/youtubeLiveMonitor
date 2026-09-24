@@ -20,8 +20,14 @@ spring:
       enabled: true
       path: /h2-console
 
-# SecurityConfigTest がログインできるよう、テスト用の初期管理者を明示的に指定する。
 monitor:
+  # Spring を起動するテストで、配信の監視と動画の収集を定期実行させない。動いたままだと、
+  # テストの最中に巡回が並行して走ってログを増やし、テストが入れたチャンネルを拾いうる（#187）。
+  # 巡回そのもののテストは Spring を通さずに組み立てるので、この値の影響を受けない。
+  scheduling:
+    enabled: false
+
+  # SecurityConfigTest がログインできるよう、テスト用の初期管理者を明示的に指定する。
   admin:
     username: testadmin
     password: test-admin-password
