@@ -35,6 +35,11 @@ spring:
 # ログ出力の設定は logback-spring.xml 側で一元管理する
 
 monitor:
+  # false にすると配信の監視（定期・「今すぐチェック」）と動画の収集を行わない。
+  # 本番を止めずに画面を確かめる確認用の起動（bin/preview.sh）が使う。本番では true のまま
+  scheduling:
+    enabled: true
+
   youtube:
     api-key: ${YOUTUBE_API_KEY:}
     interval-seconds: ${MONITOR_INTERVAL_SECONDS:120}

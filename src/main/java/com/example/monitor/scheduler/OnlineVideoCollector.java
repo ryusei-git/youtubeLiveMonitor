@@ -7,6 +7,7 @@ import com.example.monitor.service.*;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -25,10 +26,13 @@ public class OnlineVideoCollector {
     private final VideoCollectionTracker tracker;
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile Thread worker;
+    /** 確認用の起動（{@code bin/preview.sh}）では収集しない。本番と同じ動画を二重に取りに行かないため。 */
+    @Value("${monitor.scheduling.enabled:true}")
+    private boolean schedulingEnabled = true;
 
     @Scheduled(fixedDelayString = "${monitor.video-collection-interval-ms:600000}", initialDelay = 10000)
     public void schedule() {
-        if (!running.compareAndSet(false, true)) return;
+        if (!schedulingEnabled || !running.compareAndSet(false, true)) return;
         worker = Thread.startVirtualThread(() -> {
             try { collect(); }
             catch (RuntimeException e) { log.error("動画収集の実行に失敗しました。次回再試行します", e); }

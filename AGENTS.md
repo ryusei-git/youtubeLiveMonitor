@@ -187,6 +187,9 @@ bin/service.sh start
 
 CLI はサービス常駐中でも実行できる（H2 を `AUTO_SERVER=TRUE` で開いているため）。
 
+録画中で本番をビルド・再起動できないときは、`bin/preview.sh start` で最新の main を別の場所・
+別ポート（18080）・DB の複製・監視なしで起動して画面を確かめる（`bin/preview.sh stop` で止める）。
+
 ## テスト
 
 ```bash
