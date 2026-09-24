@@ -6,6 +6,7 @@ import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -193,6 +194,21 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @return 該当件数
      */
     long countByStatus(RecordingStatus status);
+
+    /**
+     * 指定した状態で、開始が指定時刻以降の録画を新しい順に最大 20 件取得する。
+     *
+     * <p>ダッシュボードの「直近の録画失敗」に使う。チャンネル名とリンクを必ず読むため
+     * チャンネルも同時に取得する（遅延読み込みのままだと、トランザクションの外で変換したときに
+     * 読めず、1 件ずつ追加の問い合わせも走る）。
+     *
+     * @param status 対象の状態
+     * @param since  開始時刻の下限（この時刻を含む）
+     * @return 該当する録画履歴
+     */
+    @EntityGraph(attributePaths = "channel")
+    List<Recording> findTop20ByStatusAndStartedAtGreaterThanEqualOrderByStartedAtDesc(
+            RecordingStatus status, LocalDateTime since);
 
     /**
      * チャンネルごとに、指定した状態の録画の件数を数える。
