@@ -1066,7 +1066,7 @@ const adminNavigation = [
 ];
 /** @type {Array<[string, string]>} 「既存サービス」の下にまとめる管理者メニュー。上位メニューを短く保つため。 */
 const adminServiceNavigation = [
-    ["/notifications.html", "通知履歴"], ["/recordings.html", "録画"],
+    ["/notifications.html", "通知履歴"], ["/recordings.html", "アーカイブ一覧"],
     ["/users.html", "利用者管理"], ["/invitations.html", "招待"],
     ["/logs.html", "ログ"], ["/audit.html", "監査ログ"],
     ["/tables.html", "DB管理"], ["/playground.html", "APIお試し"]
