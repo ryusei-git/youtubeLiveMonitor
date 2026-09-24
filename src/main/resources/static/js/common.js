@@ -1126,13 +1126,13 @@ const playgroundAvailable = Boolean(document.querySelector('.globalnav a[href="/
 /** @type {Array<[string, string]>} 管理者画面の上位メニュー。よく使う順に並べる。 */
 const adminNavigation = [
     ["/index.html", "ダッシュボード"], ["/videos.html", "動画一覧"],
-    ["/channels.html", "登録済みチャンネル一覧"]
+    ["/channels.html", "登録済みチャンネル一覧"], ["/recordings.html", "アーカイブ一覧"]
 ];
 /** @type {Array<[string, string]>} 「既存サービス」の下にまとめる管理者メニュー。上位メニューを短く保つため。 */
 const adminServiceNavigation = [
-    ["/notifications.html", "通知履歴"], ["/recordings.html", "アーカイブ一覧"],
-    ["/users.html", "利用者管理"], ["/invitations.html", "招待"],
-    ["/logs.html", "ログ"], ["/audit.html", "監査ログ"],
+    ["/notifications.html", "通知履歴"], ["/users.html", "利用者管理"],
+    ["/invitations.html", "招待"], ["/logs.html", "ログ"],
+    ["/audit.html", "監査ログ"],
     ["/tables.html", "DB管理"], ["/playground.html", "APIお試し"]
 ];
 /** @type {Array<[string, string]>} 一般利用者には管理リンクを載せない。 */
