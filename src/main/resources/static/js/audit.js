@@ -1,0 +1,120 @@
+// @ts-check
+// 画面固有の状態をグローバルへ漏らさないため、全体を即時実行関数で包む。
+// （各画面のスクリプトは <script> で読み込まれ、既定では同じスコープを共有するため）
+(() => {
+    let currentPage = 0;
+    const pageSize = 20;
+    let totalPages = 1;
+
+    /** 操作種別（Java の {@code AuditAction}）を表示用の日本語にする。フィルターの選択肢と対応させる。
+     * @type {Record<string, string>} */
+    const ACTION_LABEL = {
+        LOGIN_SUCCESS: "ログイン成功",
+        LOGIN_FAILURE: "ログイン失敗",
+        LOGOUT: "ログアウト",
+        PASSWORD_CHANGE: "パスワード変更",
+        USER_CREATE: "利用者作成",
+        USER_DELETE: "利用者削除",
+        USER_DISABLE: "利用者無効化",
+        INVITATION_ISSUE: "招待発行",
+        INVITATION_REVOKE: "招待取消",
+        ACCESS_DENIED: "アクセス拒否",
+        CHANNEL_REGISTER: "チャンネル登録",
+        CHANNEL_DELETE: "チャンネル削除",
+        CHANNEL_SETTING_CHANGE: "チャンネル設定変更",
+        CHANNEL_SUBSCRIBE: "チャンネル購読",
+        CHANNEL_UNSUBSCRIBE: "チャンネル購読解除",
+        DOWNLOAD_REQUEST: "ダウンロード要求",
+        RECORDING_DELETE: "録画削除",
+        NOTIFICATION_SETTING_CHANGE: "通知設定変更",
+        APP_SETTING_CHANGE: "アプリ設定変更",
+    };
+
+    /**
+     * 操作対象のセルを組み立てる。種類と識別子のどちらも無い操作（ログイン等）では "-"。
+     * @param {string|null} targetType
+     * @param {string|null} targetId
+     * @returns {string}
+     */
+    function targetCell(targetType, targetId) {
+        if (!targetType && !targetId) return "-";
+        return escapeHtml([targetType, targetId].filter(Boolean).join(" #"));
+    }
+
+    async function loadAuditLogs() {
+        try {
+            const params = new URLSearchParams({ page: String(currentPage), size: String(pageSize) });
+            const since = inputEl("sinceFilter").value;
+            const until = inputEl("untilFilter").value;
+            const username = inputEl("usernameFilter").value.trim();
+            const action = selectEl("actionFilter").value;
+            const outcome = selectEl("outcomeFilter").value;
+            const requestId = inputEl("requestIdFilter").value.trim();
+            if (since) params.set("since", since);
+            if (until) params.set("until", until);
+            if (username) params.set("username", username);
+            if (action) params.set("action", action);
+            if (outcome) params.set("outcome", outcome);
+            if (requestId) params.set("requestId", requestId);
+
+            const data = await apiGet(`/api/audit-logs?${params}`);
+            clearError();
+            totalPages = data.totalPages || 1;
+
+            const tbody = query("#auditTable tbody");
+            tbody.innerHTML = "";
+            for (const a of data.content) {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${datetimeCell(a.occurredAt)}</td>
+                    <td>${escapeHtml(a.username ?? "-")}</td>
+                    <td>${escapeHtml(ACTION_LABEL[a.action] ?? a.action)}</td>
+                    <td>${targetCell(a.targetType, a.targetId)}</td>
+                    <td>${a.outcome === "SUCCESS" ? "成功" : '<span class="error">失敗</span>'}</td>
+                    <td>${escapeHtml(a.clientIp ?? "-")}</td>
+                    <td>${escapeHtml(a.requestId ?? "-")}</td>
+                    <td>${collapsibleCell(a.detail)}</td>
+                `;
+                tbody.appendChild(tr);
+            }
+            bindDatetimeCells(tbody);
+            el("pageInfo").textContent = `${currentPage + 1} / ${totalPages}`;
+            updatePagination(currentPage, totalPages);
+        } catch (e) {
+            showError(errorMessage(e));
+        }
+    }
+
+    el("filterForm").addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        currentPage = 0;
+        loadAuditLogs();
+    });
+
+    el("resetBtn").addEventListener("click", () => {
+        inputEl("sinceFilter").value = "";
+        inputEl("untilFilter").value = "";
+        inputEl("usernameFilter").value = "";
+        selectEl("actionFilter").value = "";
+        selectEl("outcomeFilter").value = "";
+        inputEl("requestIdFilter").value = "";
+        currentPage = 0;
+        loadAuditLogs();
+    });
+
+    el("prevBtn").addEventListener("click", () => {
+        if (currentPage > 0) {
+            currentPage--;
+            loadAuditLogs();
+        }
+    });
+
+    el("nextBtn").addEventListener("click", () => {
+        if (currentPage + 1 < totalPages) {
+            currentPage++;
+            loadAuditLogs();
+        }
+    });
+
+    loadAuditLogs();
+})();

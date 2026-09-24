@@ -1,7 +1,15 @@
 package com.example.monitor.repository;
 
+import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditLog;
+import com.example.monitor.entity.AuditOutcome;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
+import org.springframework.data.repository.query.Param;
+
+import java.time.LocalDateTime;
 
 /**
  * 監査ログの永続化を担当するリポジトリ。
@@ -20,8 +28,11 @@ import org.springframework.data.repository.Repository;
  * Spring Data JPA の既定実装（{@code SimpleJpaRepository}）のメソッドと一致するため、
  * 実行時に自動的にそちらへ委譲される。
  *
- * <p>閲覧・絞り込み用の検索メソッドは、管理者向け閲覧画面を実装する段階2-5で追加する。
- * 現時点（段階2-1）では記録の受け皿を用意するだけなので {@code save} 以外は宣言していない。
+ * <p><b>検索メソッド（{@link #search}）は {@code JpaRepository} や
+ * {@code JpaSpecificationExecutor} を継承せず、{@code @Query} を添えた素のメソッド宣言として
+ * 追加している。</b>{@code JpaSpecificationExecutor} は {@code delete(Specification)} を
+ * 持つため、検索のために継承すると上記の「更新・削除系のメソッドを持たない」という
+ * 保証がインターフェースの型から崩れてしまう。
  */
 public interface AuditLogRepository extends Repository<AuditLog, Long> {
 
@@ -36,4 +47,39 @@ public interface AuditLogRepository extends Repository<AuditLog, Long> {
      * @return 採番された {@code id} を含む、保存後のエンティティ
      */
     AuditLog save(AuditLog auditLog);
+
+    /**
+     * 条件を指定して監査ログを検索する。
+     *
+     * <p>絞り込みは DB 側で行う。1 ページ分だけ取得してからアプリ側で絞ると、
+     * 条件に合う行がページの外にあったときに一覧から丸ごと消えてしまうため
+     * （{@code NotificationHistoryService#searchHistory} と同じ理由）。
+     * 各条件は {@code null} なら絞り込まない。
+     *
+     * @param since     発生時刻の下限
+     * @param until     発生時刻の上限
+     * @param username  操作者名の完全一致
+     * @param action    操作種別
+     * @param outcome   操作結果
+     * @param requestId 相関ID
+     * @param pageable  ページ指定
+     * @return 発生時刻の降順に並んだ検索結果
+     */
+    @Query("""
+            SELECT a FROM AuditLog a
+            WHERE (:since IS NULL OR a.occurredAt >= :since)
+              AND (:until IS NULL OR a.occurredAt <= :until)
+              AND (:username IS NULL OR a.username = :username)
+              AND (:action IS NULL OR a.action = :action)
+              AND (:outcome IS NULL OR a.outcome = :outcome)
+              AND (:requestId IS NULL OR a.requestId = :requestId)
+            ORDER BY a.occurredAt DESC
+            """)
+    Page<AuditLog> search(@Param("since") LocalDateTime since,
+                           @Param("until") LocalDateTime until,
+                           @Param("username") String username,
+                           @Param("action") AuditAction action,
+                           @Param("outcome") AuditOutcome outcome,
+                           @Param("requestId") String requestId,
+                           Pageable pageable);
 }
