@@ -31,9 +31,11 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 端末全体とこのサービス（アプリ本体・録画プロセス）が使うリソースを計測し、直近 24 時間の推移を持つ。
@@ -43,7 +45,7 @@ import java.util.stream.Collectors;
  *
  * <p>CPU 使用率とネットワーク量は「2 回の計測の差」でしか出せないので、1 分ごとの記録（{@link #record()}）で
  * 前回の記録との差を取る。API（{@link #snapshot()}）は測り直さず、直前の記録の値を返す。
- * 計測は全プロセス（この端末で数百）を列挙するため重く、以前は API のたびに測り直していて、
+ * 計測は全プロセス（この端末で数百）のコマンドラインを調べる。以前は API のたびに測り直していて、
  * ダッシュボードを開いている間は 1 分ごとの記録とは別に毎分同じ列挙をしていた（#190）。
  * 推移は再起動で消えてよいのでメモリ上にだけ持つ（DB に書くと書き込みが 1 分ごとに増えるだけ）。
  *
@@ -185,7 +187,7 @@ public class ResourceMonitorService {
                 hasWindow ? (sent - prior.sentBytes()) * 1000 / windowMillis : null);
 
         OperatingSystem os = systemInfo.getOperatingSystem();
-        List<OSProcess> processes = os.getProcesses();
+        List<OSProcess> processes = recorderCandidates(os);
         Map<Integer, List<OSProcess>> childrenByParent = processes.stream()
                 .collect(Collectors.groupingBy(OSProcess::getParentProcessID));
         Map<Integer, OSProcess> tracked = new HashMap<>();
@@ -224,6 +226,28 @@ public class ResourceMonitorService {
         ResourceSnapshotResponse response = new ResourceSnapshotResponse(LocalDateTime.now(), system,
                 new ServiceUsage(serviceCpu, serviceMemory, application, recorders), List.of());
         return new Measurement(response, new Baseline(now, ticks, received, sent, tracked));
+    }
+
+    /**
+     * 録画プロセスの候補（コマンドラインに {@code yt-dlp} を含むもの）とその子孫を、OSHI のプロセスとして返す。
+     *
+     * <p>OSHI で全プロセスを列挙すると、プロセスごとに {@code /proc} の複数のファイルを読んで文字列や表を作るため、
+     * この端末（約 380 プロセス）で 1 回に約 45MiB を確保して捨てていた。1 分ごとの記録なので、画面を開いていなくても
+     * 1 日で約 63GiB の短命のごみになる（#201）。絞り込みはコマンドラインだけを読む JDK の {@link ProcessHandle}
+     * （1 回で約 0.2MiB）で行い、OSHI には残ったプロセスだけを聞く。
+     *
+     * <p>数える対象は全プロセスを見ていたときと変わらない。yt-dlp は Python のスクリプトなので、JDK のコマンドライン
+     * （実行ファイルと引数）にもスクリプトのパスとして {@code yt-dlp} が入り、候補から漏れない。録画プロセスかどうかは
+     * 今までどおり {@code recordingVideoId} が OSHI の引数で決め、子孫の木も OSHI の親 PID で組む。
+     * 1 つのプロセスは全プロセスを列挙していたときと同じく 1 回だけ載せ、終わっていたもの（OSHI が {@code null}）は載せない。
+     */
+    private static List<OSProcess> recorderCandidates(OperatingSystem os) {
+        Map<Integer, OSProcess> found = new LinkedHashMap<>();
+        ProcessHandle.allProcesses()
+                .filter(process -> process.info().commandLine().filter(line -> line.contains("yt-dlp")).isPresent())
+                .flatMap(process -> Stream.concat(Stream.of(process), process.descendants()))
+                .forEach(process -> found.computeIfAbsent((int) process.pid(), os::getProcess));
+        return List.copyOf(found.values());
     }
 
     /**
