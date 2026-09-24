@@ -199,6 +199,11 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 .onlinePlayerHead h2 { margin: 0; overflow-wrap: anywhere; }
 .onlinePlayerFrame iframe { width: 100%; aspect-ratio: 16 / 9; min-height: 270px; display: block; border: 0; background: #111; }
 #videoFilterForm { padding: 16px; border: 1px solid var(--border); background: #fff; border-radius: 12px; }
+/* 3 段の境界とページ送りの持ち主を一目で分かるよう、段ごとに枠で囲み、ページ送りを見出し行に置く。 */
+.videoSection { background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 28px 0 0; }
+.videoSectionHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+.videoSectionHead h2 { margin: 0; }
+.videoPager { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 @media (max-width: 760px) {
     .onlinePlayerDialog { padding: 12px; }
     .onlinePlayerHead { align-items: flex-start; }

@@ -37,9 +37,27 @@
     <label>チャンネル <select id="videoChannel"><option value="">すべて</option></select></label>
     <button type="submit">検索</button>
   </form>
-  <section class="videoSection"><h2>配信中・配信予定 <span class="muted" id="nowSummary"></span></h2><div id="nowGrid" class="videoGrid"></div><div class="inline"><button id="nowPrev">前へ</button><span id="nowPage" class="muted"></span><button id="nowNext">次へ</button></div></section>
-  <section class="videoSection"><h2>配信済み <span class="muted" id="streamsSummary"></span></h2><div id="streamsGrid" class="videoGrid"></div><div class="inline"><button id="streamsPrev">前へ</button><span id="streamsPage" class="muted"></span><button id="streamsNext">次へ</button></div></section>
-  <section class="videoSection"><h2>投稿済み <span class="muted" id="uploadsSummary"></span></h2><div id="uploadsGrid" class="videoGrid"></div><div class="inline"><button id="uploadsPrev">前へ</button><span id="uploadsPage" class="muted"></span><button id="uploadsNext">次へ</button></div></section>
+  <section class="videoSection" aria-labelledby="nowHeading">
+    <div class="videoSectionHead">
+      <h2 id="nowHeading">配信中・配信予定 <span class="muted" id="nowSummary"></span></h2>
+      <div class="videoPager"><button id="nowPrev" aria-label="配信中・配信予定の前のページ">前へ</button><span id="nowPage" class="muted"></span><button id="nowNext" aria-label="配信中・配信予定の次のページ">次へ</button></div>
+    </div>
+    <div id="nowGrid" class="videoGrid"></div>
+  </section>
+  <section class="videoSection" aria-labelledby="streamsHeading">
+    <div class="videoSectionHead">
+      <h2 id="streamsHeading">配信済み <span class="muted" id="streamsSummary"></span></h2>
+      <div class="videoPager"><button id="streamsPrev" aria-label="配信済みの前のページ">前へ</button><span id="streamsPage" class="muted"></span><button id="streamsNext" aria-label="配信済みの次のページ">次へ</button></div>
+    </div>
+    <div id="streamsGrid" class="videoGrid"></div>
+  </section>
+  <section class="videoSection" aria-labelledby="uploadsHeading">
+    <div class="videoSectionHead">
+      <h2 id="uploadsHeading">投稿済み <span class="muted" id="uploadsSummary"></span></h2>
+      <div class="videoPager"><button id="uploadsPrev" aria-label="投稿済みの前のページ">前へ</button><span id="uploadsPage" class="muted"></span><button id="uploadsNext" aria-label="投稿済みの次のページ">次へ</button></div>
+    </div>
+    <div id="uploadsGrid" class="videoGrid"></div>
+  </section>
   <p class="muted">新着動画は約10分ごとに取得します。収集を開始してから公開された動画と、監視中に見つかった配信を保存します。この一覧の収集では動画本体を保存しません（自動録画の設定は別です）。</p>
 </main>
 <script src="/js/common.js"></script>
