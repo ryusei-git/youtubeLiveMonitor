@@ -3,6 +3,8 @@ package com.example.monitor.service;
 import com.example.monitor.dto.InvitationCheckResponse;
 import com.example.monitor.dto.InvitationResponse;
 import com.example.monitor.entity.AppUser;
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.Invitation;
 import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.InvitationRepository;
@@ -76,6 +78,7 @@ public class InvitationService {
     private final InvitationRepository invitationRepository;
     private final AppUserRepository appUserRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditLogger auditLogger;
 
     /**
      * 招待を発行する。
@@ -95,8 +98,10 @@ public class InvitationService {
         invitation.setExpiresAt(LocalDateTime.now().plusDays(days));
 
         Invitation saved = invitationRepository.save(invitation);
-        // token は秘密なのでログに出さない
+        // token は秘密なのでログにも監査ログにも出さない
         log.info("招待を発行しました: id={}, label={}, 有効日数={}", saved.getId(), saved.getLabel(), days);
+        recordAdminAction(AuditAction.INVITATION_ISSUE, "INVITATION", String.valueOf(saved.getId()),
+                "label=" + saved.getLabel());
         return InvitationResponse.from(saved, LocalDateTime.now());
     }
 
@@ -129,6 +134,7 @@ public class InvitationService {
         }
         invitationRepository.deleteById(id);
         log.info("招待を取り消しました: id={}", id);
+        recordAdminAction(AuditAction.INVITATION_REVOKE, "INVITATION", String.valueOf(id), null);
         return true;
     }
 
@@ -186,6 +192,10 @@ public class InvitationService {
         invitationRepository.save(invitation);
 
         log.info("招待から利用者を登録しました: id={}, user={}", invitation.getId(), name);
+        // 登録した本人はまだログインしておらず、操作者にあたる第三者もいない
+        // （本人が自分自身を登録する経路）。userId・username・clientIp は空欄になる
+        auditLogger.record(AuditAction.USER_CREATE, AuditOutcome.SUCCESS, null, null, null,
+                "USER", name, "招待id=" + invitation.getId());
     }
 
     /**
@@ -228,6 +238,24 @@ public class InvitationService {
         if (password == null || password.length() < MIN_PASSWORD_LENGTH) {
             throw new IllegalArgumentException("パスワードは" + MIN_PASSWORD_LENGTH + "文字以上にしてください");
         }
+    }
+
+    /**
+     * ログイン中の管理者による操作として監査ログを1件記録する。
+     *
+     * <p>招待の発行・取消は必ずログイン済みの管理者が行うため、操作者を
+     * {@link RequestContext#currentUsername()} と {@link AppUserRepository} から解決する。
+     *
+     * @param action     操作の種別
+     * @param targetType 操作対象の種類
+     * @param targetId   操作対象の識別子
+     * @param detail     補足の説明。無ければ {@code null}
+     */
+    private void recordAdminAction(AuditAction action, String targetType, String targetId, String detail) {
+        String username = com.example.monitor.util.RequestContext.currentUsername();
+        Long userId = username == null ? null
+                : appUserRepository.findByUsername(username).map(AppUser::getId).orElse(null);
+        auditLogger.record(action, AuditOutcome.SUCCESS, userId, username, null, targetType, targetId, detail);
     }
 
     /**

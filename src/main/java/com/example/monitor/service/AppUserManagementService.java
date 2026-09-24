@@ -2,6 +2,8 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.AppUserResponse;
 import com.example.monitor.entity.AppUser;
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.repository.AppUserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +20,7 @@ import java.util.List;
 @Slf4j
 public class AppUserManagementService {
     private final AppUserRepository repository;
+    private final AuditLogger auditLogger;
 
     /**
      * 一覧から秘密情報を辿れないようDTOへ変換する。
@@ -36,11 +39,12 @@ public class AppUserManagementService {
      */
     @Transactional
     public void disable(Long id, String actor) {
-        checkTarget(id, actor);
+        AppUser target = checkTarget(id, actor);
         if (repository.disableUser(id, AppUser.Role.USER) != 1) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "利用者の状態が変わりました。再読み込みしてください");
         }
         log.info("利用者を無効化しました: id={}, actor={}", id, actor);
+        recordActorAction(AuditAction.USER_DISABLE, actor, target);
     }
 
     /**
@@ -50,18 +54,38 @@ public class AppUserManagementService {
      */
     @Transactional
     public void delete(Long id, String actor) {
-        checkTarget(id, actor);
+        AppUser target = checkTarget(id, actor);
         if (repository.deleteUser(id, AppUser.Role.USER) != 1) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "利用者の状態が変わりました。再読み込みしてください");
         }
         log.info("利用者を削除しました: id={}, actor={}", id, actor);
+        recordActorAction(AuditAction.USER_DELETE, actor, target);
     }
 
-    private void checkTarget(Long id, String actor) {
+    /**
+     * @param id     対象ID
+     * @param actor  操作者の利用者名
+     * @return 対象の利用者（呼び出し側で再度読み直さずに済むよう返す）
+     */
+    private AppUser checkTarget(Long id, String actor) {
         AppUser user = repository.findById(id).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "利用者が見つかりません"));
         if (user.getRole() != AppUser.Role.USER || user.getUsername().equals(actor)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "管理者・自分自身は操作できません");
         }
+        return user;
+    }
+
+    /**
+     * 操作者（管理者）の利用者IDを解決して監査ログへ記録する。
+     *
+     * @param action 操作の種別
+     * @param actor  操作者の利用者名
+     * @param target 操作対象の利用者
+     */
+    private void recordActorAction(AuditAction action, String actor, AppUser target) {
+        Long actorId = repository.findByUsername(actor).map(AppUser::getId).orElse(null);
+        auditLogger.record(action, AuditOutcome.SUCCESS, actorId, actor, null,
+                "USER", target.getUsername(), null);
     }
 }

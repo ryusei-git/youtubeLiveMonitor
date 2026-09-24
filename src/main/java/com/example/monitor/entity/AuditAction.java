@@ -39,6 +39,12 @@ public enum AuditAction {
     /** 管理者が利用者を無効化した。 */
     USER_DISABLE,
 
+    /** 管理者が招待リンクを発行した。 */
+    INVITATION_ISSUE,
+
+    /** 管理者が招待リンクを取り消した。 */
+    INVITATION_REVOKE,
+
     /** 権限の無いパスへのアクセスを試みた。試行そのものが不正の証跡になる。 */
     ACCESS_DENIED,
 
