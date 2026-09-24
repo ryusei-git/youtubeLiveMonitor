@@ -3,6 +3,8 @@ package com.example.monitor.service;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,6 +21,16 @@ public class DefaultProcessLauncher implements ProcessLauncher {
     public Process launch(List<String> command) throws IOException {
         return new ProcessBuilder(command)
                 .redirectErrorStream(true)
+                .start();
+    }
+
+    @Override
+    public Process launch(List<String> command, Path outputFile) throws IOException {
+        // 追記先のファイルは ProcessBuilder が作るが、親ディレクトリまでは作らない
+        Files.createDirectories(outputFile.toAbsolutePath().getParent());
+        return new ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(outputFile.toFile()))
                 .start();
     }
 

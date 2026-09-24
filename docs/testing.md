@@ -37,13 +37,13 @@
 - **CLI の Picocli 実行フロー全体**（`CliRunnerTest`）: Spring コンテキストを使わず、
   各コマンドをモックサービスで手組みした `CommandLine.IFactory` を渡すことで、
   実際の `new CommandLine(...)` によるサブコマンド解決・終了コード伝播まで検証している
-- **`StreamRecorder.startRecording()` が起動する仮想スレッド**: 録画完了待ち（`awaitCompletion`）は
-  別の仮想スレッドで非同期に実行されるため、そのスレッドが `process.getInputStream()` を
-  消費するタイミングはテストの実行順序と無関係。厳密スタブ（Mockito の strict stubs）のまま
+- **起動したプロセスの出力を別の仮想スレッドで読む処理**: 完了待ちは別の仮想スレッドで非同期に
+  実行されるため、そのスレッドが `process.getInputStream()` を消費するタイミングはテストの
+  実行順序と無関係。厳密スタブ（Mockito の strict stubs）のまま
   `when(mockProcess.getInputStream())...` すると、テストスレッドの完了判定に間に合わず
   `UnnecessaryStubbingException` になることがある（実際に発生した）。この呼び出しの
   消費タイミングを検証しないテストでは `lenient().when(...)` を使う
-  （`StreamRecorderTest` の `StartRecording` ネストクラス参照）
+  （`VideoDownloadServiceTest` 参照。`StreamRecorder` は #152 で出力をファイルへ向けたため、もう読まない）
 - **モックを組み立てるヘルパーを `when(...)` の引数の中で呼ばない**（実際に発生した）:
   `when(launcher.launch(any())).thenReturn(mockProcess("5432.1", 0))` のように、
   内部で `when(...)` を使うヘルパーを外側の `when(...)` の引数として直接書くと、

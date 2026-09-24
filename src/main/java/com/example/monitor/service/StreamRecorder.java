@@ -12,10 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -34,14 +31,20 @@ import java.util.Optional;
  * アプリのソースコード自体は 100% Java のまま。
  *
  * <h2>プロセスの生存期間</h2>
- * 録画は配信時間ぶん（数時間に及ぶこともある）ブロッキングするため、仮想スレッドで
- * 出力の読み取りと終了待ちを行う。アプリを再起動しても yt-dlp プロセス自体は
- * 独立した OS プロセスとして動き続ける（{@code bin/service.sh stop} で JVM を止めても
- * 子プロセスの yt-dlp までは止めない設計）。ただしアプリ再起動後は
- * {@link ActiveVideoJobs} の予約が失われるため、{@link #isRecording(String)} は
- * 実際には録画中のプロセスについても {@code false} を返すようになる
- * （録画中に再起動すると、その録画は {@link com.example.monitor.entity.Recording.RecordingStatus#RECORDING}
- * のまま完了・失敗の記録が更新されなくなる）。
+ * 録画は配信時間ぶん（数時間に及ぶこともある）ブロッキングするため、仮想スレッドで終了を待つ。
+ * yt-dlp の出力は JVM へのパイプではなく {@code logs/yt-dlp/<動画ID>.log} へ直接書かせている
+ * （{@link ProcessLauncher#launch(List, Path)}）。そのため {@code bin/service.sh restart} などで
+ * JVM を止めても、yt-dlp は独立した OS プロセスとして配信の最後まで録り、映像と音声の結合まで終える。
+ *
+ * <p><b>パイプにしていたときは、再起動で録画が壊れた（実際に発生した）。</b>JVM が止まると
+ * パイプの読み手がいなくなり、yt-dlp は次に出力した時点で BrokenPipeError になる。
+ * {@code --live-from-start} の映像側のダウンロードとメインの処理がそこで終わり
+ * （音声側のスレッドだけが取り続けた）、映像は再起動の直後で止まり、最後の結合も行われなかった。
+ *
+ * <p>再起動すると {@link ActiveVideoJobs} の予約と完了を待つ仮想スレッドは失われ
+ * （{@link #isRecording(String)} は録画中のプロセスについても {@code false} を返すようになる）、
+ * 録画履歴の完了・失敗を記録する者がいなくなる。これは {@link RecordingReconciler} が
+ * 完成ファイルの有無で補正する。
  *
  * <h2>出力形式を mp4 に固定する理由</h2>
  * {@code --merge-output-format mp4} を指定し、映像・音声のコンテナを常に mp4 に揃えている。
@@ -70,6 +73,12 @@ public class StreamRecorder {
 
     /** Logback の SiftingAppender がログの振り分け先を決めるために参照する MDC のキー。 */
     private static final String MDC_CHANNEL_ID_KEY = "channelId";
+
+    /**
+     * yt-dlp の出力の書き込み先。ほかのログ（{@code logback-spring.xml} の {@code logs/channels/}）と
+     * 同じ場所に置く。録画フォルダの下に置くと、録画ファイルの走査・削除・孤立ファイルの判定に混ざるため。
+     */
+    private static final Path YT_DLP_LOG_DIRECTORY = Path.of("logs", "yt-dlp");
 
     private final MonitorProperties monitorProperties;
     private final ProcessLauncher processLauncher;
@@ -147,9 +156,9 @@ public class StreamRecorder {
 
             Process process;
             try {
-                process = processLauncher.launch(command);
+                process = processLauncher.launch(command, ytDlpLogFile(videoId));
             } catch (IOException e) {
-                log.error("録画プロセスの起動に失敗しました（yt-dlpがインストールされていない可能性があります）: "
+                log.error("録画プロセスの起動に失敗しました（yt-dlp が無いか、出力先のログファイルを作れない可能性があります）: "
                         + "channel={}, video={}", channel.getChannelName(), videoId, e);
                 return false;
             }
@@ -211,6 +220,10 @@ public class StreamRecorder {
      * チャンネルでは配信自体は誰でも見られるのに約 1 秒で失敗する（実際に発生した）。
      * そのときに「今の時点から」録り直すためのコマンドを作るのに使う（{@link #awaitCompletion} 参照）。
      *
+     * <p><b>{@code --no-progress} を付ける理由。</b>進捗行は出力のほとんどを占める（チャンネルログへ
+     * 流していたときは 72,041 行中 71,647 行、1 日 10〜25MB）。ローテーションの無い録画ごとの
+     * ログファイルへそのまま流すと、1 本で数十 MB になるため。
+     *
      * @param watchUrl        録画対象の視聴 URL
      * @param videoId         録画対象の動画 ID
      * @param outputDirectory 保存先ディレクトリ
@@ -227,6 +240,7 @@ public class StreamRecorder {
             command.add("--live-from-start");
         }
         command.add("--no-part");
+        command.add("--no-progress");
         command.add("--merge-output-format");
         command.add("mp4");
         command.add("-f");
@@ -235,6 +249,17 @@ public class StreamRecorder {
         command.add(outputTemplate);
         command.add(watchUrl);
         return command;
+    }
+
+    /**
+     * yt-dlp の出力を書き込むファイル。録り直し（{@link #awaitCompletion} の {@code fallbackCommand}）も
+     * 同じファイルに追記し、1 本の録画の経緯を 1 か所で追えるようにする。
+     *
+     * @param videoId 録画対象の動画 ID
+     * @return 出力の書き込み先
+     */
+    private static Path ytDlpLogFile(String videoId) {
+        return YT_DLP_LOG_DIRECTORY.resolve(videoId + ".log");
     }
 
     /**
@@ -279,7 +304,7 @@ public class StreamRecorder {
                 log.warn("最初からの録画に失敗したため、今の時点から録画し直します: channel={}, video={}, exitCode={}",
                         channel.getChannelName(), videoId, exitCode);
                 try {
-                    Process retry = processLauncher.launch(fallbackCommand);
+                    Process retry = processLauncher.launch(fallbackCommand, ytDlpLogFile(videoId));
                     resumedMidway = true;
                     exitCode = awaitExit(retry, videoId);
                     salvage = recordingSalvager.ensurePlayable(outputFile);
@@ -302,23 +327,15 @@ public class StreamRecorder {
     }
 
     /**
-     * 録画プロセスの出力を読み切り、終了を待つ。
+     * 録画プロセスの終了を待つ。
+     *
+     * <p>出力はファイルへ向けているため（クラスの JavaDoc「プロセスの生存期間」参照）、ここでは読まない。
      *
      * @param process 起動済みの録画プロセス
      * @param videoId 録画対象の動画 ID（ログ用）
      * @return {@code yt-dlp} の終了コード。待機が中断された場合は {@code null}（割り込み状態は立て直す）
      */
     private Integer awaitExit(Process process, String videoId) {
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                log.debug("[yt-dlp] {}", line);
-            }
-        } catch (IOException e) {
-            log.warn("録画プロセスの出力読み取り中にエラーが発生しました: video={}", videoId, e);
-        }
-
         try {
             return process.waitFor();
         } catch (InterruptedException e) {
