@@ -5,6 +5,7 @@ import com.example.monitor.dto.ChannelSearchResult;
 import com.example.monitor.dto.MonitoredChannelResponse;
 import com.example.monitor.dto.RecordTitleFilterRequest;
 import com.example.monitor.dto.RecordToggleRequest;
+import com.example.monitor.dto.UpcomingStreamResponse;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.service.MonitoredChannelService;
 import com.example.monitor.service.YouTubeApiClient;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -47,6 +49,24 @@ public class MonitoredChannelController {
     public List<MonitoredChannelResponse> listChannels() {
         return monitoredChannelService.findAll().stream()
                 .map(MonitoredChannelResponse::from)
+                .toList();
+    }
+
+    /**
+     * 開始予定時刻の早い順に配信予定の一覧を返す。
+     *
+     * <p>予定のないチャンネルは含めず、開始予定時刻を取得できなかった予定は末尾に置く。
+     * 時刻の分かる予定を先に見せ、時刻が {@code null} の場合も並べ替えが失敗しないようにするため。
+     *
+     * @return 配信予定の一覧
+     */
+    @GetMapping("/upcoming")
+    public List<UpcomingStreamResponse> listUpcomingStreams() {
+        return monitoredChannelService.findAll().stream()
+                .filter(channel -> channel.getUpcomingVideoId() != null)
+                .map(UpcomingStreamResponse::from)
+                .sorted(Comparator.comparing(UpcomingStreamResponse::scheduledStartTime,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
                 .toList();
     }
 
