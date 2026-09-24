@@ -146,11 +146,46 @@ public class RecordingHistoryService {
     public Page<Recording> search(String username, Long channelId, String keyword, RecordingStatus status,
                                   LocalDate from, LocalDate to, String genre,
                                   Boolean watched, boolean favoriteOnly, Pageable pageable) {
+        return search(username, false, channelId, keyword, status, from, to, genre,
+                watched, favoriteOnly, false, pageable);
+    }
+
+    /**
+     * 録画履歴を条件で絞り込んで取得する。購読の限定と再生可能の絞り込みも指定できる版。
+     *
+     * <p>利用者の画面（{@code /api/my/recordings}）は購読しているチャンネルに限って検索する。
+     * 管理者と同じクエリを通すことで、絞り込み条件の食い違いを作らない。
+     *
+     * <p><b>購読に限るとき、利用者が見つからなければ空にする。</b>{@code userId} が {@code null} だと
+     * 購読の条件が「誰の購読か」を失うため、何も返さないのが安全側になる。
+     *
+     * @param username       印を見る利用者（購読に限るときは購読の持ち主）のログイン名
+     * @param subscribedOnly 購読しているチャンネルの録画だけに絞るか
+     * @param channelId      監視対象チャンネルの主キー。{@code null} なら絞り込まない
+     * @param keyword        検索キーワード。{@code null} や空文字なら絞り込まない
+     * @param status         絞り込む状態。{@code null} なら絞り込まない
+     * @param from           開始日（この日を含む）。{@code null} なら絞り込まない
+     * @param to             終了日（この日を含む）。{@code null} なら絞り込まない
+     * @param genre          ジャンル（完全一致）。{@code null} や空文字なら絞り込まない
+     * @param watched        {@code true} なら視聴済みだけ、{@code false} なら未視聴だけ。{@code null} なら絞り込まない
+     * @param favoriteOnly   お気に入りだけに絞るか
+     * @param playableOnly   再生できる録画（完了・途中まで）だけに絞るか
+     * @param pageable       ページ指定と並び順
+     * @return 条件に一致する録画履歴
+     */
+    public Page<Recording> search(String username, boolean subscribedOnly, Long channelId, String keyword,
+                                  RecordingStatus status, LocalDate from, LocalDate to, String genre,
+                                  Boolean watched, boolean favoriteOnly, boolean playableOnly,
+                                  Pageable pageable) {
+        Long userId = findUserId(username);
+        if (subscribedOnly && userId == null) {
+            return Page.empty(pageable);
+        }
         // 空文字はクエリ側で「条件なし」と区別できないため、ここで null に寄せる
-        return recordingRepository.search(findUserId(username), channelId, blankToNull(keyword), status,
+        return recordingRepository.search(userId, subscribedOnly, channelId, blankToNull(keyword), status,
                 from == null ? null : from.atStartOfDay(),
                 to == null ? null : to.plusDays(1).atStartOfDay(),
-                blankToNull(genre), watched, favoriteOnly, pageable);
+                blankToNull(genre), watched, favoriteOnly, playableOnly, pageable);
     }
 
     /**
@@ -188,7 +223,19 @@ public class RecordingHistoryService {
      * @return ジャンルと件数の一覧
      */
     public List<RecordingGenreCountResponse> countByGenre() {
-        return recordingRepository.countByGenre();
+        return recordingRepository.countByGenre(null);
+    }
+
+    /**
+     * 利用者が購読しているチャンネルの録画に限って、ジャンルごとの件数を数える。
+     *
+     * @param username 購読の持ち主のログイン名
+     * @return ジャンルと件数の一覧。利用者が見つからなければ空
+     */
+    public List<RecordingGenreCountResponse> countSubscribedByGenre(String username) {
+        Long userId = findUserId(username);
+        // null を渡すと全録画を数えてしまうため、利用者が特定できなければ何も返さない
+        return userId == null ? List.of() : recordingRepository.countByGenre(userId);
     }
 
     /**

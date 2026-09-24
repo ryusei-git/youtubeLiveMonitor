@@ -1,13 +1,14 @@
 package com.example.monitor.service;
 
-import com.example.monitor.dto.RecordingResponse;
 import com.example.monitor.dto.SubscribedChannelResponse;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
+import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.UserSubscription;
 import com.example.monitor.exception.ChannelAlreadyRegisteredException;
+import com.example.monitor.exception.RecordingNotFoundException;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
@@ -16,8 +17,6 @@ import com.example.monitor.repository.UserSubscriptionRepository;
 import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -157,32 +156,25 @@ public class UserSubscriptionService {
     }
 
     /**
-     * ログイン中の利用者が購読しているチャンネルの録画を返す。
+     * ログイン中の利用者が購読しているチャンネルの録画を 1 件取得する。
      *
-     * <p><b>購読していないチャンネルの録画は返さない。</b>録画ファイルは配信者の映像そのものなので、
-     * 見せる範囲は本人が購読しているものに限る。チャンネルに紐づかないダウンロード
-     * （管理者が URL を貼って取得したもの）も対象外。
+     * <p><b>購読していない録画は「存在しない」と同じ扱い（404）にする。</b>403 にすると、
+     * ID を順に試すだけで購読外の録画がどれだけあるかが分かってしまうため。
+     * チャンネルに紐づかない録画（管理者が URL を貼って取得したもの）も同じく見せない。
      *
-     * @param pageable ページ指定
-     * @param keyword タイトルの検索語
-     * @param channelId 購読チャンネルの主キー
-     * @param playableOnly 再生可能な録画のみを表示するか
-     * @return 録画の一覧
+     * <p>再生画面での 1 件取得と、視聴済み・お気に入りの印を付ける前の確認に使う。
+     *
+     * @param recordingId 録画の主キー
+     * @return 該当する録画
+     * @throws RecordingNotFoundException 録画が無いか、購読していないチャンネルの録画の場合
      */
     @Transactional(readOnly = true)
-    public Page<RecordingResponse> listMyRecordings(Pageable pageable, String keyword,
-                                                     Long channelId, boolean playableOnly) {
-        List<MonitoredChannel> channels = userSubscriptionRepository
-                .findByUserOrderBySubscribedAtDesc(currentUser()).stream()
-                .map(UserSubscription::getChannel)
-                .toList();
-
-        if (channels.isEmpty()) {
-            return Page.empty(pageable);
-        }
-        String normalizedKeyword = keyword == null || keyword.isBlank() ? null : keyword.trim();
-        return recordingRepository.searchSubscribed(channels, channelId, normalizedKeyword, playableOnly, pageable)
-                .map(RecordingResponse::from);
+    public Recording findMyRecording(Long recordingId) {
+        AppUser user = currentUser();
+        return recordingRepository.findById(recordingId)
+                .filter(recording -> recording.getChannel() != null
+                        && userSubscriptionRepository.existsByUserAndChannel(user, recording.getChannel()))
+                .orElseThrow(() -> new RecordingNotFoundException(recordingId));
     }
 
     /**
