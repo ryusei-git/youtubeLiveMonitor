@@ -18,6 +18,14 @@ spring:
     driver-class-name: org.h2.Driver
     username: sa
     password:
+    # 接続プール（Hikari）の既定は、使っていなくても常に 10 本を開いたままにする
+    # （minimum-idle の既定が maximum-pool-size と同じ）。個人用の規模では、同時に DB を使うのは
+    # 画面を開いたときに並ぶ API（1 本は数十ミリ秒）くらいで 10 本は要らない（#184）。
+    # minimum-idle: 1 で、10 分使わなかった接続を 1 本まで閉じさせる（Hikari の idle-timeout の既定）。
+    # 同じ JVM の中の H2 への接続はすぐ作れるので、足りないときに作り足しても画面は待たされない。
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
 
   jpa:
     hibernate:

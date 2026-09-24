@@ -1,3 +1,14 @@
 spring:
   main:
     banner-mode: off
+    # コマンドが使う Bean だけを作る。既定では、コマンドと関係の無い通知・録画・画面の API の
+    # Bean まで作っていた（#184）。なお picocli は実行しないサブコマンドも作るため、--help でも
+    # チャンネルの管理（と DB への接続）までは作られる。
+    lazy-initialization: true
+
+  datasource:
+    hikari:
+      # サービスの稼働中は、CLI の接続は AUTO_SERVER 経由で稼働中のサービスの H2 のセッションになる。
+      # 既定の 10 本だと、コマンド 1 回のたびに稼働中の H2 へ 10 本つないでいた（#184）。
+      # どのコマンドも同時に使うのは 1 本（実測）なので、2 本あれば足りる。
+      maximum-pool-size: 2
