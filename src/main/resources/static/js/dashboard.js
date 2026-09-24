@@ -199,6 +199,8 @@ async function loadRecordingFailures() {
  * サービスを構成するファイル（録画・ログ・アプリ本体・データベース）の容量を表にする。
  *
  * <p>録画だけのディスク使用量では、ログや DB の肥大化に気づけないため別に出している。
+ * ディレクトリの走査は録画の量に比例して重いので、毎分の自動更新（loadDashboard）には含めず、
+ * 開いたときと利用者が求めたとき（表示を更新・今すぐチェック）だけ読む（#190）。
  */
 async function loadServiceStorage() {
     const box = el("serviceStorage");
@@ -229,6 +231,7 @@ async function loadServiceStorage() {
  * @typedef {{pid: number, name: string, cpuPercent: number|null, memoryBytes: number}} ResourceProcess
  * @typedef {ResourceProcess & {label: string, children: ResourceProcess[]}} RecorderProcess
  * @typedef {object} ResourceSnapshot
+ * @property {string} measuredAt
  * @property {{cpuPercent: number|null, cores: number, loadAverage1m: number,
  *   memoryTotalBytes: number, memoryUsedBytes: number, memoryAvailableBytes: number,
  *   swapTotalBytes: number, swapUsedBytes: number, diskPath: string, diskTotalBytes: number, diskFreeBytes: number,
@@ -396,7 +399,9 @@ async function loadResources() {
             apiGet("/api/dashboard/resources/history"),
         ]);
         const warnings = now.warnings.map((w) => `<p class="error resourceWarning">${escapeHtml(w.message)}</p>`).join("");
-        box.innerHTML = warnings
+        // サーバーは 1 分ごとの記録の値を返す（最大 1 分古い）ので、いつの値かを添える
+        box.innerHTML = `<p class="muted">${escapeHtml(formatDateTimeSimple(now.measuredAt))} 時点の値（1 分ごとに更新）</p>`
+            + warnings
             + renderSystemCards(now.system, new Set(now.warnings.map((w) => w.key)))
             + renderServiceProcesses(now.service)
             + renderResourceHistory(history);
@@ -529,7 +534,6 @@ async function loadDashboard() {
     const request = ++dashboardRequest;
     // 下の Promise.all に入れると、片方の失敗で KPI やグラフまで更新されなくなるため別に読む
     loadRecordingFailures();
-    loadServiceStorage();
     loadResources();
     try {
         const [data, livePage, upcoming] = await Promise.all([
@@ -568,7 +572,10 @@ async function loadDashboard() {
     }
 }
 
-buttonEl("refreshDashboardBtn").addEventListener("click", loadDashboard);
+buttonEl("refreshDashboardBtn").addEventListener("click", () => {
+    loadDashboard();
+    loadServiceStorage();
+});
 startVisibleRefresh(loadDashboard);
 
 buttonEl("checkNowBtn").addEventListener("click", async () => {
@@ -583,6 +590,7 @@ buttonEl("checkNowBtn").addEventListener("click", async () => {
         result.textContent = `${res.checkedChannels}件をチェックしました`;
         loadDashboard();
         // 巡回中に録画が進んでいる可能性があるため、チェック後は使用量も引き直す
+        loadServiceStorage();
         loadDiskUsage();
     } catch (e) {
         result.textContent = "";
@@ -593,5 +601,6 @@ buttonEl("checkNowBtn").addEventListener("click", async () => {
 });
 
 loadDashboard();
+loadServiceStorage();
 loadDiskUsage();
 loadSettings();
