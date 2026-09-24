@@ -2,6 +2,7 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.RecordingResponse;
 import com.example.monitor.dto.SubscribedChannelResponse;
+import com.example.monitor.dto.UpcomingStreamResponse;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
@@ -21,7 +22,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -58,6 +63,15 @@ public class UserSubscriptionService {
      */
     private static final int MAX_SUBSCRIPTIONS_PER_USER = 50;
 
+    /**
+     * 配信予定として返す範囲（今からどれだけ先の開始予定までか）。
+     *
+     * <p>管理者の配信予定（{@code MonitoredChannelController.listUpcomingStreams()}）と
+     * 同じ値にそろえている。範囲が違うと、同じチャンネルの予定が管理者画面にだけ出る、
+     * といった食い違いが起きるため。
+     */
+    private static final Duration UPCOMING_WINDOW = Duration.ofDays(7);
+
     private final UserSubscriptionRepository userSubscriptionRepository;
     private final AppUserRepository appUserRepository;
     private final MonitoredChannelRepository monitoredChannelRepository;
@@ -72,8 +86,33 @@ public class UserSubscriptionService {
      */
     @Transactional(readOnly = true)
     public List<SubscribedChannelResponse> listMySubscriptions() {
+        // 件数はチャンネルごとに数えず、全チャンネル分を 1 回の問い合わせで数えて引き当てる
+        // （購読数ぶん問い合わせが走るのを避けるため。管理者の一覧と同じやり方）
+        Map<Long, Long> recordingCounts = monitoredChannelService.countPlayableRecordingsByChannel();
         return userSubscriptionRepository.findByUserOrderBySubscribedAtDesc(currentUser()).stream()
-                .map(SubscribedChannelResponse::from)
+                .map(subscription -> SubscribedChannelResponse.from(
+                        subscription, recordingCounts.getOrDefault(subscription.getChannel().getId(), 0L)))
+                .toList();
+    }
+
+    /**
+     * ログイン中の利用者が購読しているチャンネルの配信予定を返す。
+     *
+     * <p>中身・並び・範囲は管理者の配信予定と同じで、<b>対象を購読しているチャンネルに絞る</b>だけ。
+     * 予定は巡回時にチャンネルへ記録済みのものを読むため、外部への問い合わせは発生しない。
+     *
+     * @return 直近 7 日以内に開始予定の配信（開始予定の早い順）
+     */
+    @Transactional(readOnly = true)
+    public List<UpcomingStreamResponse> listMyUpcomingStreams() {
+        LocalDateTime windowEnd = LocalDateTime.now().plus(UPCOMING_WINDOW);
+        return userSubscriptionRepository.findByUserOrderBySubscribedAtDesc(currentUser()).stream()
+                .map(UserSubscription::getChannel)
+                .filter(channel -> channel.getUpcomingVideoId() != null)
+                .filter(channel -> channel.getUpcomingScheduledStartTime() != null
+                        && channel.getUpcomingScheduledStartTime().isBefore(windowEnd))
+                .map(UpcomingStreamResponse::from)
+                .sorted(Comparator.comparing(UpcomingStreamResponse::scheduledStartTime))
                 .toList();
     }
 
