@@ -189,36 +189,36 @@ class RecordingHistoryServiceTest {
         @DisplayName("正常系：キーワードと状態をそのままリポジトリへ渡す")
         void testMethod01() {
             Pageable pageable = PageRequest.of(0, 20);
-            when(recordingRepository.search(1L, "ASMR", RecordingStatus.COMPLETED, null, null, "雑談", pageable))
+            when(recordingRepository.search(null, 1L, "ASMR", RecordingStatus.COMPLETED, null, null, "雑談", null, false, pageable))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            recordingHistoryService.search(1L, "ASMR", RecordingStatus.COMPLETED, null, null, "雑談", pageable);
+            recordingHistoryService.search(null, 1L, "ASMR", RecordingStatus.COMPLETED, null, null, "雑談", null, false, pageable);
 
-            verify(recordingRepository).search(1L, "ASMR", RecordingStatus.COMPLETED, null, null, "雑談", pageable);
+            verify(recordingRepository).search(null, 1L, "ASMR", RecordingStatus.COMPLETED, null, null, "雑談", null, false, pageable);
         }
 
         @Test
         @DisplayName("正常系：空白だけのキーワードは条件なし（null）として扱う")
         void testMethod02() {
             Pageable pageable = PageRequest.of(0, 20);
-            when(recordingRepository.search(null, null, null, null, null, null, pageable))
+            when(recordingRepository.search(null, null, null, null, null, null, null, null, false, pageable))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            recordingHistoryService.search(null, "   ", null, null, null, "  ", pageable);
+            recordingHistoryService.search(null, null, "   ", null, null, null, "  ", null, false, pageable);
 
-            verify(recordingRepository).search(null, null, null, null, null, null, pageable);
+            verify(recordingRepository).search(null, null, null, null, null, null, null, null, false, pageable);
         }
 
         @Test
         @DisplayName("正常系：キーワードの前後の空白は取り除いて渡す")
         void testMethod03() {
             Pageable pageable = PageRequest.of(0, 20);
-            when(recordingRepository.search(null, "ASMR", null, null, null, null, pageable))
+            when(recordingRepository.search(null, null, "ASMR", null, null, null, null, null, false, pageable))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            recordingHistoryService.search(null, "  ASMR  ", null, null, null, null, pageable);
+            recordingHistoryService.search(null, null, "  ASMR  ", null, null, null, null, null, false, pageable);
 
-            verify(recordingRepository).search(null, "ASMR", null, null, null, null, pageable);
+            verify(recordingRepository).search(null, null, "ASMR", null, null, null, null, null, false, pageable);
         }
 
         @Test
@@ -227,13 +227,13 @@ class RecordingHistoryServiceTest {
             Pageable pageable = PageRequest.of(0, 20);
             LocalDateTime from = LocalDateTime.of(2026, 9, 1, 0, 0);
             LocalDateTime to = LocalDateTime.of(2026, 10, 1, 0, 0);
-            when(recordingRepository.search(null, null, null, from, to, null, pageable))
+            when(recordingRepository.search(null, null, null, null, from, to, null, null, false, pageable))
                     .thenReturn(new PageImpl<>(List.of()));
 
-            recordingHistoryService.search(null, null, null,
-                    LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30), null, pageable);
+            recordingHistoryService.search(null, null, null, null,
+                    LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30), null, null, false, pageable);
 
-            verify(recordingRepository).search(null, null, null, from, to, null, pageable);
+            verify(recordingRepository).search(null, null, null, null, from, to, null, null, false, pageable);
         }
     }
 

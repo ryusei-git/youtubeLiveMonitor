@@ -7,6 +7,7 @@ import com.example.monitor.dto.RecordingGenreCountResponse;
 import com.example.monitor.dto.RecordingResponse;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
+import com.example.monitor.entity.RecordingMark;
 import com.example.monitor.service.RecordingHistoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -14,6 +15,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 録画履歴を参照する REST API。
@@ -54,10 +57,13 @@ public class RecordingController {
      * @param from      開始日（{@code yyyy-MM-dd}、この日を含む）
      * @param to        終了日（{@code yyyy-MM-dd}、この日を含む）
      * @param genre     ジャンル（完全一致）
+     * @param watched   {@code unwatched}（未視聴だけ） / {@code watched}（視聴済みだけ）。省略時は絞らない
+     * @param favorite  {@code true} ならお気に入りだけ
      * @param page      ページ番号（0 始まり）
      * @param size      1 ページあたりの件数（1〜{@value #MAX_PAGE_SIZE}）
+     * @param authentication ログイン中の利用者。視聴済み・お気に入りはこの利用者の印だけを見る
      * @return 条件に一致する録画履歴
-     * @throws IllegalArgumentException 並び順・期間・ページ指定が不正な場合（400）
+     * @throws IllegalArgumentException 並び順・期間・視聴状態・ページ指定が不正な場合（400）
      */
     @GetMapping
     public PageResponse<RecordingResponse> getRecordings(
@@ -68,8 +74,11 @@ public class RecordingController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String genre,
+            @RequestParam(required = false) String watched,
+            @RequestParam(defaultValue = "false") boolean favorite,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size,
+            Authentication authentication) {
 
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
             throw new IllegalArgumentException("page は 0 以上、size は 1〜" + MAX_PAGE_SIZE + " で指定してください");
@@ -78,12 +87,39 @@ public class RecordingController {
             throw new IllegalArgumentException("期間の開始は終了以前にしてください");
         }
         PageRequest pageRequest = PageRequest.of(page, size, toSort(sort));
+        Boolean watchedFilter = toWatchedFilter(watched);
+        String username = authentication.getName();
 
         Page<Recording> recordings = recordingHistoryService.search(
-                channelId, keyword, status, from, to, genre, pageRequest);
+                username, channelId, keyword, status, from, to, genre, watchedFilter, favorite, pageRequest);
+        // 印はページ分をまとめて 1 回で引く（行ごとに引くと件数ぶんクエリが飛ぶ）
+        Map<Long, RecordingMark> marks = recordingHistoryService.findMarks(
+                username, recordings.map(Recording::getId).getContent());
 
         // Page をそのまま返すと JSON 構造が Spring の実装依存になる（PageResponse の JavaDoc 参照）
-        return PageResponse.from(recordings.map(RecordingResponse::from));
+        return PageResponse.from(recordings.map(r -> RecordingResponse.from(r, marks.get(r.getId()))));
+    }
+
+    /**
+     * 視聴状態の指定を検索条件に変える。
+     *
+     * <p>知らない値は無視せず 400 にする。並び順と同じく、黙って「絞らない」にすると
+     * URL と表示が食い違うため。
+     *
+     * @param watched {@code unwatched} / {@code watched} / {@code null}
+     * @return 視聴済みだけなら {@code true}、未視聴だけなら {@code false}、絞らないなら {@code null}
+     * @throws IllegalArgumentException 知らない値の場合（400）
+     */
+    private static Boolean toWatchedFilter(String watched) {
+        if (watched == null) {
+            return null;
+        }
+        return switch (watched) {
+            case "watched" -> true;
+            case "unwatched" -> false;
+            default -> throw new IllegalArgumentException(
+                    "watched は watched / unwatched のいずれかで指定してください: " + watched);
+        };
     }
 
     /**
@@ -123,13 +159,16 @@ public class RecordingController {
     /**
      * 録画履歴を 1 件取得する。再生画面（{@code player.html}）が対象の情報を得るために使う。
      *
-     * @param id 録画履歴の主キー
+     * @param id             録画履歴の主キー
+     * @param authentication ログイン中の利用者。視聴済み・お気に入りはこの利用者の印を返す
      * @return 該当する録画履歴
      * @throws com.example.monitor.exception.RecordingNotFoundException 指定 ID が存在しない場合（404）
      */
     @GetMapping("/{id}")
-    public RecordingResponse getRecording(@PathVariable Long id) {
-        return RecordingResponse.from(recordingHistoryService.findById(id));
+    public RecordingResponse getRecording(@PathVariable Long id, Authentication authentication) {
+        Recording recording = recordingHistoryService.findById(id);
+        RecordingMark mark = recordingHistoryService.findMarks(authentication.getName(), List.of(id)).get(id);
+        return RecordingResponse.from(recording, mark);
     }
 
     /**

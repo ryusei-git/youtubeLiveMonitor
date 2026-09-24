@@ -10,9 +10,11 @@ import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
+import com.example.monitor.entity.RecordingMark;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
 import com.example.monitor.repository.AppUserRepository;
+import com.example.monitor.repository.RecordingMarkRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import com.example.monitor.util.RequestContext;
@@ -25,7 +27,11 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 録画履歴の記録と照会を担当する。
@@ -42,6 +48,7 @@ public class RecordingHistoryService {
     private final RecordingRepository recordingRepository;
     private final RecordingFileService recordingFileService;
     private final AppUserRepository appUserRepository;
+    private final RecordingMarkRepository recordingMarkRepository;
     private final AuditLogger auditLogger;
 
     /**
@@ -120,6 +127,10 @@ public class RecordingHistoryService {
      * <p>期間は日付で受け、{@code to} の翌日 0 時より前までを含める。利用者が
      * 「9/1〜9/30」と指定したとき、9/30 の配信も入ってほしいため。
      *
+     * <p>視聴済み・お気に入りは {@code username} の利用者の印だけを見る。印は利用者ごとの
+     * ものなので、他人の印で絞り込まれると一覧の意味が変わってしまうため。
+     *
+     * @param username  印を見る利用者のログイン名
      * @param channelId 監視対象チャンネルの主キー。{@code null} なら絞り込まない
      * @param keyword   検索キーワード（配信タイトル・チャンネル名の部分一致）。
      *                  {@code null} や空文字なら絞り込まない
@@ -127,16 +138,48 @@ public class RecordingHistoryService {
      * @param from      開始日（この日を含む）。{@code null} なら絞り込まない
      * @param to        終了日（この日を含む）。{@code null} なら絞り込まない
      * @param genre     ジャンル（完全一致）。{@code null} や空文字なら絞り込まない
+     * @param watched   {@code true} なら視聴済みだけ、{@code false} なら未視聴だけ。{@code null} なら絞り込まない
+     * @param favoriteOnly お気に入りだけに絞るか
      * @param pageable  ページ指定と並び順
      * @return 条件に一致する録画履歴
      */
-    public Page<Recording> search(Long channelId, String keyword, RecordingStatus status,
-                                  LocalDate from, LocalDate to, String genre, Pageable pageable) {
+    public Page<Recording> search(String username, Long channelId, String keyword, RecordingStatus status,
+                                  LocalDate from, LocalDate to, String genre,
+                                  Boolean watched, boolean favoriteOnly, Pageable pageable) {
         // 空文字はクエリ側で「条件なし」と区別できないため、ここで null に寄せる
-        return recordingRepository.search(channelId, blankToNull(keyword), status,
+        return recordingRepository.search(findUserId(username), channelId, blankToNull(keyword), status,
                 from == null ? null : from.atStartOfDay(),
                 to == null ? null : to.plusDays(1).atStartOfDay(),
-                blankToNull(genre), pageable);
+                blankToNull(genre), watched, favoriteOnly, pageable);
+    }
+
+    /**
+     * 利用者が録画群に付けた印を、録画の主キーをキーにしてまとめて取得する。
+     *
+     * <p>一覧の 1 ページ分を 1 回のクエリで引くためのもの（行ごとに引くと件数ぶんクエリが飛ぶ）。
+     *
+     * @param username     印を見る利用者のログイン名
+     * @param recordingIds 録画の主キーの一覧
+     * @return 録画の主キー → 印。印の無い録画はキーに含まない
+     */
+    public Map<Long, RecordingMark> findMarks(String username, Collection<Long> recordingIds) {
+        Long userId = findUserId(username);
+        if (userId == null || recordingIds.isEmpty()) {
+            return Map.of();
+        }
+        return recordingMarkRepository.findByUser_IdAndRecording_IdIn(userId, recordingIds).stream()
+                .collect(Collectors.toMap(mark -> mark.getRecording().getId(), Function.identity()));
+    }
+
+    /**
+     * ログイン名から利用者の主キーを引く。見つからなければ {@code null}（印が無いものとして扱われる）。
+     *
+     * @param username ログイン名
+     * @return 利用者の主キー
+     */
+    private Long findUserId(String username) {
+        return username == null ? null
+                : appUserRepository.findByUsername(username).map(AppUser::getId).orElse(null);
     }
 
     /**
