@@ -586,13 +586,17 @@ function thumbnailContent(recording) {
  * @param {((recording: Recording, kind: RecordingMarkKind, button: HTMLButtonElement) => void)|null} onToggleMark
  *        視聴済み・お気に入りのボタンを押したときの処理。渡したときだけボタンを出す
  *        （印を扱うのはアーカイブ一覧だけで、利用者向けの画面や再生画面の関連一覧の見た目は変えないため）。
+ * @param {(recording: Recording) => string} [playerHref] サムネイルと題名のリンク先。省略すると管理者の再生画面。
+ *        利用者の 1 枚のページ（my.html）は {@code /my/watch/<ID>} を渡す。{@code /player.html} へ移ると
+ *        ページが読み込み直され、ミニプレーヤーで再生中の動画が止まるため
  * @returns {HTMLElement} カード要素
  */
-function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null, onToggleMark = null) {
+function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null, onToggleMark = null,
+                        playerHref = (r) => `/player.html?id=${r.id}`) {
     const card = document.createElement("div");
     card.className = "videoCard";
 
-    const href = `/player.html?id=${recording.id}`;
+    const href = escapeHtml(playerHref(recording));
     const duration = recording.durationSeconds
         ? `<span class="duration">${formatDuration(recording.durationSeconds)}</span>`
         : "";
@@ -724,6 +728,10 @@ function recordingMarkButton(recording, kind, onToggle) {
  * Chrome などはこの操作を登録したページでしか自動の小窓を使わず、登録しないと、別のタブを見ながら
  * 再生を続けるには先に「小窓で再生」を押しておく必要がある。
  *
+ * <p>同じ動画要素に何度呼んでもよく、2 回目以降は題名などの表示だけを差し替える。利用者の 1 枚のページ
+ * （my.html）は 1 つの動画要素で録画を切り替え、そのたびに呼ぶ。毎回イベントを付けると、
+ * 切り替えた回数だけ同じ処理が重なって走る。
+ *
  * @param {HTMLVideoElement} video 操作の対象
  * @param {{title: string, artist: string, artworkUrl: string|null}} metadata
  *        題名（配信タイトル）・アーティスト（チャンネル名）・画像の URL（サムネイルが無ければ null）
@@ -736,6 +744,8 @@ function bindMediaSession(video, metadata) {
         artist: metadata.artist,
         artwork: metadata.artworkUrl ? [{ src: metadata.artworkUrl }] : [],
     });
+    if (video.dataset.mediaSessionBound) return;
+    video.dataset.mediaSessionBound = "1";
 
     /** @param {number} seconds 進める秒数（負なら戻す）。先頭より前・末尾より後へは行かない */
     const seekBy = (seconds) => {
@@ -1408,6 +1418,8 @@ const studioPages = {
     "my-channels.html": "M4 4h16v16H4z M8 9h8 M8 14h5",
     "my-recordings.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
+    // 利用者の 1 枚のページ（my.html）の録画（/my/archive）
+    "archive": "M4 5h16v14H4z M10 9l5 3-5 3z",
 };
 
 /**
@@ -1466,16 +1478,24 @@ function decorateStudioNavigation() {
 /** 共通の補助要素を一度だけ置く。 */
 function initStudioShell() {
     const current = location.pathname.split("/").pop();
-    // 動画一覧は videos.js が閲覧者を判定してから 1 回だけ描く。
-    // 仮に利用者用を描くと、管理者には一瞬別のメニューが見えてから組み替わるため。
-    if (current !== "videos.html") renderNavigationForViewer(!["my-channels.html", "my-recordings.html"].includes(current || ""));
+    if (/^\/my(\/|$)/.test(location.pathname)) {
+        // 利用者の 1 枚のページ（/my 配下、my.html）は HTML に書いたメニューをそのまま使う。
+        // 下の分岐はファイル名で利用者の画面を見分けるため、/my/archive などは管理者のメニューに描き直されてしまう
+        decorateStudioNavigation();
+        document.querySelector(".globalnav")?.classList.add("navReady");
+    } else if (current !== "videos.html") {
+        // 動画一覧は videos.js が閲覧者を判定してから 1 回だけ描く。
+        // 仮に利用者用を描くと、管理者には一瞬別のメニューが見えてから組み替わるため。
+        renderNavigationForViewer(!["my-channels.html", "my-recordings.html"].includes(current || ""));
+    }
     const main = document.querySelector("main");
     if (main) {
-        main.id = "mainContent";
+        // my.html は main#view を中身の描き替え先にしているため、付いている ID は変えない
+        if (!main.id) main.id = "mainContent";
         main.setAttribute("tabindex", "-1");
         const skip = document.createElement("a");
         skip.className = "skipLink";
-        skip.href = "#mainContent";
+        skip.href = `#${main.id}`;
         skip.textContent = "本文へ移動";
         document.body.prepend(skip);
     }

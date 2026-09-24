@@ -251,3 +251,34 @@ td .markBtn { margin-right: 0; }
 .lineLegend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; margin-top: 6px; }
 .lineLegend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .lineLegend em { width: 12px; height: 3px; border-radius: 2px; }
+
+/* 利用者画面（my.html）の再生ドック。動画要素は 1 つのまま DOM から外さず、大きさだけをクラスで切り替える
+   （外すと再生が止まり、小窓も閉じるため）。is-full は再生画面で本文の上に、is-mini はほかの画面で画面下に固定する。 */
+:root { --dock-mini-height: 72px; }
+#playerDock.is-full { margin-left: 236px; padding: 32px clamp(20px, 3vw, 48px) 0; }
+#playerDock.is-full .player { margin-bottom: 12px; }
+#playerDock.is-full + main.shell { padding-top: 16px; }
+#playerDock.is-full .dockMiniOnly { display: none; }
+.dockBar { display: flex; align-items: center; gap: 8px; }
+#playerDock.is-mini { position: fixed; left: 236px; right: 0; bottom: 0; z-index: 25; display: flex; align-items: center; gap: 14px; height: var(--dock-mini-height); padding: 8px 20px; background: #fff; border-top: 1px solid var(--border); box-shadow: 0 -6px 18px #23212d10; }
+#playerDock.is-mini .player { width: 100px; height: 56px; max-height: none; margin: 0; border-radius: 6px; flex: none; }
+#playerDock.is-mini .dockBar { flex: 1; min-width: 0; }
+/* 小窓にできないときの案内は 1 行に収まらないので、ミニプレーヤーではトーストだけにする */
+#playerDock.is-mini .pipHint { display: none; }
+.dockTitle { flex: 1; min-width: 0; color: var(--text); font-weight: 650; line-height: 1.4; text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dockTitle:hover { color: var(--link); text-decoration: underline; }
+/* 固定したミニプレーヤーの裏に本文の末尾が隠れないよう、その高さぶん下に余白を取る。トーストもその上に出す */
+body:has(#playerDock.is-mini) { padding-bottom: var(--dock-mini-height); }
+body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height) + 12px); }
+@media (max-width: 1150px) {
+    #playerDock.is-full { padding: 24px 24px 0; }
+}
+@media (max-width: 760px) {
+    :root { --dock-mini-height: 60px; }
+    #playerDock.is-full { margin-left: 0; padding: 24px 16px 0; }
+    #playerDock.is-mini { left: 0; gap: 8px; padding: 6px 10px; }
+    #playerDock.is-mini .player { width: 80px; height: 45px; }
+    .dockTitle { display: block; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
+    #playerDock.is-mini .dockBar { gap: 6px; }
+    #playerDock.is-mini .dockBar button { min-height: 34px; padding: 5px 9px; font-size: 12px; }
+}
