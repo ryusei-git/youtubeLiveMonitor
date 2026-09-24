@@ -196,3 +196,7 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 }
 
 .videoGrid > .emptyState { grid-column: 1 / -1; }
+
+/* 配信予定のチャンネル名の左に丸いアイコンを並べる。読み込み失敗時は背景色の丸だけが残る。 */
+.channelWithIcon { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.channelIcon { width: 24px; height: 24px; border-radius: 50%; flex: 0 0 24px; object-fit: cover; background: var(--border); }

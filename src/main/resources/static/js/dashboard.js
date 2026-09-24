@@ -96,7 +96,7 @@ function splitScheduledStart(iso) {
  *
  * <p>配信中の一覧と分けることで、待機所を配信開始と誤解せず、利用者が次の予定を把握できる。
  *
- * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string, genre?: string|null}>} streams 開始予定の早い順で返された配信予定
+ * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string, genre?: string|null, channelIconUrl?: string|null}>} streams 開始予定の早い順で返された配信予定
  */
 function renderUpcomingStreams(streams) {
     const box = el("upcomingStreams");
@@ -107,12 +107,16 @@ function renderUpcomingStreams(streams) {
     }
     const rows = streams.map(s => {
         const start = splitScheduledStart(s.scheduledStartTime);
+        // 隣にチャンネル名があるため alt は空にし、読み上げで名前が 2 回読まれないようにする
+        const icon = s.channelIconUrl
+            ? `<img class="channelIcon" src="${escapeHtml(s.channelIconUrl)}" alt="" width="24" height="24" loading="lazy" referrerpolicy="no-referrer">`
+            : "";
         return `
         <tr>
             <td>${escapeHtml(start.date)}</td>
             <td>${escapeHtml(start.weekday)}</td>
             <td>${escapeHtml(start.time)}</td>
-            <td>${escapeHtml(s.channelName)}</td>
+            <td><span class="channelWithIcon">${icon}${escapeHtml(s.channelName)}</span></td>
             <td>${escapeHtml(s.genre || "未設定")}</td>
             <td>${externalLink(s.title ?? "（タイトル不明）", s.watchUrl)}</td>
         </tr>`;
