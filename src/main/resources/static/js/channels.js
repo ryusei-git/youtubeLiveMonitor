@@ -88,7 +88,7 @@ async function loadChannels() {
             const tr = document.createElement("tr");
             tr.innerHTML = `
                 <td data-sort-value="${index + 1}">${index + 1}</td>
-                <td class="revealable" title="クリックでチャンネルIDを表示">${escapeHtml(ch.platformLabel)}</td>
+                <td title="チャンネルID: ${escapeHtml(ch.youtubeChannelId)}">${externalLink(ch.platformLabel, ch.channelUrl)}</td>
                 <td><a href="/recordings.html?channelId=${ch.id}">${escapeHtml(ch.channelName)}</a></td>
                 <td>${channelStateLabel(ch)}</td>
                 <td data-sort-value="${ch.recordEnabled ? "1" : "0"}"><button class="recordBtn" data-id="${ch.id}" data-enabled="${ch.recordEnabled}">${ch.recordEnabled ? "自動録画：有効" : "自動録画：無効"}</button></td>
@@ -97,7 +97,6 @@ async function loadChannels() {
                 <td><button data-id="${ch.id}" class="removeBtn">削除</button></td>
             `;
             // 列を足したときにずれないよう、位置ではなくクラスで対象を選ぶ
-            query(".revealable", tr).addEventListener("click", (ev) => toggleChannelIdReveal(/** @type {HTMLTableCellElement} */ (ev.currentTarget), ch.youtubeChannelId));
             query(".titleFilterCell", tr).addEventListener("click", (ev) => {
                 // 管理者の保存先はチャンネル単位の設定（全利用者に効く）
                 editTitleFilterCell(
