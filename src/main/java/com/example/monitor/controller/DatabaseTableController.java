@@ -3,7 +3,9 @@ package com.example.monitor.controller;
 import com.example.monitor.dto.TableDataResponse;
 import com.example.monitor.dto.TableSummary;
 import com.example.monitor.service.DatabaseTableService;
+import com.example.monitor.util.PageRequestUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -27,6 +29,12 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class DatabaseTableController {
 
+    /**
+     * 1 ページの行数の上限。画面は 20 行ずつ読む。上限が無いと、URL の {@code size} を大きくしただけで
+     * 表を丸ごと読んで JSON にしてしまう（#184）。
+     */
+    private static final int MAX_PAGE_SIZE = 200;
+
     private final DatabaseTableService databaseTableService;
 
     /**
@@ -44,15 +52,17 @@ public class DatabaseTableController {
      *
      * @param tableName テーブル名（大文字小文字は区別しない）
      * @param page      ページ番号（0 始まり）
-     * @param size      1 ページあたりの行数
+     * @param size      1 ページあたりの行数（1〜{@value #MAX_PAGE_SIZE}）
      * @return テーブルの内容とカラム構成
+     * @throws IllegalArgumentException ページ番号・行数が範囲外の場合（400）
      */
     @GetMapping("/{tableName}")
     public TableDataResponse getTableData(
             @PathVariable String tableName,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
-        return databaseTableService.getTableData(tableName, page, size);
+        PageRequest pageRequest = PageRequestUtils.bounded(page, size, MAX_PAGE_SIZE);
+        return databaseTableService.getTableData(tableName, pageRequest.getPageNumber(), pageRequest.getPageSize());
     }
 
     /**

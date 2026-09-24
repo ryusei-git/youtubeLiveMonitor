@@ -332,6 +332,18 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
     List<String> findVideoIdsByChannelYoutubeChannelId(@Param("youtubeChannelId") String youtubeChannelId);
 
     /**
+     * 録画履歴に記録されている動画IDを、状態・チャンネルを問わずすべて取得する。
+     *
+     * <p>{@link com.example.monitor.service.OrphanedPreviewService#preview()} が、履歴のある動画の
+     * ファイルを削除候補から外すのに使う。使うのは動画IDだけなので、{@code findAll()} のように
+     * 全行・全列のエンティティを作らない（#184）。
+     *
+     * @return 履歴が存在する動画IDの一覧（同じ動画IDが複数回含まれることがある）
+     */
+    @Query("SELECT r.videoId FROM Recording r")
+    List<String> findAllVideoIds();
+
+    /**
      * どのチャンネルにも紐づいていない録画履歴を取得する。
      *
      * <p>URL 指定のダウンロード（{@link com.example.monitor.service.VideoDownloadService}）で
