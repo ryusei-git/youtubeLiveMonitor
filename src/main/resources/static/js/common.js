@@ -783,6 +783,7 @@ function bindMediaSession(video, metadata) {
  * @property {((mode: string) => boolean)|undefined} webkitSupportsPresentationMode 指定の表示方法に対応しているか
  * @property {(mode: string) => void} webkitSetPresentationMode 表示方法を切り替える
  * @property {string} webkitPresentationMode 今の表示方法（"inline"・"picture-in-picture"・"fullscreen"）
+ * @property {(() => void)|undefined} webkitEnterFullscreen 全画面の再生画面を開く（iPhone の Safari は、ここにある小窓のボタンからなら小窓にできる）
  */
 
 /**
@@ -792,6 +793,12 @@ function bindMediaSession(video, metadata) {
  * 気づきにくいので、ボタンとして画面に出す。標準の API が無い Safari は独自の API で切り替え、
  * どちらも無いブラウザではボタンを隠す（押しても何も起きないボタンを出さないため）。
  *
+ * <p>iPhone の Safari は、ページ内（playsinline）で再生している動画を小窓にできず、標準の API は
+ * 「The Video element does not support the Picture-in-Picture mode.」で断る（再生前・再生中とも実際に発生した）。
+ * 一方、Safari の全画面の再生画面には小窓のボタンがあり、そこからなら小窓にできる。そこで Safari が
+ * この動画を小窓にできないと答えたとき・断ったときは、全画面の再生画面を開いてそのボタンを案内する。
+ * 英語の断り文句をエラーとして見せても、次に何をすればよいか分からないため。
+ *
  * @param {HTMLButtonElement} button 切り替えボタン（最初の文言は「小窓で再生」にしておく）
  * @param {HTMLVideoElement} video 小窓にする動画
  */
@@ -799,14 +806,45 @@ function bindPictureInPictureButton(button, video) {
     /** @param {boolean} active 小窓の表示中か */
     const render = (active) => { button.textContent = active ? "小窓を閉じる" : "小窓で再生"; };
     const safari = /** @type {HTMLVideoElement & WebkitPresentationVideo} */ (video);
+    /**
+     * 案内をトーストに加えてボタンの横にも残す。iPhone の全画面の再生画面はページ全体を覆うため、
+     * トーストは全画面の裏で消えてしまい読めない。全画面から戻ったときに読めるようにする。
+     * @param {string} message 案内の文言
+     */
+    const guide = (message) => {
+        showToast(message);
+        let hint = button.nextElementSibling;
+        if (!(hint instanceof HTMLElement) || !hint.classList.contains("pipHint")) {
+            hint = document.createElement("span");
+            hint.className = "pipHint muted";
+            button.after(hint);
+        }
+        hint.textContent = message;
+    };
+    const openFullscreenInstead = () => {
+        if (typeof safari.webkitEnterFullscreen === "function") {
+            try {
+                safari.webkitEnterFullscreen();
+                guide("全画面の再生画面にある小窓のボタンで小窓にできます");
+                return;
+            } catch (e) {
+                // 全画面も断られた。投げ直すと何も起きないように見えるので、下の案内に落とす
+                console.warn(e);
+            }
+        }
+        guide("このブラウザではこの動画を小窓にできません");
+    };
     /** @type {() => unknown} */
     let toggle;
     if (document.pictureInPictureEnabled && !video.disablePictureInPicture) {
         video.addEventListener("enterpictureinpicture", () => render(true));
         video.addEventListener("leavepictureinpicture", () => render(false));
-        toggle = () => (document.pictureInPictureElement === video
-            ? document.exitPictureInPicture()
-            : video.requestPictureInPicture());
+        toggle = () => {
+            if (document.pictureInPictureElement === video) return document.exitPictureInPicture();
+            // 答えを返すのは Safari だけ（ほかは undefined）。読み込みで答えが変わりうるので押した時点で聞く
+            if (safari.webkitSupportsPresentationMode?.("picture-in-picture") === false) return openFullscreenInstead();
+            return video.requestPictureInPicture();
+        };
     } else if (typeof safari.webkitSupportsPresentationMode === "function"
             && safari.webkitSupportsPresentationMode("picture-in-picture")) {
         const inPictureInPicture = () => safari.webkitPresentationMode === "picture-in-picture";
@@ -820,8 +858,14 @@ function bindPictureInPictureButton(button, video) {
         try {
             await toggle();
         } catch (e) {
-            // 読み込み前に押した等。ブラウザが理由を返すのでそのまま見せる
-            showError(errorMessage(e));
+            if (typeof safari.webkitSupportsPresentationMode !== "function") {
+                // 読み込み前に押した等。ブラウザが理由を返すのでそのまま見せる
+                showError(errorMessage(e));
+                return;
+            }
+            // Safari は確認を通っても断ることがある。英語の理由は見せず、調べられるよう残す
+            console.warn(e);
+            openFullscreenInstead();
         }
     });
     button.hidden = false;
