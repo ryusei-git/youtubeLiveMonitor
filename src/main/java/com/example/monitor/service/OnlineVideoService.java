@@ -4,11 +4,13 @@ import com.example.monitor.dto.*;
 import com.example.monitor.entity.*;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.repository.OnlineVideoRepository;
+import com.example.monitor.util.ThumbnailRetryPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import java.net.URI;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Objects;
 
 /** 収集とライブ検知が同時に同じ動画を見つけても、URLを一件だけ保存する。 */
 @Service @RequiredArgsConstructor
@@ -28,7 +30,7 @@ public class OnlineVideoService {
         var video = existing.orElseGet(OnlineVideo::new);
         video.setId(candidate.key()); video.setChannel(channel);
         video.setTitle(candidate.title()); video.setWatchUrl(candidate.watchUrl());
-        video.setThumbnailUrl(candidate.thumbnailUrl()); video.setPublishedAt(candidate.publishedAt());
+        updateThumbnailUrl(video, candidate.thumbnailUrl()); video.setPublishedAt(candidate.publishedAt());
         if (video.getDiscoveredAt() == null) video.setDiscoveredAt(Instant.now());
         repository.save(video);
     }
@@ -49,13 +51,22 @@ public class OnlineVideoService {
                     ? "https://i.ytimg.com/vi/" + detection.videoId() + "/hqdefault.jpg"
                     : "https://static-cdn.jtvnw.net/previews-ttv/live_user_"
                         + URI.create(detection.watchUrl()).getPath().substring(1) + "-640x360.jpg";
-            video.setThumbnailUrl(thumbnail);
+            updateThumbnailUrl(video, thumbnail);
         }
         video.setLiveWatchUrl(detection.watchUrl());
         video.setLive(true); video.setLastObservedAt(Instant.now());
         if (video.getPublishedAt() == null) video.setPublishedAt(Instant.now());
         if (video.getDiscoveredAt() == null) video.setDiscoveredAt(Instant.now());
         repository.save(video);
+    }
+
+    /** 画像のURLが変われば、以前のURLに対する失敗は新しい画像に適用しない。 */
+    private void updateThumbnailUrl(OnlineVideo video, String thumbnailUrl) {
+        if (!Objects.equals(video.getThumbnailUrl(), thumbnailUrl)) {
+            video.setThumbnailAttempts(0);
+            video.setThumbnailNextAttemptAt(null);
+        }
+        video.setThumbnailUrl(thumbnailUrl);
     }
 
     public OnlineVideoResponse response(OnlineVideo video) {
@@ -68,6 +79,7 @@ public class OnlineVideoService {
         String watchUrl = "LIVE".equals(state) && video.getLiveWatchUrl() != null ? video.getLiveWatchUrl() : video.getWatchUrl();
         return new OnlineVideoResponse(video.getId(), channel.getId(), channel.getChannelName(),
                 channel.getPlatform().name(), video.getTitle(), watchUrl,
-                "/api/videos/" + video.getId() + "/thumbnail", video.getPublishedAt(), video.getLastObservedAt(), state, playable);
+                "/api/videos/" + video.getId() + "/thumbnail", video.getPublishedAt(), video.getLastObservedAt(), state, playable,
+                ThumbnailRetryPolicy.exhausted(video.getThumbnailAttempts()));
     }
 }

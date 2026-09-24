@@ -32,6 +32,28 @@ public interface OnlineVideoRepository extends JpaRepository<OnlineVideo, String
     @Query("update OnlineVideo v set v.live = false where v.channel.id = :channelId and v.id <> :currentId")
     void endOtherStreams(@Param("channelId") Long channelId, @Param("currentId") String currentId);
 
-    @Query("select v from OnlineVideo v where not exists (select t.id from VideoThumbnail t where t.id = v.id)")
-    List<OnlineVideo> withoutThumbnail(Pageable pageable);
+    /** 未取得の新規動画を優先し、再試行は保存済みの時刻順に選ぶ。
+     * 失敗行だけで先頭 100 件が埋まり、後から来た動画を取りこぼすのを防ぐ。
+     */
+    @Query("""
+        select v from OnlineVideo v
+         where not exists (select t.id from VideoThumbnail t where t.id = v.id)
+           and v.thumbnailAttempts < :maxAttempts
+           and (v.thumbnailNextAttemptAt is null or v.thumbnailNextAttemptAt <= :now)
+         order by case when v.thumbnailAttempts = 0 then 0 else 1 end,
+                  v.thumbnailNextAttemptAt asc, v.discoveredAt asc, v.id asc
+        """)
+    List<OnlineVideo> eligibleWithoutThumbnail(@Param("now") Instant now,
+                                                @Param("maxAttempts") int maxAttempts, Pageable pageable);
+
+    /** URL が収集中に変わった場合、古い URL の失敗を新しい URL に適用しない。 */
+    @Modifying @Transactional
+    @Query("""
+        update OnlineVideo v set v.thumbnailAttempts = :attempts, v.thumbnailNextAttemptAt = :nextAttemptAt
+         where v.id = :id and v.thumbnailAttempts = :previousAttempts
+           and ((:thumbnailUrl is null and v.thumbnailUrl is null) or v.thumbnailUrl = :thumbnailUrl)
+        """)
+    int recordThumbnailFailure(@Param("id") String id, @Param("thumbnailUrl") String thumbnailUrl,
+                               @Param("previousAttempts") int previousAttempts, @Param("attempts") int attempts,
+                               @Param("nextAttemptAt") Instant nextAttemptAt);
 }

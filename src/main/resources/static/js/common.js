@@ -1158,14 +1158,16 @@ function buildOnlineVideoCard(video) {
     card.className = "videoCard onlineVideoCard";
     const state = video.state === "LIVE" ? "配信中" : video.state === "UNKNOWN" ? "配信状態を確認中" : video.playable ? "動画・アーカイブ" : "配信終了・アーカイブ未取得";
     card.innerHTML = `<button type="button" class="thumbLink onlinePlayButton" aria-label="${escapeHtml(video.title)}を再生" ${video.playable ? "" : "disabled"}>
-        <img class="thumb" src="${escapeHtml(video.thumbnailUrl)}" alt="" loading="lazy">
-        <span class="thumbPlaceholder" hidden>サムネイル取得待ち</span>
+        <img class="thumb" ${video.thumbnailRetryExhausted ? "hidden" : `src="${escapeHtml(video.thumbnailUrl)}"`} alt="" loading="lazy">
+        <span class="thumbPlaceholder" ${video.thumbnailRetryExhausted ? "" : "hidden"}>${video.thumbnailRetryExhausted ? "サムネイル取得失敗" : "サムネイル取得待ち"}</span>
         <span class="onlinePlayMark" aria-hidden="true">▶</span>
         </button><div class="cardBody"><h3 class="cardTitle"><button type="button" class="onlineTitle" ${video.playable ? "" : "disabled"}>${escapeHtml(video.title)}</button></h3>
         <div class="muted">${escapeHtml(video.channelName)} · ${escapeHtml(video.platform)}</div>
         <div class="muted">${escapeHtml(state)}</div><div class="muted">${escapeHtml(formatInstant(video.publishedAt))}</div></div>`;
     const thumbnail = query("img", card);
-    thumbnail.addEventListener("error", () => { thumbnail.hidden = true; query(".thumbPlaceholder", card).hidden = false; });
+    if (!video.thumbnailRetryExhausted) {
+        thumbnail.addEventListener("error", () => { thumbnail.hidden = true; query(".thumbPlaceholder", card).hidden = false; });
+    }
     card.querySelectorAll("button").forEach(button => button.addEventListener("click", () => openOnlineVideo(video)));
     return card;
 }

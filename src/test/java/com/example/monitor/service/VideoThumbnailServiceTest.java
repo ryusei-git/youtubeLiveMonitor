@@ -25,7 +25,7 @@ class VideoThumbnailServiceTest {
         void testMethod01() throws Exception {
             var video = new OnlineVideo(); video.setId("YOUTUBE_abcdefghijk");
             video.setThumbnailUrl("https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg");
-            when(videos.withoutThumbnail(any())).thenReturn(List.of(video));
+            when(videos.eligibleWithoutThumbnail(any(), anyInt(), any())).thenReturn(List.of(video));
             HttpResponse<java.io.InputStream> response = mock(HttpResponse.class);
             when(response.statusCode()).thenReturn(200);
             when(response.headers()).thenReturn(HttpHeaders.of(Map.of("Content-Type",List.of("image/jpeg")), (a,b)->true));
@@ -34,12 +34,16 @@ class VideoThumbnailServiceTest {
             service.captureMissing();
             var capture = ArgumentCaptor.forClass(VideoThumbnail.class); verify(thumbnails).save(capture.capture());
             assertThat(capture.getValue().getContent()).containsExactly(1,2,3);
+            verify(videos, never()).recordThumbnailFailure(any(), any(), anyInt(), anyInt(), any());
         }
         @Test @DisplayName("異常系：許可していないホストから画像をダウンロードしない")
         void testMethod02() {
-            var video = new OnlineVideo(); video.setThumbnailUrl("http://127.0.0.1/private");
-            when(videos.withoutThumbnail(any())).thenReturn(List.of(video));
+            var video = new OnlineVideo(); video.setId("YOUTUBE_abcdefghijk");
+            video.setThumbnailUrl("http://127.0.0.1/private");
+            when(videos.eligibleWithoutThumbnail(any(), anyInt(), any())).thenReturn(List.of(video));
             service.captureMissing(); verifyNoInteractions(http, thumbnails);
+            verify(videos).recordThumbnailFailure(eq("YOUTUBE_abcdefghijk"), eq("http://127.0.0.1/private"),
+                    eq(0), eq(1), any());
         }
     }
 }

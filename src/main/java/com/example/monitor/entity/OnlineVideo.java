@@ -25,6 +25,11 @@ public class OnlineVideo {
     private String liveWatchUrl;
     @Column(length = 2048)
     private String thumbnailUrl;
+    /** 既存行にも 0 を補うため、NOT NULL カラムの追加時に DB 側の既定値を持たせる。 */
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private int thumbnailAttempts;
+    /** プロセス再起動後も待機間隔を維持し、同じ失敗を毎巡回で繰り返さない。 */
+    private Instant thumbnailNextAttemptAt;
     @Column(length = 1024, nullable = false)
     private String title;
     private Instant publishedAt;
