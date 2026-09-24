@@ -96,7 +96,7 @@ function splitScheduledStart(iso) {
  *
  * <p>配信中の一覧と分けることで、待機所を配信開始と誤解せず、利用者が次の予定を把握できる。
  *
- * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string, genre?: string|null, channelIconUrl?: string|null}>} streams 開始予定の早い順で返された配信予定
+ * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string, genre?: string|null, channelIconUrl?: string|null, channelUrl: string|null}>} streams 開始予定の早い順で返された配信予定
  */
 function renderUpcomingStreams(streams) {
     const box = el("upcomingStreams");
@@ -116,7 +116,7 @@ function renderUpcomingStreams(streams) {
             <td>${escapeHtml(start.date)}</td>
             <td>${escapeHtml(start.weekday)}</td>
             <td>${escapeHtml(start.time)}</td>
-            <td><span class="channelWithIcon">${icon}${escapeHtml(s.channelName)}</span></td>
+            <td><span class="channelWithIcon">${icon}${externalLink(s.channelName, s.channelUrl)}</span></td>
             <td>${escapeHtml(s.genre || "未設定")}</td>
             <td>${externalLink(s.title ?? "（タイトル不明）", s.watchUrl)}</td>
         </tr>`;
