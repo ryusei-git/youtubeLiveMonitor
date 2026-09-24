@@ -32,6 +32,8 @@ public class LoginAttemptFilter extends OncePerRequestFilter {
             response.setHeader("Retry-After", Long.toString(attempt.retryAfterSeconds()));
             response.setHeader("Cache-Control", "no-store");
             response.setContentType("text/html;charset=UTF-8");
+            // 管理者用の画面から来たなら管理者用のログイン画面へ戻す
+            String loginPage = PortalAwareAuthenticationProvider.isAdminPortal(request) ? "/admin-login.html" : "/login.html";
             response.getWriter().write("""
                     <!doctype html><html lang="ja"><head><meta charset="UTF-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -39,9 +41,9 @@ public class LoginAttemptFilter extends OncePerRequestFilter {
                     <link rel="stylesheet" href="/css/style.css"></head><body><main class="shell">
                     <h1>ログインを一時制限しています</h1>
                     <p>ログインの試行が上限に達しました。時間をおいて、もう一度お試しください。</p>
-                    <p><a href="/login.html">ログイン画面へ戻る</a></p>
+                    <p><a href="%s">ログイン画面へ戻る</a></p>
                     </main></body></html>
-                    """);
+                    """.formatted(loginPage));
             return;
         }
         boolean successful = false;

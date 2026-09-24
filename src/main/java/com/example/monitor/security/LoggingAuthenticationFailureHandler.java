@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 
 /**
- * ログイン失敗をアプリログと監査ログの両方に残したうえで、既定のリダイレクト処理に委譲する。
+ * ログイン失敗をアプリログと監査ログの両方に残したうえで、来た画面のログイン画面へ戻す。
  *
  * <p>失敗の記録が漏れると総当たり攻撃などの兆候に気づけなくなる
  * （{@code GlobalExceptionHandler} が利用者操作の失敗を必ず WARN で残しているのと同じ理由）。
@@ -42,6 +42,9 @@ public class LoggingAuthenticationFailureHandler extends SimpleUrlAuthentication
     /** 失敗時に戻す先。{@code login.html} 側がこのクエリパラメータの有無でエラー表示を出す。 */
     private static final String FAILURE_URL = "/login.html?error";
 
+    /** 管理者用の画面から来たときに戻す先。 */
+    private static final String ADMIN_FAILURE_URL = "/admin-login.html?error";
+
     private final AuditLogger auditLogger;
 
     public LoggingAuthenticationFailureHandler(AuditLogger auditLogger) {
@@ -50,7 +53,7 @@ public class LoggingAuthenticationFailureHandler extends SimpleUrlAuthentication
     }
 
     /**
-     * ログイン失敗を WARN で記録してから、既定のリダイレクト処理に委譲する。
+     * ログイン失敗を WARN で記録してから、来た画面（{@code portal}）のログイン画面へ戻す。
      *
      * @param request   リクエスト
      * @param response  レスポンス
@@ -68,13 +71,12 @@ public class LoggingAuthenticationFailureHandler extends SimpleUrlAuthentication
         // 読み取れてしまわないよう、userId は常に null のまま記録する
         auditLogger.recordAuthEvent(AuditAction.LOGIN_FAILURE, AuditOutcome.FAILURE,
                 null, username, request.getRemoteAddr(), exception.getMessage());
+        String failureUrl = PortalAwareAuthenticationProvider.isAdminPortal(request) ? ADMIN_FAILURE_URL : FAILURE_URL;
         String returnTo = LoginReturnPath.validate(request.getParameter("returnTo"), true);
         if (returnTo != null) {
-            saveException(request, exception);
-            getRedirectStrategy().sendRedirect(request, response,
-                    FAILURE_URL + "&returnTo=" + URLEncoder.encode(returnTo, StandardCharsets.UTF_8));
-            return;
+            failureUrl += "&returnTo=" + URLEncoder.encode(returnTo, StandardCharsets.UTF_8);
         }
-        super.onAuthenticationFailure(request, response, exception);
+        saveException(request, exception);
+        getRedirectStrategy().sendRedirect(request, response, failureUrl);
     }
 }

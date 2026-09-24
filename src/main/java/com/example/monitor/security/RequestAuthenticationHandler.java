@@ -4,6 +4,7 @@ import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.service.AuditLogger;
 import com.example.monitor.util.ApiRequestPath;
+import com.example.monitor.util.LoginReturnPath;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,7 +37,9 @@ public class RequestAuthenticationHandler implements AuthenticationEntryPoint, A
         if (ApiRequestPath.matches(request)) {
             writeError(response, 401, "ログインし直してください");
         } else {
-            new LoginUrlAuthenticationEntryPoint("/login.html").commence(request, response, exception);
+            // 管理者の画面からは管理者用のログイン画面へ送る。利用者用の画面からは管理者はログインできないため
+            String loginPage = LoginReturnPath.isAdminPage(request.getServletPath()) ? "/admin-login.html" : "/login.html";
+            new LoginUrlAuthenticationEntryPoint(loginPage).commence(request, response, exception);
         }
     }
 

@@ -105,8 +105,14 @@ class SecurityConfigTest {
         @Test
         @DisplayName("正常系：正しい認証情報でログインするとADMINは/index.htmlへ遷移する")
         void testMethod01() throws Exception {
-            mockMvc.perform(SecurityMockMvcRequestBuilders.formLogin("/api/auth/login")
-                            .user(ADMIN_USERNAME).password(ADMIN_PASSWORD))
+            RequestBuilder form = SecurityMockMvcRequestBuilders.formLogin("/api/auth/login")
+                    .user(ADMIN_USERNAME).password(ADMIN_PASSWORD);
+            mockMvc.perform(context -> {
+                        var request = form.buildRequest(context);
+                        // 管理者は管理者用のログイン画面（portal=admin）からしかログインできない
+                        request.addParameter("portal", "admin");
+                        return request;
+                    })
                     .andExpect(status().is3xxRedirection())
                     .andExpect(header().string("Location", "/index.html"));
         }
