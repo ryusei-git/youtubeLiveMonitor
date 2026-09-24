@@ -3,6 +3,30 @@ let onlinePage = 0;
 let onlineTotalPages = 0;
 let onlineRequest = 0;
 
+function syncVideoUrl(replace = false) {
+    const url = new URL(location.href);
+    for (const key of ["keyword", "channelId", "liveOnly", "page"]) url.searchParams.delete(key);
+    const keyword = inputEl("videoKeyword").value.trim();
+    if (keyword) url.searchParams.set("keyword", keyword);
+    const channelId = selectEl("videoChannel").value;
+    if (channelId) url.searchParams.set("channelId", channelId);
+    if (selectEl("videoMode").value === "live") url.searchParams.set("liveOnly", "true");
+    if (onlinePage > 0) url.searchParams.set("page", String(onlinePage));
+    if (url.href !== location.href) history[replace ? "replaceState" : "pushState"](null, "", url);
+}
+
+function restoreVideoUrl() {
+    const params = new URLSearchParams(location.search);
+    inputEl("videoKeyword").value = (params.get("keyword") || "").trim().slice(0, 200);
+    const channel = selectEl("videoChannel");
+    const channelId = params.get("channelId") || "";
+    channel.value = Array.from(channel.options).some(option => option.value === channelId) ? channelId : "";
+    selectEl("videoMode").value = params.get("liveOnly") === "true" ? "live" : "all";
+    const page = params.get("page") || "";
+    onlinePage = /^\d+$/.test(page) && Number(page) <= 2147483647 ? Number(page) : 0;
+    syncVideoUrl(true);
+}
+
 async function loadOnlineVideos() {
     const request = ++onlineRequest;
     const grid = el("onlineVideoGrid");
@@ -13,6 +37,11 @@ async function loadOnlineVideos() {
     try {
         const data = await apiGet("/api/videos?" + params);
         if (request !== onlineRequest) return;
+        if (onlinePage > 0 && onlinePage >= data.totalPages) {
+            onlinePage = Math.max(0, data.totalPages - 1);
+            syncVideoUrl(true);
+            return loadOnlineVideos();
+        }
         clearError();
         onlineTotalPages = data.totalPages;
         grid.replaceChildren(...data.content.map(buildOnlineVideoCard));
@@ -30,7 +59,7 @@ async function loadVideoChannels() {
     try {
         const channels = await apiGet("/api/videos/channels");
         const select = selectEl("videoChannel");
-        const previous = select.value || queryParam("channelId") || "";
+        const previous = select.value;
         select.replaceChildren(new Option("すべて", ""));
         for (const channel of channels) select.add(new Option(channel.name, String(channel.id)));
         select.value = previous;
@@ -43,12 +72,25 @@ async function loadVideoChannels() {
     } catch (error) { el("collectionNotice").textContent = "動画の取得状況を確認できません。表示を更新して再試行してください。"; }
 }
 
-formEl("videoFilterForm").addEventListener("submit", event => { event.preventDefault(); onlinePage = 0; loadOnlineVideos(); });
-buttonEl("videoPrev").addEventListener("click", () => { if (onlinePage > 0) { onlinePage--; loadOnlineVideos(); } });
-buttonEl("videoNext").addEventListener("click", () => { if (onlinePage + 1 < onlineTotalPages) { onlinePage++; loadOnlineVideos(); } });
-buttonEl("refreshVideosBtn").addEventListener("click", async () => { await loadVideoChannels(); await loadOnlineVideos(); });
-if (queryParam("liveOnly") === "true") selectEl("videoMode").value = "live";
-(async () => { await loadVideoChannels(); await loadOnlineVideos(); })();
+formEl("videoFilterForm").addEventListener("submit", event => {
+    event.preventDefault();
+    onlinePage = 0;
+    syncVideoUrl();
+    loadOnlineVideos();
+});
+buttonEl("videoPrev").addEventListener("click", () => {
+    if (onlinePage > 0) { onlinePage--; syncVideoUrl(); loadOnlineVideos(); }
+});
+buttonEl("videoNext").addEventListener("click", () => {
+    if (onlinePage + 1 < onlineTotalPages) { onlinePage++; syncVideoUrl(); loadOnlineVideos(); }
+});
+buttonEl("refreshVideosBtn").addEventListener("click", async () => {
+    await loadVideoChannels();
+    syncVideoUrl(true);
+    await loadOnlineVideos();
+});
+window.addEventListener("popstate", () => { restoreVideoUrl(); loadOnlineVideos(); });
+(async () => { await loadVideoChannels(); restoreVideoUrl(); await loadOnlineVideos(); })();
 
 // 共有画面なので、サーバーが返す権限で共通メニューを選ぶ。
 (async () => {
