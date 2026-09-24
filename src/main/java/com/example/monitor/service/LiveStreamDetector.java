@@ -1,6 +1,7 @@
 package com.example.monitor.service;
 
 import com.example.monitor.dto.LiveStreamDetection;
+import com.example.monitor.util.EpochTimeConverter;
 import com.example.monitor.util.YouTubeWatchUrl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -67,6 +69,9 @@ public class LiveStreamDetector {
 
     /** canonical URL から動画 ID（11 文字固定）を抜き出す正規表現。 */
     private static final Pattern VIDEO_ID_IN_URL = Pattern.compile("[?&]v=([a-zA-Z0-9_-]{11})");
+
+    /** 待機所ページの JSON に含まれる開始予定時刻（エポック秒）。 */
+    private static final Pattern SCHEDULED_START_TIME = Pattern.compile("\"scheduledStartTime\":\"(\\d+)\"");
 
     /** ブラウザ以外からのアクセスとみなされて簡易版 HTML を返されるのを避けるための User-Agent。 */
     private static final String BROWSER_USER_AGENT =
@@ -148,9 +153,20 @@ public class LiveStreamDetector {
         String videoId = matcher.group(1);
 
         if (html.contains(UPCOMING_MARKER)) {
-            // 正常に判定できた結果としての「まだ配信していない」なので、判定失敗ではない
-            log.debug("配信はまだ開始していません（待機所）: channel={}, video={}", youtubeChannelId, videoId);
-            return LiveStreamDetection.notLive();
+            Matcher scheduledStartMatcher = SCHEDULED_START_TIME.matcher(html);
+            LocalDateTime scheduledStartTime = null;
+            if (scheduledStartMatcher.find()) {
+                long epochSeconds = Long.parseLong(scheduledStartMatcher.group(1));
+                scheduledStartTime = EpochTimeConverter.toSystemLocalDateTime(epochSeconds * 1000);
+            } else {
+                log.warn("待機所の開始予定時刻が見つかりません。YouTube 側の HTML 構造が変わった可能性があります: channel={}, video={}",
+                        youtubeChannelId, videoId);
+            }
+            String title = document.select("meta[name=title]").attr("content");
+            log.debug("配信はまだ開始していません（待機所）: channel={}, video={}, scheduledStartTime={}",
+                    youtubeChannelId, videoId, scheduledStartTime);
+            return LiveStreamDetection.upcoming(videoId, title.isBlank() ? null : title,
+                    YouTubeWatchUrl.of(videoId), scheduledStartTime);
         }
 
         String title = document.select("meta[name=title]").attr("content");
