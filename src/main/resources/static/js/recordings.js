@@ -103,7 +103,9 @@
         container.replaceChildren();
         const pages = [];
         for (let p = 0; p < totalPages; p++) {
-            if (p === 0 || p === totalPages - 1 || Math.abs(p - currentPage) <= 2) pages.push(p);
+            // 「…」が 1 ページ分だけを隠すことになる場合（例: 1 2 3 … 5）は、そのページを出す
+            const onlyHiddenPage = Math.abs(p - currentPage) === 3 && (p === 1 || p === totalPages - 2);
+            if (p === 0 || p === totalPages - 1 || Math.abs(p - currentPage) <= 2 || onlyHiddenPage) pages.push(p);
         }
         let previous = -1;
         for (const p of pages) {
