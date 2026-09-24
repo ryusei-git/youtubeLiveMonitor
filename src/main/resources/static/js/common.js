@@ -985,13 +985,16 @@ function externalLink(label, url) {
 /** 削除用スクリプトがHTML上のマーカーを消した後は、共通メニューにも追加しない。 */
 const playgroundAvailable = Boolean(document.querySelector('.globalnav a[href="/playground.html"], .globalnav template[data-playground]'));
 
-/** @type {Array<[string, string]>} 管理者画面の共通メニュー順。 */
+/** @type {Array<[string, string]>} 管理者画面の上位メニュー。よく使う順に並べる。 */
 const adminNavigation = [
-    ["/videos.html", "動画・配信"], ["/index.html", "ダッシュボード"],
-    ["/channels.html", "チャンネル"], ["/notifications.html", "通知履歴"],
-    ["/recordings.html", "録画"], ["/users.html", "利用者管理"],
-    ["/invitations.html", "招待"], ["/logs.html", "ログ"],
-    ["/audit.html", "監査ログ"],
+    ["/index.html", "ダッシュボード"], ["/videos.html", "動画一覧"],
+    ["/channels.html", "登録済みチャンネル一覧"]
+];
+/** @type {Array<[string, string]>} 「既存サービス」の下にまとめる管理者メニュー。上位メニューを短く保つため。 */
+const adminServiceNavigation = [
+    ["/notifications.html", "通知履歴"], ["/recordings.html", "録画"],
+    ["/users.html", "利用者管理"], ["/invitations.html", "招待"],
+    ["/logs.html", "ログ"], ["/audit.html", "監査ログ"],
     ["/tables.html", "DB管理"], ["/playground.html", "APIお試し"]
 ];
 /** @type {Array<[string, string]>} 一般利用者には管理リンクを載せない。 */
@@ -1028,16 +1031,27 @@ function renderNavigationForViewer(admin) {
     if (!nav) return;
     const logout = nav.querySelector(".navLogout");
     const page = location.pathname === "/player.html" ? "/recordings.html" : location.pathname;
-    const links = (admin ? adminNavigation : userNavigation)
+    /** @param {Array<[string, string]>} entries */
+    const toLinks = (entries) => entries
         .filter(([href]) => href !== "/playground.html" || playgroundAvailable)
         .map(([href, label]) => {
         const link = document.createElement("a");
         link.href = href;
         link.textContent = label;
-        if (href === page) { link.className = "active"; link.setAttribute("aria-current", "page"); }
+        if (href === page) { link.classList.add("active"); link.setAttribute("aria-current", "page"); }
         return link;
     });
-    nav.replaceChildren(...links, ...(logout ? [logout] : []));
+    /** @type {HTMLElement[]} */
+    const items = toLinks(admin ? adminNavigation : userNavigation);
+    if (admin) {
+        const groupLabel = document.createElement("div");
+        groupLabel.className = "navGroupLabel";
+        groupLabel.textContent = "既存サービス";
+        const children = toLinks(adminServiceNavigation);
+        children.forEach((link) => link.classList.add("navChild"));
+        items.push(groupLabel, ...children);
+    }
+    nav.replaceChildren(...items, ...(logout ? [logout] : []));
     decorateStudioNavigation();
 }
 
