@@ -823,6 +823,89 @@ function rampColor(index) {
     return `var(--chart-${Math.min(index + 1, RAMP_STEPS)})`;
 }
 
+/**
+ * 折れ線グラフの 1 本分。
+ *
+ * @typedef {object} LineSeries
+ * @property {string} label 凡例に出す名前
+ * @property {string} color CSS の色指定
+ * @property {Array<number|null>} values 各時刻の値（times と同じ並び）。null は計測できなかった点
+ */
+
+/**
+ * 時系列の折れ線グラフを組み立てる。
+ *
+ * <p>ドーナツ・横棒と同じく素の SVG で描く（グラフのために外部ライブラリを足さないため）。
+ * viewBox の幅はスマホ幅に合わせて小さめにしている。広い画面では拡大されるが、
+ * 狭い画面で文字が読めなくなるよりよい。線は `vector-effect` で拡大しても太さを変えない。
+ *
+ * <p>横位置は点の番号ではなく時刻から決める。記録が抜けた時間があっても時間の縮尺が狂わないため。
+ * null は 0 として描かずに線を切る。計測できなかった時間を「0%」と読み違えさせないため。
+ *
+ * @param {Date[]} times 各点の時刻（古い順、2 点以上）
+ * @param {LineSeries[]} series 描く線
+ * @param {{format: (value: number) => string, max?: number, height?: number}} options
+ *        format は軸と凡例の値の書式。max を省くと値の最大から縦軸の上限を決める
+ * @returns {string} 差し込む HTML
+ */
+function lineChart(times, series, options) {
+    const width = 360;
+    const height = options.height ?? 150;
+    const pad = { left: 46, right: 10, top: 8, bottom: 20 };
+    const plotWidth = width - pad.left - pad.right;
+    const plotHeight = height - pad.top - pad.bottom;
+    const measured = /** @type {number[]} */ (series.flatMap((s) => s.values).filter((v) => v !== null));
+    // 上端に張り付くと線が枠と重なって読めないため、自動のときは 1 割の余白を足す
+    const max = options.max ?? Math.max(...measured, 1) * 1.1;
+    const start = times[0].getTime();
+    const span = Math.max(times[times.length - 1].getTime() - start, 1);
+    /** @param {number} i */
+    const x = (i) => pad.left + ((times[i].getTime() - start) / span) * plotWidth;
+    /** @param {number} v */
+    const y = (v) => pad.top + plotHeight - Math.min(v / max, 1) * plotHeight;
+
+    const grid = [0, 0.5, 1].map((ratio) => {
+        const lineY = y(max * ratio).toFixed(1);
+        return `<line x1="${pad.left}" x2="${width - pad.right}" y1="${lineY}" y2="${lineY}" class="lineGrid"/>`
+            + `<text x="${pad.left - 6}" y="${(Number(lineY) + 3).toFixed(1)}" text-anchor="end" class="lineAxis">`
+            + `${escapeHtml(options.format(max * ratio))}</text>`;
+    }).join("");
+
+    /** @param {Date} date */
+    const clock = (date) => `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    const last = times.length - 1;
+    const timeLabels = [[0, "start"], [Math.floor(last / 2), "middle"], [last, "end"]].map(([i, anchor]) =>
+        `<text x="${x(Number(i)).toFixed(1)}" y="${height - 4}" text-anchor="${anchor}" class="lineAxis">${clock(times[Number(i)])}</text>`
+    ).join("");
+
+    const lines = series.map((s) => {
+        let path = "";
+        let drawing = false;
+        s.values.forEach((v, i) => {
+            if (v === null) {
+                drawing = false;
+                return;
+            }
+            path += `${drawing ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`;
+            drawing = true;
+        });
+        const latest = [...s.values].reverse().find((v) => v !== null);
+        return `<path d="${path}" stroke="${s.color}" vector-effect="non-scaling-stroke"><title>`
+            + `${escapeHtml(s.label)}: 最新 ${escapeHtml(latest === undefined || latest === null ? "-" : options.format(latest))}</title></path>`;
+    }).join("");
+
+    const legend = series.map((s) =>
+        `<span><em style="background:${s.color}"></em>${escapeHtml(s.label)}</span>`).join("");
+
+    return `<div class="lineChart">
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(series.map((s) => s.label).join("・"))}の推移">
+          ${grid}${timeLabels}
+          <g fill="none" stroke-width="2" stroke-linejoin="round">${lines}</g>
+        </svg>
+        <div class="lineLegend">${legend}</div>
+      </div>`;
+}
+
 /* ============================================================
    認証
    ============================================================ */

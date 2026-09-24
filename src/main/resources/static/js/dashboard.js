@@ -226,6 +226,186 @@ async function loadServiceStorage() {
 }
 
 /**
+ * @typedef {{pid: number, name: string, cpuPercent: number|null, memoryBytes: number}} ResourceProcess
+ * @typedef {ResourceProcess & {label: string, children: ResourceProcess[]}} RecorderProcess
+ * @typedef {object} ResourceSnapshot
+ * @property {{cpuPercent: number|null, cores: number, loadAverage1m: number,
+ *   memoryTotalBytes: number, memoryUsedBytes: number, memoryAvailableBytes: number,
+ *   swapTotalBytes: number, swapUsedBytes: number, diskPath: string, diskTotalBytes: number, diskFreeBytes: number,
+ *   networkReceiveBytesPerSecond: number|null, networkSendBytesPerSecond: number|null}} system
+ * @property {{cpuPercent: number|null, memoryBytes: number,
+ *   application: {pid: number, cpuPercent: number|null, memoryBytes: number, heapUsedBytes: number, heapMaxBytes: number, threads: number},
+ *   recorders: RecorderProcess[]}} service
+ * @property {Array<{key: string, message: string}>} warnings
+ * @typedef {{at: string, systemCpuPercent: number|null, systemMemoryUsedPercent: number,
+ *   serviceCpuPercent: number|null, serviceMemoryBytes: number}} ResourceHistoryPoint
+ */
+
+/**
+ * CPU 使用率を表示用に整える。起動直後は前回の計測が無く null が返るため "-" にする。
+ *
+ * @param {number|null|undefined} percent 使用率
+ * @returns {string} 表示用の文字列
+ */
+function formatPercent(percent) {
+    return percent === null || percent === undefined ? "-" : `${percent.toFixed(1)}%`;
+}
+
+/**
+ * 端末全体のカードを 1 枚作る。
+ *
+ * <p>注意の対象になっている値はカードごと警告の色にする。先頭の警告文を読まなくても、
+ * どの資源が足りないのかを目で追えるようにするため。
+ *
+ * @param {string} label 項目名
+ * @param {string} valueHtml 大きく出す値（エスケープ済み）
+ * @param {string} subHtml 補足（エスケープ済み）
+ * @param {boolean} warned 注意の対象か
+ * @param {number|null} [usedRatio] 使用率の横棒に出す割合（0〜1）。省くと横棒を出さない
+ * @returns {string} 差し込む HTML
+ */
+function resourceCard(label, valueHtml, subHtml, warned, usedRatio = null) {
+    const meter = usedRatio === null ? "" : `<div class="barTrack resourceMeter">`
+        + `<div class="barFill" style="width:${(Math.min(Math.max(usedRatio, 0), 1) * 100).toFixed(1)}%;`
+        + `background:${warned ? "var(--chart-failure)" : "var(--chart-1)"}"></div></div>`;
+    return `<div class="kpi${warned ? " is-warning" : ""}">
+        <span class="kpiLabel">${escapeHtml(label)}</span>
+        <span class="kpiValue">${valueHtml}</span>
+        ${meter}
+        <span class="kpiSub">${subHtml}</span>
+    </div>`;
+}
+
+/**
+ * 端末全体の今の値をカードに並べる。
+ *
+ * @param {ResourceSnapshot["system"]} system 端末全体の値
+ * @param {Set<string>} warned 注意の対象になっている項目の key
+ * @returns {string} 差し込む HTML
+ */
+function renderSystemCards(system, warned) {
+    const size = (/** @type {number} */ bytes) => escapeHtml(formatFileSize(bytes));
+    const rate = (/** @type {number|null} */ bytes) => bytes === null ? "-" : `${size(bytes)}/s`;
+    const swap = system.swapTotalBytes > 0
+        ? resourceCard("スワップ", `${size(system.swapUsedBytes)}<span class="kpiUnit">/ ${size(system.swapTotalBytes)}</span>`,
+            "", warned.has("swap"), system.swapUsedBytes / system.swapTotalBytes)
+        : resourceCard("スワップ", "なし", "", false);
+    return `<div class="kpiGrid resourceGrid">
+        ${resourceCard("CPU", escapeHtml(formatPercent(system.cpuPercent)),
+            `${system.cores} コア・負荷 ${system.loadAverage1m.toFixed(1)}`, warned.has("cpu"))}
+        ${resourceCard("メモリ", `${size(system.memoryUsedBytes)}<span class="kpiUnit">/ ${size(system.memoryTotalBytes)}</span>`,
+            `空き ${size(system.memoryAvailableBytes)}`, warned.has("memory"), system.memoryUsedBytes / system.memoryTotalBytes)}
+        ${swap}
+        ${resourceCard("ディスク（録画の保存先）", `${size(system.diskFreeBytes)}<span class="kpiUnit">空き / ${size(system.diskTotalBytes)}</span>`,
+            escapeHtml(system.diskPath), warned.has("disk"), 1 - system.diskFreeBytes / system.diskTotalBytes)}
+        ${resourceCard("ネットワーク", `<span class="resourceRate">↓ ${rate(system.networkReceiveBytesPerSecond)}</span>`
+            + `<span class="resourceRate">↑ ${rate(system.networkSendBytesPerSecond)}</span>`, "受信・送信", false)}
+    </div>`;
+}
+
+/**
+ * このサービスのプロセス（アプリ本体・録画プロセスとその子）を表にする。
+ *
+ * <p>yt-dlp が起動する ffmpeg は字下げして親の下に置く。録画 1 本がどれだけ食っているかを
+ * 親子の組で読めるようにするため。
+ *
+ * @param {ResourceSnapshot["service"]} service このサービスの値
+ * @returns {string} 差し込む HTML
+ */
+function renderServiceProcesses(service) {
+    /**
+     * @param {string} name プロセス名の HTML
+     * @param {string} target 対象
+     * @param {number|null} cpu CPU 使用率
+     * @param {string} memory メモリの HTML
+     */
+    const row = (name, target, cpu, memory) =>
+        `<tr><td>${name}</td><td>${escapeHtml(target)}</td><td>${escapeHtml(formatPercent(cpu))}</td><td>${memory}</td></tr>`;
+    const app = service.application;
+    const rows = [row(`アプリ本体 <span class="muted">PID ${app.pid}</span>`, "—", app.cpuPercent,
+        `${escapeHtml(formatFileSize(app.memoryBytes))} <span class="muted">ヒープ ${escapeHtml(formatFileSize(app.heapUsedBytes))}`
+        + ` / ${escapeHtml(formatFileSize(app.heapMaxBytes))}・スレッド ${app.threads}</span>`)];
+    for (const recorder of service.recorders) {
+        rows.push(row(`${escapeHtml(recorder.name)} <span class="muted">PID ${recorder.pid}</span>`, recorder.label,
+            recorder.cpuPercent, escapeHtml(formatFileSize(recorder.memoryBytes))));
+        for (const child of recorder.children) {
+            rows.push(row(`<span class="processChild">└ ${escapeHtml(child.name)}</span> <span class="muted">PID ${child.pid}</span>`, "",
+                child.cpuPercent, escapeHtml(formatFileSize(child.memoryBytes))));
+        }
+    }
+    rows.push(row("<strong>合計</strong>", "", service.cpuPercent,
+        `<strong>${escapeHtml(formatFileSize(service.memoryBytes))}</strong>`));
+    return `<div class="table-scroll">
+        <table id="resourceProcessTable">
+            <thead><tr><th>プロセス</th><th>対象</th><th>CPU</th><th>メモリ</th></tr></thead>
+            <tbody>${rows.join("")}</tbody>
+        </table>
+    </div>`;
+}
+
+/**
+ * 直近 24 時間の推移を折れ線にする。
+ *
+ * <p>「異常な消費」は今の値よりも推移のほうが見つけやすい（じわじわ増えるメモリなど）。
+ * 端末全体とこのサービスを同じ CPU のグラフに重ね、端末の負荷のうちどれだけがこのサービス由来かを読めるようにする。
+ * メモリは単位が違う（% とバイト）ため、2 本目の縦軸を作らず小さな別のグラフに分ける。
+ *
+ * @param {ResourceHistoryPoint[]} history 古い順の記録
+ * @returns {string} 差し込む HTML
+ */
+function renderResourceHistory(history) {
+    // 線を引くには 2 点以上いる。起動直後は 1 分ごとの記録がまだ溜まっていない
+    if (history.length < 2) {
+        return '<p class="muted">記録を集めています（1 分ごと）</p>';
+    }
+    const times = history.map((p) => new Date(p.at));
+    const percent = { max: 100, format: (/** @type {number} */ v) => `${Math.round(v)}%` };
+    return `<div class="chartRow resourceCharts">
+        <div class="chartCard">
+            <h2>CPU（直近 24 時間）</h2>
+            ${lineChart(times, [
+                { label: "端末全体", color: "var(--chart-3)", values: history.map((p) => p.systemCpuPercent) },
+                { label: "このサービス", color: "var(--chart-1)", values: history.map((p) => p.serviceCpuPercent) },
+            ], percent)}
+        </div>
+        <div class="chartCard">
+            <h2>メモリ（直近 24 時間）</h2>
+            ${lineChart(times, [
+                { label: "端末全体の使用率", color: "var(--chart-3)", values: history.map((p) => p.systemMemoryUsedPercent) },
+            ], percent)}
+            ${lineChart(times, [
+                { label: "このサービスの使用量", color: "var(--chart-1)", values: history.map((p) => p.serviceMemoryBytes) },
+            ], { format: formatFileSize, height: 100 })}
+        </div>
+    </div>`;
+}
+
+/**
+ * このサービスが使っているリソース（端末全体・プロセス・推移）を出す。
+ *
+ * <p>今の値と推移は別の API だが、片方だけ出ても判断材料として半端なので、
+ * どちらかが失敗したらまとまりごと「取得できませんでした」にする。
+ * ダッシュボードの他の表示は巻き込まない（#136 のファイル容量と同じ扱い）。
+ */
+async function loadResources() {
+    const box = el("resources");
+    try {
+        /** @type {[ResourceSnapshot, ResourceHistoryPoint[]]} */
+        const [now, history] = await Promise.all([
+            apiGet("/api/dashboard/resources"),
+            apiGet("/api/dashboard/resources/history"),
+        ]);
+        const warnings = now.warnings.map((w) => `<p class="error resourceWarning">${escapeHtml(w.message)}</p>`).join("");
+        box.innerHTML = warnings
+            + renderSystemCards(now.system, new Set(now.warnings.map((w) => w.key)))
+            + renderServiceProcesses(now.service)
+            + renderResourceHistory(history);
+    } catch {
+        box.innerHTML = '<p class="muted">取得できませんでした</p>';
+    }
+}
+
+/**
  * 選択肢に無い現在値だった場合、末尾に選択肢を追加してそれを選択状態にする。
  *
  * <p>{@code .env} を直接編集して、プルダウンの選択肢に無い値（例: 監視間隔を250秒）に
@@ -350,6 +530,7 @@ async function loadDashboard() {
     // 下の Promise.all に入れると、片方の失敗で KPI やグラフまで更新されなくなるため別に読む
     loadRecordingFailures();
     loadServiceStorage();
+    loadResources();
     try {
         const [data, livePage, upcoming] = await Promise.all([
             apiGet("/api/dashboard"),
