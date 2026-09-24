@@ -233,6 +233,9 @@ td .markBtn { margin-right: 0; }
 .kpiGrid.resourceGrid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 16px; }
 .resourceGrid .kpiValue { font-size: 22px; }
 .resourceGrid .kpiUnit { white-space: nowrap; }
+/* 録画の保存先のパスは長く、折り返さないとカードからはみ出してスマホで横スクロールが出る */
+.resourceGrid .kpi { min-width: 0; }
+.resourceGrid .kpiSub { overflow-wrap: anywhere; }
 .resourceRate { display: block; font-size: 16px; }
 .resourceMeter { height: 6px; margin-top: 10px; }
 /* 注意の対象になっている値は、枠と値を警告の色にして先頭の警告文と対応づける。 */
