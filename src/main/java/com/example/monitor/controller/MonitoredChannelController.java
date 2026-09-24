@@ -23,9 +23,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -39,9 +36,6 @@ import java.util.Map;
 @RequestMapping("/api/channels")
 @RequiredArgsConstructor
 public class MonitoredChannelController {
-
-    /** 配信予定として返す範囲（今からどれだけ先の開始予定までか）。 */
-    private static final Duration UPCOMING_WINDOW = Duration.ofDays(7);
 
     private final MonitoredChannelService monitoredChannelService;
     private final YouTubeApiClient youTubeApiClient;
@@ -63,23 +57,14 @@ public class MonitoredChannelController {
     /**
      * 開始予定時刻の早い順に配信予定の一覧を返す。
      *
-     * <p>返すのは開始予定が「今から 7 日後」（{@code UPCOMING_WINDOW}）より前の予定だけ。
-     * 何か月も先のフリーチャット枠などが並ぶと、直近の予定が埋もれるため。
-     * 開始予定を過ぎてもまだ始まっていない待機所（遅れている配信）は、すぐ始まる可能性が高いので含める。
-     * 開始予定時刻を取得できなかった予定は、範囲内か判断できないので除く。
+     * <p>どの予定を返すか（直近 7 日以内など）は {@link UpcomingStreamResponse#listWithinWindow} が決める。
+     * 利用者向けの {@code GET /api/my/upcoming} と選び方をそろえるため。
      *
      * @return 配信予定の一覧
      */
     @GetMapping("/upcoming")
     public List<UpcomingStreamResponse> listUpcomingStreams() {
-        LocalDateTime windowEnd = LocalDateTime.now().plus(UPCOMING_WINDOW);
-        return monitoredChannelService.findAll().stream()
-                .filter(channel -> channel.getUpcomingVideoId() != null)
-                .filter(channel -> channel.getUpcomingScheduledStartTime() != null
-                        && channel.getUpcomingScheduledStartTime().isBefore(windowEnd))
-                .map(UpcomingStreamResponse::from)
-                .sorted(Comparator.comparing(UpcomingStreamResponse::scheduledStartTime))
-                .toList();
+        return UpcomingStreamResponse.listWithinWindow(monitoredChannelService.findAll());
     }
 
     /**
