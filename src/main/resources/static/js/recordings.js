@@ -204,7 +204,12 @@
         }
     });
 
-    loadChannelOptions();
-    loadRecordings();
+    loadChannelOptions().then(() => {
+        // チャンネル一覧から名前で移ってきたときは、そのチャンネルで絞り込んだ状態で開く
+        const channelId = queryParam("channelId");
+        const select = selectEl("channelFilter");
+        if (channelId && Array.from(select.options).some(o => o.value === channelId)) select.value = channelId;
+        loadRecordings();
+    });
     loadDiskUsage();
 })();

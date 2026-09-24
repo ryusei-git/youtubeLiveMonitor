@@ -84,17 +84,15 @@ async function loadChannels() {
         const channels = await apiGet("/api/channels");
         const tbody = query("#channelTable tbody");
         tbody.innerHTML = "";
-        for (const ch of channels) {
+        for (const [index, ch] of channels.entries()) {
             const tr = document.createElement("tr");
             tr.innerHTML = `
-                <td>${escapeHtml(ch.platformLabel)}</td>
-                <td class="revealable" title="クリックでチャンネルIDを表示">${escapeHtml(ch.channelName)}</td>
+                <td>${index + 1}</td>
+                <td class="revealable" title="クリックでチャンネルIDを表示">${escapeHtml(ch.platformLabel)}</td>
+                <td><a href="/recordings.html?channelId=${ch.id}">${escapeHtml(ch.channelName)}</a></td>
                 <td>${channelStateLabel(ch)}</td>
                 <td><button class="recordBtn" data-id="${ch.id}" data-enabled="${ch.recordEnabled}">${ch.recordEnabled ? "自動録画：有効" : "自動録画：無効"}</button></td>
                 <td class="titleFilterCell">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
-                <td>${datetimeCell(ch.lastCheckedAt)}</td>
-                <td>${videoLink(ch.lastNotifiedVideoId)}</td>
-                <td>${ch.id}</td>
                 <td><button data-id="${ch.id}" class="removeBtn">削除</button></td>
             `;
             // 列を足したときにずれないよう、位置ではなくクラスで対象を選ぶ
@@ -108,7 +106,6 @@ async function loadChannels() {
             });
             tbody.appendChild(tr);
         }
-        bindDatetimeCells(tbody);
         for (const btn of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(".removeBtn"))) {
             btn.addEventListener("click", async () => {
                 if (!confirm("削除しますか？（通知履歴・録画ログも一緒に削除されます）")) return;
