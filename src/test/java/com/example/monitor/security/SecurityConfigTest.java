@@ -13,9 +13,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders;
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.RequestBuilder;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -132,6 +135,46 @@ class SecurityConfigTest {
             mockMvc.perform(SecurityMockMvcRequestBuilders.logout("/api/auth/logout"))
                     .andExpect(status().is3xxRedirection())
                     .andExpect(header().string("Location", "/login.html?logout"));
+        }
+    }
+
+    @Nested
+    @DisplayName("ログイン試行制限")
+    class LoginAttemptLimit {
+        @Test
+        @DisplayName("異常系：実在・非実在の利用者を同じ429応答で拒否する")
+        void testMethod01() throws Exception {
+            String known = "limit-test-existing";
+            appUserRepository.save(new AppUser(known, passwordEncoder.encode("correct-password"), Role.USER));
+
+            for (int index = 0; index < 5; index++) {
+                assertThat(failedLogin(known, "198.51.100.240").getStatus()).isEqualTo(302);
+                assertThat(failedLogin("limit-test-missing", "198.51.100.241").getStatus()).isEqualTo(302);
+            }
+
+            MockHttpServletResponse knownResponse = failedLogin(known, "198.51.100.240");
+            MockHttpServletResponse missingResponse = failedLogin("limit-test-missing", "198.51.100.241");
+            assertThat(knownResponse.getStatus()).isEqualTo(429);
+            assertThat(missingResponse.getStatus()).isEqualTo(429);
+            assertThat(missingResponse.getHeader("Retry-After"))
+                    .isEqualTo(knownResponse.getHeader("Retry-After"));
+            assertThat(missingResponse.getContentAsString())
+                    .isEqualTo(knownResponse.getContentAsString());
+        }
+
+        private MockHttpServletResponse failedLogin(String username, String address) throws Exception {
+            RequestBuilder form = SecurityMockMvcRequestBuilders.formLogin("/api/auth/login")
+                    .user(username).password("wrong-password");
+            return mockMvc.perform(context -> {
+                        var request = form.buildRequest(context);
+                        // MockMvc は既定でパスを pathInfo に置くが、実際のサーブレットでは servletPath に入る。
+                        request.setServletPath("/api/auth/login");
+                        request.setPathInfo(null);
+                        request.setRemoteAddr(address);
+                        request.addHeader("X-Forwarded-For", "203.0.113.99");
+                        return request;
+                    })
+                    .andReturn().getResponse();
         }
     }
 
