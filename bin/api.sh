@@ -25,11 +25,13 @@ trap 'rm -f "$JAR"' EXIT
 
 csrf() { awk '/XSRF-TOKEN/ {print $7}' "$JAR"; }
 
-# トークンを載せた Cookie を発行させてからログインする
-curl -sc "$JAR" -o /dev/null "$BASE/login.html"
+# トークンを載せた Cookie を発行させてからログインする。
+# 管理者は portal=admin（管理者用のログイン画面から来た印）が無いとログインを拒まれる（#62）
+curl -sc "$JAR" -o /dev/null "$BASE/admin-login.html"
 curl -sc "$JAR" -b "$JAR" -o /dev/null -X POST "$BASE/api/auth/login" \
     --data-urlencode "username=$ADMIN_USERNAME" \
     --data-urlencode "password=$ADMIN_PASSWORD" \
+    --data-urlencode "portal=admin" \
     --data-urlencode "_csrf=$(csrf)"
 
 # ログイン後はトークンが変わる
