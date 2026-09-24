@@ -5,8 +5,7 @@ import com.example.monitor.util.EpochTimeConverter;
 import com.example.monitor.util.YouTubeWatchUrl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
+import org.jsoup.parser.Parser;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -58,6 +57,14 @@ import java.util.regex.Pattern;
  * （{@link com.example.monitor.entity.MonitoredChannel#matchesFilter(String, String)}）ために
  * 使う。YouTube Data API の {@code videos.list}（クォータ1消費）でも取得できるが、
  * 毎サイクル呼ぶにはクォータが厳しいため、こちらを優先している。
+ *
+ * <h2>HTML は DOM にせず、3 つのタグだけを正規表現で読む</h2>
+ * 応答は 1 件 1.2〜1.5MB あり、大半は使わない埋め込みのスクリプト。DOM を作ると、その全体を
+ * 5 分ごとにチャンネルの数だけオブジェクトにして捨てることになる（#184）。使うのは canonical・
+ * {@code <meta name="title">}・{@code og:image} の 3 つだけなので、YouTube が出力している
+ * 属性の並び（{@code <link rel="canonical" href="...">} など）のまま正規表現で読む。
+ * 並びが変わって読めなくなっても、canonical が読めなければ「判定できなかった」になり、
+ * タイトルとアイコンは欠けるだけなので、誤って通知を飛ばす側には倒れない。
  */
 @Component
 @RequiredArgsConstructor
@@ -66,6 +73,16 @@ public class LiveStreamDetector {
 
     /** 配信中かどうかを調べるためのチャンネル別 URL。{@code %s} にチャンネル ID が入る。 */
     private static final String LIVE_PAGE_URL_TEMPLATE = "https://www.youtube.com/channel/%s/live";
+
+    /** 配信中かどうかと動画 ID を決める canonical の URL。 */
+    private static final Pattern CANONICAL_LINK = Pattern.compile("<link\\s+rel=\"canonical\"\\s+href=\"([^\"]*)\"");
+
+    /** 配信タイトル（動画ページのときだけある）。 */
+    private static final Pattern TITLE_META = Pattern.compile("<meta\\s+name=\"title\"\\s+content=\"([^\"]*)\"");
+
+    /** 配信していないとき（チャンネルページが返る）のチャンネルのアイコン。 */
+    private static final Pattern OG_IMAGE_META =
+            Pattern.compile("<meta\\s+property=\"og:image\"\\s+content=\"([^\"]*)\"");
 
     /** canonical URL から動画 ID（11 文字固定）を抜き出す正規表現。 */
     private static final Pattern VIDEO_ID_IN_URL = Pattern.compile("[?&]v=([a-zA-Z0-9_-]{11})");
@@ -144,8 +161,7 @@ public class LiveStreamDetector {
      * @return 配信中／配信していない／解析できなかった、のいずれかを表す結果
      */
     private LiveStreamDetection extractDetection(String html, String youtubeChannelId) {
-        Document document = Jsoup.parse(html);
-        String canonicalUrl = document.select("link[rel=canonical]").attr("href");
+        String canonicalUrl = readAttribute(CANONICAL_LINK, html);
 
         if (canonicalUrl.isBlank()) {
             // 構造が変わって解析できなくなった可能性があるので、「配信していない」ではなく判定失敗として扱う
@@ -158,8 +174,7 @@ public class LiveStreamDetector {
         if (!matcher.find()) {
             log.debug("配信していません: channel={}", youtubeChannelId);
             // 配信していないときはチャンネルページが返るので、og:image がチャンネルのアイコンになる
-            return LiveStreamDetection.notLive().withChannelIcon(
-                    normalizeIconUrl(document.select("meta[property=og:image]").attr("content")));
+            return LiveStreamDetection.notLive().withChannelIcon(normalizeIconUrl(readAttribute(OG_IMAGE_META, html)));
         }
 
         String videoId = matcher.group(1);
@@ -176,19 +191,37 @@ public class LiveStreamDetector {
                 log.warn("待機所の開始予定時刻が見つかりません。YouTube 側の HTML 構造が変わった可能性があります: channel={}, video={}",
                         youtubeChannelId, videoId);
             }
-            String title = document.select("meta[name=title]").attr("content");
+            String title = readAttribute(TITLE_META, html);
             log.debug("配信はまだ開始していません（待機所）: channel={}, video={}, scheduledStartTime={}",
                     youtubeChannelId, videoId, scheduledStartTime);
             return LiveStreamDetection.upcoming(videoId, title.isBlank() ? null : title,
                     YouTubeWatchUrl.of(videoId), scheduledStartTime).withChannelIcon(channelIconUrl);
         }
 
-        String title = document.select("meta[name=title]").attr("content");
+        String title = readAttribute(TITLE_META, html);
         log.debug("配信中を検知しました: channel={}, video={}", youtubeChannelId, videoId);
         // カテゴリは null。YouTube には配信ごとにカテゴリを申告する項目が無い
         return LiveStreamDetection.live(
                 videoId, title.isBlank() ? null : title, null, YouTubeWatchUrl.of(videoId))
                 .withChannelIcon(channelIconUrl);
+    }
+
+    /**
+     * タグの属性値を、文字参照（{@code &amp;} など）を戻して読む。
+     *
+     * <p>戻すのは、YouTube がタイトルの {@code &} や {@code "} を {@code &amp;}・{@code &quot;} と
+     * 書いて返すため（戻さないと通知や絞り込みにそのまま渡る）。{@code unescapeEntities} の第 2 引数を
+     * {@code true} にするのは、属性値の規則（{@code ;} の無い {@code &amp=} などは戻さない）に合わせ、
+     * HTML パーサーが属性値を読んだときと同じ文字列にするため。見つからないときに {@code null} ではなく
+     * 空文字を返すのは、「タグが無い」と「値が空」をどちらも呼び出し側の {@code isBlank()} で同じに扱うため。
+     *
+     * @param tag  値を {@code group(1)} に取る、タグの正規表現
+     * @param html ライブページのレスポンス本文
+     * @return 属性値。タグが見つからなければ空文字
+     */
+    private static String readAttribute(Pattern tag, String html) {
+        Matcher matcher = tag.matcher(html);
+        return matcher.find() ? Parser.unescapeEntities(matcher.group(1), true) : "";
     }
 
     /**
