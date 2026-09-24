@@ -1003,22 +1003,22 @@ const userNavigation = [
     ["/my-recordings.html", "録画"]
 ];
 
-/** @type {Record<string, [string, string]>} */
+/** @type {Record<string, string>} 画面ごとのメニューアイコン（SVG の path）。 */
 const studioPages = {
-    "videos.html": ["", "M4 5h16v14H4z M10 9l5 3-5 3z"],
-    "index.html": ["配信の状況と録画の動きを、ここから確認できます。", "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z"],
-    "channels.html": ["お気に入りの配信者を登録して、通知・録画の条件を管理。", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6"],
-    "recordings.html": ["見たい配信を見つけて、好きなときに再生。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
-    "notifications.html": ["配信開始の通知と、送信結果を確認できます。", "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4"],
-    "logs.html": ["チャンネルやログレベルを絞って、動作状況を確認。", "M5 3h14v18H5z M8 7h8 M8 11h8 M8 15h5"],
-    "audit.html": ["認証手続きと状態変更操作の証跡を、期間や操作者で絞り込んで確認。", "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4"],
-    "tables.html": ["データの内容を確認・編集する管理者向けの画面です。", "M3 4h18v16H3z M3 9h18 M9 9v11"],
-    "playground.html": ["APIのリクエストと応答を確認する診断ツール。", "M8 5l-6 7 6 7 M16 5l6 7-6 7 M14 3l-4 18"],
-    "users.html": ["", "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6"],
-    "invitations.html": ["招待リンクを発行して、サービスを共有できます。", "M3 5h18v14H3z M3 5l9 7 9-7"],
-    "my-channels.html": ["フォローしている配信者と、自分の録画設定。", "M4 4h16v16H4z M8 9h8 M8 14h5"],
-    "my-recordings.html": ["フォロー中のチャンネルの録画を、まとめて楽しむ。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
-    "player.html": ["保存した配信を再生。関連する録画もここから。", "M4 5h16v14H4z M10 9l5 3-5 3z"],
+    "videos.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
+    "index.html": "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+    "channels.html": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6",
+    "recordings.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
+    "notifications.html": "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
+    "logs.html": "M5 3h14v18H5z M8 7h8 M8 11h8 M8 15h5",
+    "audit.html": "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4",
+    "tables.html": "M3 4h18v16H3z M3 9h18 M9 9v11",
+    "playground.html": "M8 5l-6 7 6 7 M16 5l6 7-6 7 M14 3l-4 18",
+    "users.html": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6",
+    "invitations.html": "M3 5h18v14H3z M3 5l9 7 9-7",
+    "my-channels.html": "M4 4h16v16H4z M8 9h8 M8 14h5",
+    "my-recordings.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
+    "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
 };
 
 /**
@@ -1060,7 +1060,7 @@ function renderNavigationForViewer(admin) {
 function decorateStudioNavigation() {
     document.querySelectorAll(".globalnav a").forEach((link) => {
         const path = (link.getAttribute("href") || "").split("/").pop() || "";
-        const icon = studioPages[path]?.[1] || "M9 4H4v16h5 M13 8l4 4-4 4 M8 12h13";
+        const icon = studioPages[path] || "M9 4H4v16h5 M13 8l4 4-4 4 M8 12h13";
         if (!link.querySelector(".navIcon")) link.insertAdjacentHTML("afterbegin", `<svg class="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="${icon}"/></svg>`);
         if (link.classList.contains("active")) link.setAttribute("aria-current", "page");
     });
@@ -1091,14 +1091,6 @@ function initStudioShell() {
         skip.href = "#mainContent";
         skip.textContent = "本文へ移動";
         document.body.prepend(skip);
-        const heading = main.querySelector("h1");
-        const description = studioPages[location.pathname.split("/").pop() || "index.html"]?.[0];
-        if (heading && description) {
-            const note = document.createElement("p");
-            note.className = "pageDescription";
-            note.textContent = description;
-            (heading.closest(".pageHead") || heading).after(note);
-        }
     }
     // プレースホルダーが消えた後も、支援技術から入力の目的を確認できるようにする。
     document.querySelectorAll("input[placeholder], select").forEach((control) => {
