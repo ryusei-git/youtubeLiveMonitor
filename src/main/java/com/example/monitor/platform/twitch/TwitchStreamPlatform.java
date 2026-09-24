@@ -90,16 +90,25 @@ public class TwitchStreamPlatform extends AbstractStreamPlatform {
      * <p>ログイン名のまま保存すると改名でサイレント故障するため、ここで必ず ID に変換する
      * （このクラスの JavaDoc 参照）。
      *
-     * <p><b>数値のユーザー ID も受け付ける。</b>チャンネル一覧（管理画面・CLI の {@code channel list}）には
-     * 保存したユーザー ID が出ているため、それを貼って登録・購読されうる。
-     * ただし<b>ログイン名として探すのが先</b>。数字だけのログイン名もありうるため、ID として先に探すと
-     * 利用者が意図したチャンネルではなく、たまたまその数値を ID に持つ別人に当たる恐れがある。
-     * その代わり、貼った ID と同じ数字をログイン名に持つ別人がいると、そちらに解決される
-     * （2026-09 に実機で確認：有名配信者の ID の 1 つが、同じ数字のログイン名の別アカウントに当たった）。
+     * <p><b>数字だけの入力は、ログイン名とユーザー ID の両方として探す。</b>チャンネル一覧
+     * （管理画面・CLI の {@code channel list}）には保存したユーザー ID が出ているため、それを貼って
+     * 登録・購読されうる。一方で数字だけのログイン名も珍しくなく、<b>どちらを優先しても、
+     * 黙って別人に解決することがある</b>（2026-09 に実機で確認：xQc の ID {@code 71092938} は、
+     * {@code 71092938} というログイン名の別アカウントでもあった。ログイン名を優先すると ID を貼った
+     * 利用者がその別アカウントに、ID を優先するとそのログイン名を入れた利用者が xQc に解決される）。
+     * 別人を黙って購読させるのが一番まずいので、両方に当たって別のチャンネルだったら止めて、
+     * URL での指定を求める。案内する URL を ID で当たった方にしているのは、貼られた数字は
+     * 一覧の ID である可能性が高いため。
+     *
+     * <p><b>URL・{@code @} 付きの入力は、数字だけでもログイン名としてだけ探す。</b>Twitch の URL は
+     * ログイン名でしか開けないため、URL の中の名前は必ずログイン名を表す。曖昧なときに URL での
+     * 指定を案内しているのは、それが 1 つのチャンネルに決まる書き方だから（ここも両方として探すと、
+     * 数字だけのログイン名のチャンネルは URL でも登録できなくなる）。
      *
      * @param rawInput 利用者の入力（{@code https://www.twitch.tv/foo} / {@code foo} / {@code @foo} / {@code 12826}）
      * @return Twitch のユーザー ID（数値の文字列）
-     * @throws IllegalArgumentException 入力が空、またはそのチャンネルが存在しない場合
+     * @throws IllegalArgumentException 入力が空、そのチャンネルが存在しない、または数字だけの入力が
+     *                                  ログイン名と ID で別のチャンネルに当たった場合
      */
     @Override
     public String normalizeChannelInput(String rawInput) {
@@ -107,11 +116,19 @@ public class TwitchStreamPlatform extends AbstractStreamPlatform {
             throw new IllegalArgumentException("Twitch のチャンネル名またはURLを入力してください");
         }
 
-        String login = extractLogin(rawInput.trim());
-        return twitchApiClient.findUserByLogin(login)
-                .or(() -> isUserIdInRange(login)
-                        ? twitchApiClient.findUsersByIds(List.of(login)).stream().findFirst()
-                        : Optional.empty())
+        String input = rawInput.trim();
+        String login = extractLogin(input);
+        Optional<TwitchUser> byLogin = twitchApiClient.findUserByLogin(login);
+        Optional<TwitchUser> byId = isUserIdInRange(input)
+                ? twitchApiClient.findUsersByIds(List.of(input)).stream().findFirst()
+                : Optional.empty();
+
+        if (byLogin.isPresent() && byId.isPresent() && !byLogin.get().id().equals(byId.get().id())) {
+            throw new IllegalArgumentException("「" + input + "」は Twitch のログイン名と ID の両方で、"
+                    + "別のチャンネルに当たります。チャンネルの URL（https://www.twitch.tv/"
+                    + byId.get().login() + "）で指定してください");
+        }
+        return byLogin.or(() -> byId)
                 .map(TwitchUser::id)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Twitch にそのチャンネルが見つかりませんでした: " + login));
@@ -275,10 +292,10 @@ public class TwitchStreamPlatform extends AbstractStreamPlatform {
      * <p>数字だけでも、Twitch は 32 ビット整数に収まらない ID を受け付けず HTTP 400 を返す
      * （2026-09 に実機で確認：{@code 2147483639} は「該当なし」、{@code 2147483659} は 400）。
      * そのまま問い合わせると、存在しないだけの入力が「見つかりませんでした」ではなく
-     * サーバーエラーになるため、収まらない値は問い合わせずに「見つからない」側へ倒す。
+     * サーバーエラーになるため、収まらない値は ID としては問い合わせない（ログイン名としてだけ探す）。
      * Twitch がこの上限を超える ID を発行・受け付けるようになったら、この判定を見直すこと。
      *
-     * @param input {@link #extractLogin} で取り出した入力
+     * @param input 前後の空白を落とした利用者の入力（URL や {@code @} 付きなら数字だけにならない）
      * @return 32 ビット整数に収まる数字だけの値なら {@code true}
      */
     private static boolean isUserIdInRange(String input) {
