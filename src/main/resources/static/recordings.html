@@ -49,6 +49,19 @@
       <option value="RECORDING">録画中</option>
       <option value="FAILED">失敗</option>
     </select>
+    <select id="genreFilter" aria-label="ジャンル"><option value="">すべてのジャンル</option></select>
+    <label>期間 <input type="date" id="fromFilter" aria-label="期間の開始日"> 〜 <input type="date" id="toFilter" aria-label="期間の終了日"></label>
+    <select id="sortFilter" aria-label="並び順">
+      <option value="newest">新しい順</option>
+      <option value="oldest">古い順</option>
+      <option value="longest">長い順</option>
+      <option value="largest">サイズが大きい順</option>
+    </select>
+    <select id="sizeFilter" aria-label="表示件数">
+      <option value="24">24件ずつ</option>
+      <option value="48">48件ずつ</option>
+      <option value="96">96件ずつ</option>
+    </select>
     <button type="submit">検索</button>
     <button type="button" id="resetBtn">条件をクリア</button>
   </form>
@@ -56,11 +69,11 @@
   <p id="resultSummary" class="muted"></p>
   <div class="videoGrid" id="videoGrid"></div>
 
-  <div class="inline">
+  <nav class="inline" aria-label="ページ送り">
     <button id="prevBtn">前へ</button>
-    <span id="pageInfo" class="muted"></span>
+    <span id="pageNumbers" style="display:contents"></span>
     <button id="nextBtn">次へ</button>
-  </div>
+  </nav>
   <details class="utilityPanel" id="recordingTools">
     <summary>動画URLから追加・保存容量の管理</summary>
   <h2>URLを指定してダウンロード <span class="hint" title="YouTube（youtube.com / youtu.be、Shorts可）と Twitch の動画URLに対応しています。ダウンロードした動画は下の録画一覧にそのまま並びます。監視対象に登録していないチャンネルの動画も取り込めます（その場合チャンネル欄は「(未登録チャンネル)」になります）。">ⓘ</span></h2>
