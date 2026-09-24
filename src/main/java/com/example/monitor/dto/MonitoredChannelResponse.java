@@ -2,6 +2,7 @@ package com.example.monitor.dto;
 
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.platform.Platform;
+import com.example.monitor.util.StreamLinkUtils;
 
 import java.time.LocalDateTime;
 
@@ -30,6 +31,7 @@ import java.time.LocalDateTime;
  * @param createdAt           監視対象として登録した時刻
  * @param recordingCount      再生できる録画の件数（状態が {@code COMPLETED} と {@code PARTIAL} のもの）。
  *                            録画中・失敗は見られる録画ではないため数えない
+ * @param channelUrl          チャンネルページの URL。Twitch のように ID から組み立てられない場合は {@code null}
  */
 public record MonitoredChannelResponse(
         Long id,
@@ -47,7 +49,8 @@ public record MonitoredChannelResponse(
         int consecutiveDetectionFailures,
         LocalDateTime lastDetectionSuccessAt,
         LocalDateTime createdAt,
-        long recordingCount
+        long recordingCount,
+        String channelUrl
 ) {
 
     /**
@@ -86,7 +89,8 @@ public record MonitoredChannelResponse(
                 channel.getConsecutiveDetectionFailures(),
                 channel.getLastDetectionSuccessAt(),
                 channel.getCreatedAt(),
-                recordingCount
+                recordingCount,
+                StreamLinkUtils.channelUrl(channel.getPlatform(), channel.getYoutubeChannelId())
         );
     }
 }
