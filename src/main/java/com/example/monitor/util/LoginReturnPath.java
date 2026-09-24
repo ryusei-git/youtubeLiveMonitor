@@ -8,9 +8,19 @@ public final class LoginReturnPath {
     private static final Set<String> USER_PAGES = Set.of("/videos.html", "/my-channels.html", "/my-recordings.html");
     private static final Set<String> ADMIN_PAGES = Set.of("/", "/index.html", "/channels.html",
             "/recordings.html", "/player.html", "/notifications.html", "/users.html",
-            "/invitations.html", "/logs.html", "/tables.html", "/playground.html");
+            "/invitations.html", "/logs.html", "/tables.html", "/playground.html", "/audit.html");
 
     private LoginReturnPath() { }
+
+    /**
+     * 未ログインで開かれた画面に合わせてログイン画面を選ぶために使う。
+     * 管理者の画面から利用者用のログイン画面へ送ると、そこからは管理者がログインできないため。
+     * @param path 開かれた画面のパス
+     * @return 管理者専用の画面なら true
+     */
+    public static boolean isAdminPage(String path) {
+        return ADMIN_PAGES.contains(path);
+    }
 
     /**
      * パラメーターは利用者が自由に変更できるため、サーバーでも復帰可能な画面を照合する。
