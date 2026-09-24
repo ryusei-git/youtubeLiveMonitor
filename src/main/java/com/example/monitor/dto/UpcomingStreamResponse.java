@@ -2,6 +2,7 @@ package com.example.monitor.dto;
 
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.platform.Platform;
+import com.example.monitor.util.StreamLinkUtils;
 import com.example.monitor.util.TitleGenreExtractor;
 import com.example.monitor.util.YouTubeWatchUrl;
 
@@ -23,6 +24,7 @@ import java.time.LocalDateTime;
  * @param watchUrl 配信予定の視聴 URL
  * @param genre タイトルの最初の {@code 【】} から求めたジャンル。求められない場合は {@code null}
  * @param channelIconUrl チャンネルのアイコン URL。まだ読み取れていない場合は {@code null}
+ * @param channelUrl チャンネルページの URL。組み立てられない（YouTube 以外）場合は {@code null}
  */
 public record UpcomingStreamResponse(
         Long channelId,
@@ -34,7 +36,8 @@ public record UpcomingStreamResponse(
         LocalDateTime scheduledStartTime,
         String watchUrl,
         String genre,
-        String channelIconUrl
+        String channelIconUrl,
+        String channelUrl
 ) {
 
     /**
@@ -57,6 +60,7 @@ public record UpcomingStreamResponse(
                 channel.getUpcomingScheduledStartTime(),
                 YouTubeWatchUrl.of(channel.getUpcomingVideoId()),
                 TitleGenreExtractor.extract(channel.getUpcomingTitle()),
-                channel.getChannelIconUrl());
+                channel.getChannelIconUrl(),
+                StreamLinkUtils.channelUrl(channel.getPlatform(), channel.getYoutubeChannelId()));
     }
 }
