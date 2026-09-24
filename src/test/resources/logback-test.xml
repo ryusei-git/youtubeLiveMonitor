@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    テスト用のログ設定。Spring Boot は logback-spring.xml より先にこのファイルを使い、
+    Spring を起動しないテストでも Logback 自身がこれを読む。テストのクラスパスにだけ置くこと
+    （src/main/resources に移すと本番でも logback-spring.xml より優先され、チャンネル別のログが出なくなる）。
+
+    本番の logback-spring.xml をテストで使わないのは、チャンネル別のファイル出力
+    （logs/channels/{チャンネルID}.log）が作業ディレクトリに書き込まれるため。本番の場所で
+    ./gradlew build すると、本番の logs/channels/ に UCxxxxxxxx.log などテストのチャンネルの
+    ファイルができ、システムログにもテストの失敗系の行とスタックトレースが混ざっていた（#187）。
+
+    ルートを WARN にするのは、テストが大量に出す INFO/DEBUG で、落ちたテストの手がかりが
+    埋もれないようにするため。
+-->
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="WARN">
+        <appender-ref ref="CONSOLE" />
+    </root>
+</configuration>
