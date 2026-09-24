@@ -61,7 +61,7 @@ class ActiveAppUserFilterTest {
             filter.doFilter(request("/my-channels.html"), response, countingChain(new AtomicInteger()));
 
             assertThat(response.getStatus()).isEqualTo(302);
-            assertThat(response.getRedirectedUrl()).isEqualTo("/login.html");
+            assertThat(response.getRedirectedUrl()).isEqualTo("/userLogin.html");
         }
 
         @Test

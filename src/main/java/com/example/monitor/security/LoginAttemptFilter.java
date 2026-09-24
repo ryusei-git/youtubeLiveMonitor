@@ -33,7 +33,7 @@ public class LoginAttemptFilter extends OncePerRequestFilter {
             response.setHeader("Cache-Control", "no-store");
             response.setContentType("text/html;charset=UTF-8");
             // 管理者用の画面から来たなら管理者用のログイン画面へ戻す
-            String loginPage = PortalAwareAuthenticationProvider.isAdminPortal(request) ? "/admin-login.html" : "/login.html";
+            String loginPage = PortalAwareAuthenticationProvider.isAdminPortal(request) ? "/adminLogin.html" : "/userLogin.html";
             response.getWriter().write("""
                     <!doctype html><html lang="ja"><head><meta charset="UTF-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1">

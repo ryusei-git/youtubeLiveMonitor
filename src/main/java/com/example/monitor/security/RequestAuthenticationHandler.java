@@ -38,7 +38,7 @@ public class RequestAuthenticationHandler implements AuthenticationEntryPoint, A
             writeError(response, 401, "ログインし直してください");
         } else {
             // 管理者の画面からは管理者用のログイン画面へ送る。利用者用の画面からは管理者はログインできないため
-            String loginPage = LoginReturnPath.isAdminPage(request.getServletPath()) ? "/admin-login.html" : "/login.html";
+            String loginPage = LoginReturnPath.isAdminPage(request.getServletPath()) ? "/adminLogin.html" : "/userLogin.html";
             new LoginUrlAuthenticationEntryPoint(loginPage).commence(request, response, exception);
         }
     }

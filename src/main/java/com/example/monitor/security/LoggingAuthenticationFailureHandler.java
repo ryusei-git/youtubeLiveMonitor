@@ -39,11 +39,11 @@ import java.io.IOException;
 @Slf4j
 public class LoggingAuthenticationFailureHandler extends SimpleUrlAuthenticationFailureHandler {
 
-    /** 失敗時に戻す先。{@code login.html} 側がこのクエリパラメータの有無でエラー表示を出す。 */
-    private static final String FAILURE_URL = "/login.html?error";
+    /** 失敗時に戻す先。{@code userLogin.html} 側がこのクエリパラメータの有無でエラー表示を出す。 */
+    private static final String FAILURE_URL = "/userLogin.html?error";
 
     /** 管理者用の画面から来たときに戻す先。 */
-    private static final String ADMIN_FAILURE_URL = "/admin-login.html?error";
+    private static final String ADMIN_FAILURE_URL = "/adminLogin.html?error";
 
     private final AuditLogger auditLogger;
 
