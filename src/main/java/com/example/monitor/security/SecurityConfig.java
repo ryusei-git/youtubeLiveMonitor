@@ -189,6 +189,9 @@ public class SecurityConfig {
                 // ここから下は段階4で追加したユーザー画面まわり。
                 // 「自分の購読」は一般利用者の機能なので ADMIN 限定にはしない
                 .requestMatchers("/my-channels.html", "/my-recordings.html", "/api/my/**").authenticated()
+                // 再生画面は利用者も使う。見られる録画は /api/my/recordings/{id} と
+                // 録画ファイルの権限確認（購読しているぶんだけ）で絞られるので、画面自体は開いてよい
+                .requestMatchers("/player.html").authenticated()
                 // プラットフォームの選択肢はユーザー画面の登録フォームでも使う
                 .requestMatchers("/api/platforms/**").authenticated()
                 // 管理者向けの画面と API。以前は anyRequest().authenticated() に落ちていたため、
@@ -197,7 +200,7 @@ public class SecurityConfig {
                 .requestMatchers("/users.html", "/api/admin/users/**").hasRole("ADMIN")
                 .requestMatchers("/channels.html", "/api/channels/**").hasRole("ADMIN")
                 .requestMatchers("/notifications.html", "/api/notifications/**").hasRole("ADMIN")
-                .requestMatchers("/recordings.html", "/player.html").hasRole("ADMIN")
+                .requestMatchers("/recordings.html").hasRole("ADMIN")
                 .requestMatchers("/api/recordings/**", "/api/downloads/**").hasRole("ADMIN")
                 // 録画ファイルは「管理者は全部、一般利用者は購読しているチャンネルのぶんだけ」。
                 // 誰がどれを購読しているかを見ないと決まらないので、静的なルールでは表せない

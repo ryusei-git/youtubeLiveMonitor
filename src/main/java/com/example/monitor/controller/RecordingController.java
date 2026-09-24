@@ -9,10 +9,10 @@ import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.entity.RecordingMark;
 import com.example.monitor.service.RecordingHistoryService;
+import com.example.monitor.util.RecordingSearchParams;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -86,8 +86,8 @@ public class RecordingController {
         if (from != null && to != null && from.isAfter(to)) {
             throw new IllegalArgumentException("期間の開始は終了以前にしてください");
         }
-        PageRequest pageRequest = PageRequest.of(page, size, toSort(sort));
-        Boolean watchedFilter = toWatchedFilter(watched);
+        PageRequest pageRequest = PageRequest.of(page, size, RecordingSearchParams.toSort(sort));
+        Boolean watchedFilter = RecordingSearchParams.toWatchedFilter(watched);
         String username = authentication.getName();
 
         Page<Recording> recordings = recordingHistoryService.search(
@@ -101,28 +101,6 @@ public class RecordingController {
     }
 
     /**
-     * 視聴状態の指定を検索条件に変える。
-     *
-     * <p>知らない値は無視せず 400 にする。並び順と同じく、黙って「絞らない」にすると
-     * URL と表示が食い違うため。
-     *
-     * @param watched {@code unwatched} / {@code watched} / {@code null}
-     * @return 視聴済みだけなら {@code true}、未視聴だけなら {@code false}、絞らないなら {@code null}
-     * @throws IllegalArgumentException 知らない値の場合（400）
-     */
-    private static Boolean toWatchedFilter(String watched) {
-        if (watched == null) {
-            return null;
-        }
-        return switch (watched) {
-            case "watched" -> true;
-            case "unwatched" -> false;
-            default -> throw new IllegalArgumentException(
-                    "watched は watched / unwatched のいずれかで指定してください: " + watched);
-        };
-    }
-
-    /**
      * ジャンルごとの録画件数を、件数の多い順に取得する。一覧画面のジャンル選択の選択肢に使う。
      *
      * @return ジャンルと件数の一覧（ジャンルの無い録画は含まない）
@@ -130,30 +108,6 @@ public class RecordingController {
     @GetMapping("/genres")
     public List<RecordingGenreCountResponse> getGenres() {
         return recordingHistoryService.countByGenre();
-    }
-
-    /**
-     * 並び順の名前を {@link Sort} に変える。
-     *
-     * <p>同じ値どうしの順番は開始時刻の新しい順 → 主キーの大きい順で決める。決めておかないと
-     * ページをまたいだときに同じ録画が 2 回出たり抜けたりする。
-     * 長さ・サイズが {@code null}（録画中・失敗）の録画は降順で末尾に来る。H2 は {@code null} を
-     * 最小値として並べるため（Spring Data の {@code nullsLast()} は {@code @Query} では効かない）。
-     *
-     * @param sort 並び順の名前
-     * @return 対応する並び順
-     * @throws IllegalArgumentException 知らない名前の場合（400）
-     */
-    private static Sort toSort(String sort) {
-        Sort newest = Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"));
-        return switch (sort) {
-            case "newest" -> newest;
-            case "oldest" -> Sort.by(Sort.Order.asc("startedAt"), Sort.Order.asc("id"));
-            case "longest" -> Sort.by(Sort.Order.desc("durationSeconds")).and(newest);
-            case "largest" -> Sort.by(Sort.Order.desc("fileSizeBytes")).and(newest);
-            default -> throw new IllegalArgumentException(
-                    "sort は newest / oldest / longest / largest のいずれかで指定してください: " + sort);
-        };
     }
 
     /**

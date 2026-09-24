@@ -45,33 +45,6 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
             java.util.Collection<MonitoredChannel> channels, Pageable pageable);
 
     /**
-     * 購読範囲と検索条件をページング前に適用し、件数にも同じ条件を反映する。
-     * チャンネルの指定だけで購読外の録画を取得できないよう、購読範囲は常に必須にする。
-     *
-     * @param channels 購読中のチャンネル
-     * @param channelId 選択中のチャンネル。未指定なら全購読チャンネル
-     * @param keyword タイトルの検索語。未指定なら絞り込まない
-     * @param playableOnly 再生可能な録画だけに絞るか
-     * @param pageable ページ指定
-     * @return 条件に一致する録画
-     */
-    @Query("""
-            SELECT r FROM Recording r
-             WHERE r.channel IN :channels
-               AND (:channelId IS NULL OR r.channel.id = :channelId)
-               AND (:keyword IS NULL OR LOWER(r.videoTitle) LIKE LOWER(CONCAT('%', :keyword, '%')))
-               AND (:playableOnly = false OR r.status IN (
-                   com.example.monitor.entity.Recording.RecordingStatus.COMPLETED,
-                   com.example.monitor.entity.Recording.RecordingStatus.PARTIAL))
-             ORDER BY r.startedAt DESC
-            """)
-    Page<Recording> searchSubscribed(@Param("channels") Collection<MonitoredChannel> channels,
-                                      @Param("channelId") Long channelId,
-                                      @Param("keyword") String keyword,
-                                      @Param("playableOnly") boolean playableOnly,
-                                      Pageable pageable);
-
-    /**
      * 録画履歴をチャンネル・キーワード・状態・期間・ジャンルで絞り込んで取得する。
      *
      * <p>キーワードは配信タイトルとチャンネル名のどちらかに部分一致すればよい
@@ -95,7 +68,16 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * 行の無い録画を「未視聴・お気に入りでない」として残すには外部結合でなければならない。
      * 結合条件に利用者を入れているので、他の利用者の印で行が増えることはない。
      *
+     * <p><b>購読の限定（{@code subscribedOnly}）は、利用者の画面と管理者の画面で同じクエリを使うために
+     * ここに足している。</b>利用者用に別のクエリを書くと、絞り込み条件を直すたびに 2 つを揃える必要が
+     * 出て、片方だけ直す事故の元になる（以前は {@code searchSubscribed} として別に持っていた）。
+     * 購読をページングの前に効かせるので、件数にも購読外の録画は数えられない。
+     * 購読が 0 件なら {@code EXISTS} が常に偽になり、空の結果になる。
+     * チャンネルに紐づかない録画（URL 指定のダウンロード）は {@code c} が {@code null} なので、
+     * 購読に限るときは出ない。
+     *
      * @param userId    印を見る利用者の主キー。{@code null} なら印は無いものとして扱う
+     * @param subscribedOnly {@code userId} の利用者が購読しているチャンネルの録画だけに絞るか
      * @param channelId 絞り込むチャンネルの主キー。{@code null} なら絞り込まない
      * @param keyword   検索キーワード。{@code null} なら絞り込まない
      * @param status    絞り込む状態。{@code null} なら絞り込まない
@@ -104,6 +86,7 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @param genre     ジャンル（完全一致）。{@code null} なら絞り込まない
      * @param watched   {@code true} なら視聴済みだけ、{@code false} なら未視聴だけ。{@code null} なら絞り込まない
      * @param favoriteOnly お気に入りだけに絞るか
+     * @param playableOnly 再生できる録画（完了・途中まで）だけに絞るか
      * @param pageable  ページ指定と並び順
      * @return 条件に一致する録画履歴
      */
@@ -111,7 +94,9 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
             SELECT r FROM Recording r
              LEFT JOIN r.channel c
              LEFT JOIN RecordingMark m ON m.recording = r AND m.user.id = :userId
-             WHERE (:channelId IS NULL OR c.id = :channelId)
+             WHERE (:subscribedOnly = FALSE OR EXISTS (
+                    SELECT s.id FROM UserSubscription s WHERE s.channel = c AND s.user.id = :userId))
+               AND (:channelId IS NULL OR c.id = :channelId)
                AND (:keyword IS NULL
                     OR LOWER(r.videoTitle) LIKE LOWER(CONCAT('%', :keyword, '%'))
                     OR LOWER(c.channelName) LIKE LOWER(CONCAT('%', :keyword, '%')))
@@ -123,8 +108,12 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
                     OR (:watched = TRUE AND m.watchedAt IS NOT NULL)
                     OR (:watched = FALSE AND m.watchedAt IS NULL))
                AND (:favoriteOnly = FALSE OR m.favorite = TRUE)
+               AND (:playableOnly = FALSE OR r.status IN (
+                    com.example.monitor.entity.Recording.RecordingStatus.COMPLETED,
+                    com.example.monitor.entity.Recording.RecordingStatus.PARTIAL))
             """)
     Page<Recording> search(@Param("userId") Long userId,
+                           @Param("subscribedOnly") boolean subscribedOnly,
                            @Param("channelId") Long channelId,
                            @Param("keyword") String keyword,
                            @Param("status") RecordingStatus status,
@@ -133,6 +122,7 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
                            @Param("genre") String genre,
                            @Param("watched") Boolean watched,
                            @Param("favoriteOnly") boolean favoriteOnly,
+                           @Param("playableOnly") boolean playableOnly,
                            Pageable pageable);
 
     /**
@@ -141,16 +131,22 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * <p>一覧画面のジャンル選択の選択肢に使う。選択肢を決め打ちにすると、録画が増えて
      * 新しいジャンルが現れても選べないため、実データから作る。ジャンルの無い録画は含めない。
      *
+     * <p>購読の限定は {@link #search} と同じ条件。利用者の画面に購読外のジャンル
+     * （＝購読外の録画があること）を出さないため。
+     *
+     * @param subscriberId 購読しているチャンネルの録画だけを数える利用者の主キー。{@code null} なら全録画
      * @return ジャンルと件数の一覧
      */
     @Query("""
             SELECT new com.example.monitor.dto.RecordingGenreCountResponse(r.genre, COUNT(r))
               FROM Recording r
              WHERE r.genre IS NOT NULL
+               AND (:subscriberId IS NULL OR EXISTS (
+                    SELECT s.id FROM UserSubscription s WHERE s.channel = r.channel AND s.user.id = :subscriberId))
              GROUP BY r.genre
              ORDER BY COUNT(r) DESC, r.genre ASC
             """)
-    List<RecordingGenreCountResponse> countByGenre();
+    List<RecordingGenreCountResponse> countByGenre(@Param("subscriberId") Long subscriberId);
 
     /**
      * ジャンルが未設定でタイトルのある録画を取得する。{@code genre} 列を足す前の行を埋めるのに使う

@@ -5,9 +5,10 @@ import java.util.Set;
 
 /** 再ログインの復帰先を画面だけに限定し、外部転送とAPIへの変更操作再送を防ぐ。 */
 public final class LoginReturnPath {
-    private static final Set<String> USER_PAGES = Set.of("/videos.html", "/my-channels.html", "/my-recordings.html");
+    private static final Set<String> USER_PAGES = Set.of("/videos.html", "/my-channels.html", "/my-recordings.html",
+            "/player.html");
     private static final Set<String> ADMIN_PAGES = Set.of("/", "/index.html", "/channels.html",
-            "/recordings.html", "/player.html", "/notifications.html", "/users.html",
+            "/recordings.html", "/notifications.html", "/users.html",
             "/invitations.html", "/logs.html", "/tables.html", "/audit.html");
 
     private LoginReturnPath() { }
