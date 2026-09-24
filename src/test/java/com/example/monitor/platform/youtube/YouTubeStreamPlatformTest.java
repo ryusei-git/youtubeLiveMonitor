@@ -272,7 +272,7 @@ class YouTubeStreamPlatformTest {
                     .build();
             when(youTubeApiClient.fetchLiveStreamDetails("video001")).thenReturn(Optional.of(details));
 
-            assertThat(platform.fetchDetails("video001").orElseThrow().getWatchUrl())
+            assertThat(platform.fetchDetails("UCchannel001", "video001").orElseThrow().getWatchUrl())
                     .isEqualTo("https://www.youtube.com/watch?v=video001");
         }
 
@@ -281,7 +281,7 @@ class YouTubeStreamPlatformTest {
         void testMethod02() {
             when(youTubeApiClient.fetchLiveStreamDetails("video001")).thenReturn(Optional.empty());
 
-            assertThat(platform.fetchDetails("video001")).isEmpty();
+            assertThat(platform.fetchDetails("UCchannel001", "video001")).isEmpty();
         }
     }
 }

@@ -138,7 +138,7 @@ gh api graphql -f query='{repository(owner:"ryusei-git",name:"youtubeLiveMonitor
 
 - ID が 2 種類ある
 - YouTube の「ハンドル」（`@foo`）は本来のチャンネルIDと別物
-- Twitch の `/helix/streams?id=` は一致しないと「人気配信トップ20」を返す（実際に発生した）
+- Twitch の `/helix/streams` は `id` に対応しておらず、`?id=` は常に無視されて人気配信の上位が返る（実際に発生した）
 - Twitch はログイン名ではなくユーザーIDで監視する
 - 視聴 URL は検知結果（`LiveStreamDetection.watchUrl`）が運ぶ
 - チャンネル登録は必ず `StreamPlatform.normalizeChannelInput()` を通す

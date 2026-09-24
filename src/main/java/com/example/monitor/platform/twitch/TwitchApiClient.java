@@ -111,39 +111,6 @@ public class TwitchApiClient {
     }
 
     /**
-     * 配信 ID から、その配信 1 件を引く。通知本文を組み立てるときに使う。
-     *
-     * <p>YouTube と違い、<b>この呼び出しはクォータを消費しない</b>ため、
-     * 検知時の情報を持ち回らずに取り直してよい。
-     *
-     * <p>配信が終わっていれば空になる。検知してから通知するまでの間に配信が
-     * 終わった場合がこれにあたる。
-     *
-     * <h4>応答の配信 ID を必ず照合すること</h4>
-     * <b>Twitch は一致しない {@code id} を黙って無視し、「人気配信トップ 20」の一覧を返す</b>
-     * （{@code ?id=1} でも {@code ?id=abc} でも、パラメータ無しと同じ応答になることを実機で確認）。
-     * 照合せずに先頭を採用すると、配信が終わった直後の通知で<b>まったく無関係な配信者の
-     * タイトル・サムネイル・URL を使って通知してしまう</b>。
-     *
-     * <p>なお同じ罠は {@link #fetchLiveStreams} の {@code user_id} には無い
-     * （一致しなければきちんと空が返る）。{@code id} だけの挙動なので見落としやすい。
-     *
-     * @param streamId 配信 ID
-     * @return 見つかった配信。終了済み・存在しない場合は {@link Optional#empty()}
-     * @throws IllegalStateException 設定が未完了、または問い合わせに失敗した場合
-     */
-    public Optional<TwitchStream> findStreamById(String streamId) {
-        JsonNode body = get(STREAMS_URL + "?id=" + encode(streamId));
-        for (JsonNode item : body.path("data")) {
-            if (streamId.equals(item.path("id").asText())) {
-                return Optional.of(toStream(item));
-            }
-        }
-        log.debug("指定した配信は見つかりませんでした（配信終了済みとみなします）: stream={}", streamId);
-        return Optional.empty();
-    }
-
-    /**
      * ログイン名からユーザー情報を引く。チャンネル登録時に、変更されうるログイン名を
      * 不変のユーザー ID へ解決するために使う。
      *

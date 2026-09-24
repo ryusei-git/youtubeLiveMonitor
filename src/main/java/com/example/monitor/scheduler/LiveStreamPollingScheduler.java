@@ -352,7 +352,7 @@ public class LiveStreamPollingScheduler {
 
         log.info("新しい配信を検知しました: name={}, video={}", channel.getChannelName(), videoId);
 
-        Optional<LiveStreamDetails> liveStream = platform.fetchDetails(videoId);
+        Optional<LiveStreamDetails> liveStream = platform.fetchDetails(channel.getYoutubeChannelId(), videoId);
         if (liveStream.isEmpty()) {
             // 詳細が取れないと通知本文を作れない。これも失敗として数え、際限なく試行しないようにする
             log.warn("配信の詳細情報を取得できなかったため、今回の通知を見送ります: video={}", videoId);
