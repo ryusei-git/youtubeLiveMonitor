@@ -4,6 +4,7 @@ import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
+import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.exception.ChannelAlreadyRegisteredException;
 import com.example.monitor.exception.ChannelNotFoundException;
 import com.example.monitor.platform.Platform;
@@ -11,6 +12,7 @@ import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
+import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +20,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 監視対象チャンネルの登録・削除・一覧取得をまとめて扱う。
@@ -36,6 +40,7 @@ public class MonitoredChannelService {
     private final ChannelLogReader channelLogReader;
     private final AppUserRepository appUserRepository;
     private final AuditLogger auditLogger;
+    private final RecordingRepository recordingRepository;
 
     /**
      * 登録済みの監視対象を全件返す。
@@ -44,6 +49,20 @@ public class MonitoredChannelService {
      */
     public List<MonitoredChannel> findAll() {
         return monitoredChannelRepository.findAll();
+    }
+
+    /**
+     * チャンネルごとの再生できる録画の件数を返す。
+     *
+     * <p>数えるのは {@code COMPLETED} と {@code PARTIAL}（途中で止まったが再生できるよう直したもの）。
+     * {@code RECORDING} は完成しておらず、{@code FAILED} は中身が無いため、利用者が見られる録画に含めない。
+     *
+     * @return チャンネルの主キーから件数への対応。録画が無いチャンネルは含まない
+     */
+    public Map<Long, Long> countPlayableRecordingsByChannel() {
+        return recordingRepository.countByChannel(List.of(RecordingStatus.COMPLETED, RecordingStatus.PARTIAL))
+                .stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
     }
 
     /**
