@@ -1,6 +1,9 @@
 package com.example.monitor.security;
 
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.repository.AppUserRepository;
+import com.example.monitor.service.AuditLogger;
 import com.example.monitor.util.LoginReturnPath;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import jakarta.servlet.ServletException;
@@ -18,7 +21,7 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 
 /**
- * ログイン成功時に、最終ログイン時刻の記録と権限に応じた遷移先の決定を行う。
+ * ログイン成功時に、最終ログイン時刻の記録・監査ログの記録・権限に応じた遷移先の決定を行う。
  *
  * <p>{@link SavedRequestAwareAuthenticationSuccessHandler} を継承しているのは、保護された
  * ページへの直接アクセスからログイン画面へ飛ばされた場合に、ログイン後元のページへ戻す
@@ -43,6 +46,7 @@ public class RoleBasedAuthenticationSuccessHandler extends SavedRequestAwareAuth
     private static final String NON_ADMIN_DEFAULT_TARGET = "/my-channels.html";
 
     private final AppUserRepository appUserRepository;
+    private final AuditLogger auditLogger;
 
     /**
      * ログイン成功時の処理。最終ログイン時刻を記録し、権限に応じた遷移先を設定してから
@@ -62,9 +66,15 @@ public class RoleBasedAuthenticationSuccessHandler extends SavedRequestAwareAuth
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch("ROLE_ADMIN"::equals);
 
-        appUserRepository.findByUsername(username)
-                .ifPresent(user -> appUserRepository.updateLastLoginAt(user.getId(), LocalDateTime.now()));
+        Long userId = appUserRepository.findByUsername(username)
+                .map(user -> {
+                    appUserRepository.updateLastLoginAt(user.getId(), LocalDateTime.now());
+                    return user.getId();
+                })
+                .orElse(null);
         log.info("ログインに成功しました: user={}", username);
+        auditLogger.recordAuthEvent(AuditAction.LOGIN_SUCCESS, AuditOutcome.SUCCESS,
+                userId, username, request.getRemoteAddr(), null);
 
         String returnTo = LoginReturnPath.validate(request.getParameter("returnTo"), isAdmin);
         if (returnTo != null) {

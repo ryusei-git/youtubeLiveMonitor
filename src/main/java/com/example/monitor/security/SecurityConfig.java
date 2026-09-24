@@ -133,7 +133,8 @@ public class SecurityConfig {
                                             RecordingFileAuthorizationManager recordingFileAuthorizationManager,
                                             AppUserRepository appUserRepository,
                                             LoginAttemptLimiter loginAttemptLimiter,
-                                            RequestAuthenticationHandler authenticationHandler)
+                                            RequestAuthenticationHandler authenticationHandler,
+                                            AuditLogoutHandler auditLogoutHandler)
             throws Exception {
         HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
         // APIの要求本文や変更操作を、再ログイン後の復帰要求として保存しない。
@@ -210,6 +211,7 @@ public class SecurityConfig {
                 .permitAll())
             .logout(logout -> logout
                 .logoutUrl("/api/auth/logout")
+                .addLogoutHandler(auditLogoutHandler)
                 .logoutSuccessUrl("/login.html?logout")
                 .permitAll());
         return http.build();

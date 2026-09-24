@@ -1,5 +1,8 @@
 package com.example.monitor.security;
 
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
+import com.example.monitor.service.AuditLogger;
 import com.example.monitor.util.LoginReturnPath;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -15,12 +18,21 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 
 /**
- * ログイン失敗を必ずアプリログに残したうえで、既定のリダイレクト処理に委譲する。
+ * ログイン失敗をアプリログと監査ログの両方に残したうえで、既定のリダイレクト処理に委譲する。
  *
  * <p>失敗の記録が漏れると総当たり攻撃などの兆候に気づけなくなる
  * （{@code GlobalExceptionHandler} が利用者操作の失敗を必ず WARN で残しているのと同じ理由）。
- * DB へ保存して画面から検索・集計できる監査ログは設計書の段階2で扱うため、
- * ここではアプリログ（ファイル）への記録に留める。
+ *
+ * <h2>存在しない利用者名でも同じ扱いにする</h2>
+ * {@link AuditLogger#recordAuthEvent} には常に {@code userId=null} を渡す。
+ * 実在する利用者かどうかで記録の仕方を変えると、監査ログの内容そのものから
+ * 利用者名の実在を推測できてしまう（{@code LoginAttemptLimiter} が実在・非実在を
+ * 同じ応答にしているのと同じ考え方。CLAUDE.md 参照）。
+ *
+ * <h2>ログイン制限中は記録されない</h2>
+ * {@code LoginAttemptFilter} が {@code UsernamePasswordAuthenticationFilter} より前段で
+ * 制限中のリクエストを 429 で打ち切るため、このハンドラ自体が呼ばれない。
+ * 総当たりが続いても監査ログの行数は際限なく増えない。
  */
 @Component
 @Profile("!cli")
@@ -30,8 +42,11 @@ public class LoggingAuthenticationFailureHandler extends SimpleUrlAuthentication
     /** 失敗時に戻す先。{@code login.html} 側がこのクエリパラメータの有無でエラー表示を出す。 */
     private static final String FAILURE_URL = "/login.html?error";
 
-    public LoggingAuthenticationFailureHandler() {
+    private final AuditLogger auditLogger;
+
+    public LoggingAuthenticationFailureHandler(AuditLogger auditLogger) {
         super(FAILURE_URL);
+        this.auditLogger = auditLogger;
     }
 
     /**
@@ -47,7 +62,12 @@ public class LoggingAuthenticationFailureHandler extends SimpleUrlAuthentication
     public void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response,
                                          AuthenticationException exception) throws IOException, ServletException {
         // パスワードそのものはログに残さない（usernameパラメータのみ参照する）
-        log.warn("ログインに失敗しました: user={}, reason={}", request.getParameter("username"), exception.getMessage());
+        String username = request.getParameter("username");
+        log.warn("ログインに失敗しました: user={}, reason={}", username, exception.getMessage());
+        // 存在しない利用者名でも同じ経路を通る。実在の有無を監査ログの有無から
+        // 読み取れてしまわないよう、userId は常に null のまま記録する
+        auditLogger.recordAuthEvent(AuditAction.LOGIN_FAILURE, AuditOutcome.FAILURE,
+                null, username, request.getRemoteAddr(), exception.getMessage());
         String returnTo = LoginReturnPath.validate(request.getParameter("returnTo"), true);
         if (returnTo != null) {
             saveException(request, exception);
