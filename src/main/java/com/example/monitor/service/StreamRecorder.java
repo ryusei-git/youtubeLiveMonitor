@@ -140,7 +140,8 @@ public class StreamRecorder {
                 return false;
             }
 
-            List<String> command = buildCommand(watchUrl, videoId, outputDirectory);
+            List<String> command = buildCommand(watchUrl, videoId, outputDirectory, true);
+            List<String> fallbackCommand = buildCommand(watchUrl, videoId, outputDirectory, false);
             Path outputFile = outputDirectory.resolve(videoId + ".mp4");
             String relativeFilePath = channel.getYoutubeChannelId() + "/" + videoId + ".mp4";
 
@@ -172,7 +173,8 @@ public class StreamRecorder {
             String mdcChannelId = MDC.get(MDC_CHANNEL_ID_KEY);
             Thread.ofVirtual()
                     .name("recording-" + videoId)
-                    .start(() -> awaitCompletion(process, channel, videoId, recording.getId(), outputFile, mdcChannelId));
+                    .start(() -> awaitCompletion(process, channel, videoId, recording.getId(), outputFile,
+                            fallbackCommand, mdcChannelId));
 
             // ここまで来て初めて、登録を外す者（awaitCompletion）が存在する状態になる
             started = true;
@@ -204,18 +206,26 @@ public class StreamRecorder {
      * 配信で提供される最高画質・音質のトラックをそのまま録画する。
      * {@code --merge-output-format mp4} で最終ファイルの拡張子を固定している理由はクラスの JavaDoc を参照。
      *
-     * @param channel         録画対象のチャンネル
+     * <p><b>{@code fromStart} を外せるようにしている理由。</b>Twitch では {@code --live-from-start} を
+     * 付けると配信のアーカイブ（VOD）経由で最初から取ろうとするため、アーカイブがサブスク限定の
+     * チャンネルでは配信自体は誰でも見られるのに約 1 秒で失敗する（実際に発生した）。
+     * そのときに「今の時点から」録り直すためのコマンドを作るのに使う（{@link #awaitCompletion} 参照）。
+     *
+     * @param watchUrl        録画対象の視聴 URL
      * @param videoId         録画対象の動画 ID
      * @param outputDirectory 保存先ディレクトリ
+     * @param fromStart       {@code --live-from-start} を付けるなら {@code true}
      * @return {@code yt-dlp} 実行コマンド
      */
-    private List<String> buildCommand(String watchUrl, String videoId, Path outputDirectory) {
+    private List<String> buildCommand(String watchUrl, String videoId, Path outputDirectory, boolean fromStart) {
         String outputTemplate = outputDirectory.resolve(videoId + ".%(ext)s").toString();
         String formatSelector = YtDlpFormatSelector.of(monitorProperties.recording().maxHeight());
 
         List<String> command = new ArrayList<>();
         command.add("yt-dlp");
-        command.add("--live-from-start");
+        if (fromStart) {
+            command.add("--live-from-start");
+        }
         command.add("--no-part");
         command.add("--merge-output-format");
         command.add("mp4");
@@ -228,43 +238,58 @@ public class StreamRecorder {
     }
 
     /**
-     * 録画プロセスの出力を読み切り、終了を待って結果をログに残す。
+     * 録画プロセスの終了を待って結果を履歴に残す。1 回目が再生できるファイルを残さずに終わったら、
+     * {@code fallbackCommand} で「今の時点から」もう 1 回だけ録り直す。
+     *
+     * <p><b>録り直すかは失敗の文言ではなく「完成ファイルが無い」ことで決める。</b>
+     * yt-dlp のエラー文言は版ごとに変わりうるため。Twitch でアーカイブがサブスク限定のチャンネルは
+     * {@code --live-from-start} だと必ず失敗するが、配信そのものは録れる（{@link #buildCommand} 参照）。
+     * YouTube でも同じ動きになるが、1 回目で失敗するのはまれで、もう 1 回試しても害は無い。
+     *
+     * <p>録り直しの間も録画履歴は {@code RECORDING} のまま、動画IDの予約も保持し続ける。
+     * 途中で {@code FAILED} にしたり予約を外したりすると、録り直し中の配信を
+     * 次の巡回が二重に録画したり、{@link RecordingReconciler} が置き去りと誤判定したりするため。
+     * 待機が中断された（アプリ停止など）場合は録り直さない。
      *
      * <p>MDC はスレッドローカルなため、このメソッドは呼び出し元（監視ループのスレッド）とは
      * 別スレッドで動く仮想スレッドの中から呼ばれる。呼び出し元が設定していた MDC の値を
      * 引数で受け取って改めて設定しないと、チャンネル別ログへの振り分けが効かなくなる。
      *
-     * @param process      起動済みの録画プロセス
-     * @param channel      録画対象のチャンネル
-     * @param videoId      録画対象の動画 ID
-     * @param recordingId  {@link RecordingHistoryService#recordStart}で発行された録画履歴の主キー
-     * @param outputFile   完成予定の録画ファイルのパス（{@code --merge-output-format mp4}指定により確定済み）
-     * @param mdcChannelId 呼び出し元スレッドで設定されていた MDC の channelId（未設定なら {@code null}）
+     * @param process         起動済みの録画プロセス
+     * @param channel         録画対象のチャンネル
+     * @param videoId         録画対象の動画 ID
+     * @param recordingId     {@link RecordingHistoryService#recordStart}で発行された録画履歴の主キー
+     * @param outputFile      完成予定の録画ファイルのパス（{@code --merge-output-format mp4}指定により確定済み）
+     * @param fallbackCommand 1 回目が失敗したときに使う録り直し用のコマンド。録り直さないなら {@code null}
+     * @param mdcChannelId    呼び出し元スレッドで設定されていた MDC の channelId（未設定なら {@code null}）
      */
     void awaitCompletion(Process process, MonitoredChannel channel, String videoId, Long recordingId,
-                          Path outputFile, String mdcChannelId) {
+                          Path outputFile, List<String> fallbackCommand, String mdcChannelId) {
         if (mdcChannelId != null) {
             MDC.put(MDC_CHANNEL_ID_KEY, mdcChannelId);
         }
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                log.debug("[yt-dlp] {}", line);
-            }
-        } catch (IOException e) {
-            log.warn("録画プロセスの出力読み取り中にエラーが発生しました: video={}", videoId, e);
-        }
-
         try {
-            int exitCode = process.waitFor();
-            recordOutcome(recordingId, channel, videoId, outputFile, exitCode);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.warn("録画の完了待ちが中断されました: video={}", videoId);
-            // 中断された場合も、既にファイルが出来ていれば成功として扱う
-            recordOutcome(recordingId, channel, videoId, outputFile, null);
+            Integer exitCode = awaitExit(process, videoId);
+            // プロセスは既に終了しているので、書き込み中のファイルを壊す心配なく詰め替えられる
+            SalvageOutcome salvage = recordingSalvager.ensurePlayable(outputFile);
+            boolean resumedMidway = false;
+
+            if (!salvage.isPlayable() && fallbackCommand != null && !Thread.currentThread().isInterrupted()) {
+                log.warn("最初からの録画に失敗したため、今の時点から録画し直します: channel={}, video={}, exitCode={}",
+                        channel.getChannelName(), videoId, exitCode);
+                try {
+                    Process retry = processLauncher.launch(fallbackCommand);
+                    resumedMidway = true;
+                    exitCode = awaitExit(retry, videoId);
+                    salvage = recordingSalvager.ensurePlayable(outputFile);
+                } catch (IOException e) {
+                    log.error("録り直しの録画プロセスの起動に失敗しました: channel={}, video={}",
+                            channel.getChannelName(), videoId, e);
+                }
+            }
+
+            recordOutcome(recordingId, channel, videoId, salvage, resumedMidway, exitCode);
         } finally {
             // 結果を記録し終えてから追跡を外す。順序を逆にすると、その隙に
             // RecordingReconciler が「追跡されていないのに RECORDING のまま＝置き去り」と
@@ -277,22 +302,55 @@ public class StreamRecorder {
     }
 
     /**
+     * 録画プロセスの出力を読み切り、終了を待つ。
+     *
+     * @param process 起動済みの録画プロセス
+     * @param videoId 録画対象の動画 ID（ログ用）
+     * @return {@code yt-dlp} の終了コード。待機が中断された場合は {@code null}（割り込み状態は立て直す）
+     */
+    private Integer awaitExit(Process process, String videoId) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.debug("[yt-dlp] {}", line);
+            }
+        } catch (IOException e) {
+            log.warn("録画プロセスの出力読み取り中にエラーが発生しました: video={}", videoId, e);
+        }
+
+        try {
+            return process.waitFor();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            // 中断された場合も、既にファイルが出来ていれば成功として扱う（呼び出し側で判定する）
+            log.warn("録画の完了待ちが中断されました: video={}", videoId);
+            return null;
+        }
+    }
+
+    /**
      * 録画の成否を確定させて履歴に記録する。
      *
      * <p><b>判断材料は完成ファイルの有無だけで、{@code yt-dlp} の終了コードは使わない。</b>
      * 理由はクラスの JavaDoc を参照。終了コードはログの文面を変えるためだけに使う。
      *
-     * @param recordingId 録画履歴の主キー
-     * @param channel     録画対象のチャンネル
-     * @param videoId     録画対象の動画 ID
-     * @param outputFile  完成予定の録画ファイルのパス
-     * @param exitCode    {@code yt-dlp} の終了コード。待機が中断されて取得できなかった場合は {@code null}
+     * <p><b>録り直しで録れたものも {@code PARTIAL} にする。</b>配信の最初からは録れていないため、
+     * {@code COMPLETED} にすると一覧で区別できなくなる。{@code PARTIAL} は本来
+     * {@link RecordingSalvager} が「途中で止まった録画を詰め替えた」ことを表すため、
+     * 「最初が欠けている」と「最後が欠けている」の 2 つの意味が混ざる。どちらも
+     * 「再生できるが配信の全体ではない」点は同じなので、状態を増やさずに同じ扱いにしている
+     * （列挙子を増やすと既存 DB で全更新が失敗する落とし穴もある）。
+     *
+     * @param recordingId   録画履歴の主キー
+     * @param channel       録画対象のチャンネル
+     * @param videoId       録画対象の動画 ID
+     * @param salvage       録画プロセス終了後に {@link RecordingSalvager#ensurePlayable(Path)} で確かめた結果
+     * @param resumedMidway 配信の途中から録り直したなら {@code true}
+     * @param exitCode      {@code yt-dlp} の終了コード。待機が中断されて取得できなかった場合は {@code null}
      */
     private void recordOutcome(Long recordingId, MonitoredChannel channel, String videoId,
-                               Path outputFile, Integer exitCode) {
-        // プロセスは既に終了しているので、書き込み中のファイルを壊す心配なく詰め替えられる
-        SalvageOutcome salvage = recordingSalvager.ensurePlayable(outputFile);
-
+                               SalvageOutcome salvage, boolean resumedMidway, Integer exitCode) {
         if (!salvage.isPlayable()) {
             log.warn("再生できる録画ファイルを用意できなかったため失敗として記録します: "
                             + "channel={}, video={}, exitCode={}",
@@ -305,6 +363,14 @@ public class StreamRecorder {
             // 配信の最後までは録れていない。完了と同じ扱いにすると、短く終わった理由が分からなくなる
             recordingHistoryService.markPartial(recordingId, salvage.fileSizeBytes());
             log.info("配信の途中で録画が終わったため、そこまでの内容を再生できる形にして記録します: "
+                            + "channel={}, video={}, size={}, exitCode={}",
+                    channel.getChannelName(), videoId, salvage.fileSizeBytes(), exitCode);
+            return;
+        }
+
+        if (resumedMidway) {
+            recordingHistoryService.markPartial(recordingId, salvage.fileSizeBytes());
+            log.info("配信の途中から録り直した録画を「途中まで」として記録します: "
                             + "channel={}, video={}, size={}, exitCode={}",
                     channel.getChannelName(), videoId, salvage.fileSizeBytes(), exitCode);
             return;
