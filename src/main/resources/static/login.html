@@ -22,6 +22,7 @@
     <p id="loginError" class="error" style="display:none;">ユーザー名またはパスワードが違います</p>
     <p id="logoutNotice" class="muted" style="display:none;">ログアウトしました</p>
     <form method="post" action="/api/auth/login">
+      <input type="hidden" name="portal" value="user">
       <div class="loginField">
         <label for="username">ユーザー名</label>
         <input type="text" id="username" name="username" autocomplete="username" required autofocus>
