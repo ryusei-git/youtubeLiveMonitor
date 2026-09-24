@@ -93,6 +93,13 @@ orca-ide terminal list --json
 orca-ide terminal send --terminal <handle> --text "PR #12 準備できました" --enter --json
 ```
 
+**既知の制限（2026-09-24 時点、未解決）**: 上記コマンドが `agent_prompt_blocked` で失敗することがある。
+`--retry-request <ID> --wait-submit <秒>` で再送してもエラーが再現し、CLI 側だけでは解消できない
+（Orca 側のエージェント間ターミナル送信に対するゲートと見られる。Claude→Codex、Codex→Claude の
+どちらの向きでも発生することを確認済み。人間が同じ端末へ直接入力した場合は通る）。
+失敗したら、その場で利用者に「この文面を相手のターミナルに入力してほしい」と頼み、中継してもらう。
+Orca の設定に解消手段が見つかれば、ここを更新すること。
+
 ### コマンド
 
 ```bash
