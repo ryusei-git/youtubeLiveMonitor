@@ -1,5 +1,7 @@
 package com.example.monitor.dto;
 
+import java.time.LocalDateTime;
+
 /**
  * {@link com.example.monitor.service.LiveStreamDetector} が {@code /live} ページを調べた結果。
  *
@@ -29,15 +31,19 @@ package com.example.monitor.dto;
  *                 相当する項目が無いため常に {@code null}
  * @param watchUrl 配信の視聴 URL。録画時に {@code yt-dlp} へ渡す URL でもある。
  *                 {@link DetectionStatus#LIVE} 以外では {@code null}
+ * @param scheduledStartTime 配信開始予定時刻。待機所で取得できなかった場合は {@code null}
  */
 public record LiveStreamDetection(
-        DetectionStatus status, String videoId, String title, String category, String watchUrl) {
+        DetectionStatus status, String videoId, String title, String category, String watchUrl,
+        LocalDateTime scheduledStartTime) {
 
     /** 判定の結果。 */
     public enum DetectionStatus {
         /** 配信中と判定できた。 */
         LIVE,
-        /** 正常に調べられた結果、配信していなかった（配信開始前の待機所を含む）。 */
+        /** 配信開始前の待機所と判定できた。 */
+        UPCOMING,
+        /** 正常に調べられた結果、配信していなかった。 */
         NOT_LIVE,
         /** 通信エラーや HTML 構造の変化により、そもそも判定できなかった。 */
         DETECTION_FAILED
@@ -53,7 +59,21 @@ public record LiveStreamDetection(
      * @return 判定結果
      */
     public static LiveStreamDetection live(String videoId, String title, String category, String watchUrl) {
-        return new LiveStreamDetection(DetectionStatus.LIVE, videoId, title, category, watchUrl);
+        return new LiveStreamDetection(DetectionStatus.LIVE, videoId, title, category, watchUrl, null);
+    }
+
+    /**
+     * 配信開始前の待機所として結果を組み立てる。
+     *
+     * @param videoId            予約枠の動画 ID
+     * @param title              予定配信のタイトル。取得できなかった場合は {@code null}
+     * @param watchUrl           待機所の視聴 URL
+     * @param scheduledStartTime 開始予定時刻。取得できなかった場合は {@code null}
+     * @return 判定結果
+     */
+    public static LiveStreamDetection upcoming(
+            String videoId, String title, String watchUrl, LocalDateTime scheduledStartTime) {
+        return new LiveStreamDetection(DetectionStatus.UPCOMING, videoId, title, null, watchUrl, scheduledStartTime);
     }
 
     /**
@@ -62,7 +82,7 @@ public record LiveStreamDetection(
      * @return 判定結果
      */
     public static LiveStreamDetection notLive() {
-        return new LiveStreamDetection(DetectionStatus.NOT_LIVE, null, null, null, null);
+        return new LiveStreamDetection(DetectionStatus.NOT_LIVE, null, null, null, null, null);
     }
 
     /**
@@ -71,7 +91,7 @@ public record LiveStreamDetection(
      * @return 判定結果
      */
     public static LiveStreamDetection failed() {
-        return new LiveStreamDetection(DetectionStatus.DETECTION_FAILED, null, null, null, null);
+        return new LiveStreamDetection(DetectionStatus.DETECTION_FAILED, null, null, null, null, null);
     }
 
     /**
@@ -81,6 +101,15 @@ public record LiveStreamDetection(
      */
     public boolean isLive() {
         return status == DetectionStatus.LIVE;
+    }
+
+    /**
+     * 配信開始前の待機所と判定できたかどうか。
+     *
+     * @return 待機所なら {@code true}
+     */
+    public boolean isUpcoming() {
+        return status == DetectionStatus.UPCOMING;
     }
 
     /**

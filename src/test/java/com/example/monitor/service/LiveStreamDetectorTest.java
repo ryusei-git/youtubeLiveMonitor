@@ -10,6 +10,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -78,7 +81,7 @@ class LiveStreamDetectorTest {
         }
 
         @Test
-        @DisplayName("正常系：配信開始前の待機所（isUpcoming:trueを含む）は「配信していない」と判定する")
+        @DisplayName("正常系：配信開始前の待機所（isUpcoming:trueを含む）はUPCOMINGと判定する")
         void testMethod03() throws IOException, InterruptedException {
             // 実際にYouTubeの待機所ページで観測されたJSON断片を模したもの。
             // canonicalは配信中と同じくwatch?v=を指すため、この追加チェックが無いと誤検知する
@@ -88,15 +91,19 @@ class LiveStreamDetectorTest {
                     <link rel="canonical" href="https://www.youtube.com/watch?v=abcdefg1234">
                     <meta name="title" content="【CHAT Room】待機所">
                     </head><body>
-                    <script>var ytInitialData = {"isUpcoming":true,"allowRatings":true};</script>
+                    <script>var ytInitialData = {"isUpcoming":true,"scheduledStartTime":"1790251200","allowRatings":true};</script>
                     </body></html>
                     """;
             stubResponse(200, html);
 
             LiveStreamDetection result = liveStreamDetector.detectLiveStream("UCxxxxxxxx");
 
-            // 正常に判定できた結果としての「配信していない」なので、判定失敗と混同してはいけない
-            assertThat(result.status()).isEqualTo(LiveStreamDetection.DetectionStatus.NOT_LIVE);
+            assertThat(result.status()).isEqualTo(LiveStreamDetection.DetectionStatus.UPCOMING);
+            assertThat(result.isUpcoming()).isTrue();
+            assertThat(result.title()).isEqualTo("【CHAT Room】待機所");
+            assertThat(result.watchUrl()).isEqualTo("https://www.youtube.com/watch?v=abcdefg1234");
+            assertThat(result.scheduledStartTime()).isEqualTo(LocalDateTime.ofInstant(
+                    Instant.ofEpochSecond(1790251200L), ZoneId.systemDefault()));
             assertThat(result.isDetectionFailed()).isFalse();
         }
 
