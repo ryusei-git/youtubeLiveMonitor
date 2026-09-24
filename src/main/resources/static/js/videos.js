@@ -2,6 +2,8 @@
 let onlinePage = 0;
 let onlineTotalPages = 0;
 let onlineRequest = 0;
+/** @type {Date|null} */
+let onlineLastUpdatedAt = null;
 
 function syncVideoUrl(replace = false) {
     const url = new URL(location.href);
@@ -27,7 +29,10 @@ function restoreVideoUrl() {
     syncVideoUrl(true);
 }
 
-async function loadOnlineVideos() {
+/** 自動更新では通知帯の読み上げを繰り返さず、利用者が操作した失敗だけ明示する。
+ * @param {boolean} showAlert
+ */
+async function loadOnlineVideos(showAlert = true) {
     const request = ++onlineRequest;
     const grid = el("onlineVideoGrid");
     setBusy(grid, true);
@@ -40,7 +45,7 @@ async function loadOnlineVideos() {
         if (onlinePage > 0 && onlinePage >= data.totalPages) {
             onlinePage = Math.max(0, data.totalPages - 1);
             syncVideoUrl(true);
-            return loadOnlineVideos();
+            return loadOnlineVideos(showAlert);
         }
         clearError();
         onlineTotalPages = data.totalPages;
@@ -50,8 +55,13 @@ async function loadOnlineVideos() {
         el("videoPage").textContent = data.totalPages ? `${data.number + 1} / ${data.totalPages}` : "0 / 0";
         buttonEl("videoPrev").disabled = data.first || data.empty;
         buttonEl("videoNext").disabled = data.last || data.empty;
+        onlineLastUpdatedAt = new Date();
+        renderRefreshStatus(el("videoRefreshStatus"), onlineLastUpdatedAt, false);
     } catch (error) {
-        if (request === onlineRequest) showError(errorMessage(error));
+        if (request === onlineRequest) {
+            renderRefreshStatus(el("videoRefreshStatus"), onlineLastUpdatedAt, true);
+            if (showAlert) showError(errorMessage(error));
+        }
     } finally { if (request === onlineRequest) setBusy(grid, false); }
 }
 
@@ -90,6 +100,7 @@ buttonEl("refreshVideosBtn").addEventListener("click", async () => {
     await loadOnlineVideos();
 });
 window.addEventListener("popstate", () => { restoreVideoUrl(); loadOnlineVideos(); });
+startVisibleRefresh(() => loadOnlineVideos(false));
 (async () => { await loadVideoChannels(); restoreVideoUrl(); await loadOnlineVideos(); })();
 
 // 共有画面なので、サーバーが返す権限で共通メニューを選ぶ。
