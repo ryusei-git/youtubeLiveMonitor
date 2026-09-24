@@ -25,10 +25,11 @@ CSS/JS/HTML を直しても再起動だけでは古い内容のまま。ブラ�
 ## 確認
 
 `bin/service.sh restart` は「起動完了 (PID: ...)」まで出て終わる。
-jar のタイムスタンプが再起動時刻より**前**なら順序を間違えている。
+動いているのが最新のビルドかは、起動時のコピーとビルドの jar を比べれば分かる
+（違うなら、ビルドの後に再起動していない）。
 
 ```bash
-ls -l --time-style=+%H:%M:%S build/libs/*.jar
+cmp build/libs/*.jar run/youtubeLiveMonitor.jar && echo "最新のビルドで動いている"
 ```
 
 ## テストも通したいとき
