@@ -7,18 +7,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -162,11 +162,16 @@ public class ChannelLogReader {
     }
 
     /**
-     * ログファイルを読み込んで解析し、絞り込んだうえで末尾から指定件数を返す。
+     * ログファイルを 1 行ずつ解析し、絞り込んだうえで末尾から指定件数を返す。
      *
      * <p>件数の切り出しは<b>絞り込みの後</b>に行う。先に切り出してから絞り込むと、
      * 「ERROR を 200 件見たい」という指定に対して「直近 200 行のうちの ERROR」しか返らず、
      * 件数を大きくしない限り古いエラーにたどり着けなくなるため。
+     *
+     * <p><b>ファイルを丸ごと読まず、手元には返す分（絞り込みに合う末尾の {@code limit} 件）だけを持つ。</b>
+     * 以前は全行を読み込んで全行を {@link LogEntry} にし、スタックトレースの続き行も 1 行ごとに
+     * エントリを作り直していた（k 行のトレースで k²/2 行分の複製）。例外の多いシステムログ
+     * （3.8MB・約 4 万行）を 1 回開くだけで約 0.5GB を確保して捨てていた（#184）。
      *
      * @param logFilePath 読み込むファイル
      * @param limit       返す最大件数
@@ -178,36 +183,71 @@ public class ChannelLogReader {
             return new LogViewResponse(List.of(), List.of());
         }
 
-        List<String> rawLines;
-        try {
-            rawLines = Files.readAllLines(logFilePath);
+        // 選択肢は必ず絞り込み前の全行から作る（理由は LogViewResponse の JavaDoc 参照）
+        Set<String> presentLevels = new LinkedHashSet<>();
+        Deque<LogEntry> latestEntries = new ArrayDeque<>();
+        PendingEntry pending = null;
+
+        try (BufferedReader reader = Files.newBufferedReader(logFilePath)) {
+            String rawLine;
+            while ((rawLine = reader.readLine()) != null) {
+                Matcher matcher = LOG_LINE_PATTERN.matcher(rawLine);
+
+                if (matcher.matches()) {
+                    keepIfMatched(latestEntries, pending, level, limit);
+                    presentLevels.add(matcher.group(2));
+                    pending = new PendingEntry(matcher.group(1), matcher.group(2), matcher.group(3),
+                            new StringBuilder(matcher.group(4)));
+                } else if (pending == null) {
+                    // ファイル先頭がいきなり解析できない行だった場合。連結先がないので本文だけの行として扱う
+                    pending = new PendingEntry(null, null, null, new StringBuilder(rawLine));
+                } else {
+                    // パターンに当てはまらない行はスタックトレースの続きとみなし、組み立て中の 1 件へ連結する。
+                    // こうしないと例外 1 件がバラバラの行として並び、画面で読みづらくなる
+                    pending.message().append('\n').append(rawLine);
+                }
+            }
         } catch (IOException e) {
             log.error("ログファイルの読み込みに失敗しました: {}", logFilePath, e);
             return new LogViewResponse(List.of(), List.of());
         }
+        keepIfMatched(latestEntries, pending, level, limit);
 
-        List<LogEntry> allEntries = parseLogLines(rawLines);
-        // 選択肢は必ず絞り込み前の全行から作る（理由は LogViewResponse の JavaDoc 参照）
-        List<String> availableLevels = collectLevels(allEntries);
-
-        List<LogEntry> filtered = filterByLevel(allEntries, level);
-        int fromIndex = Math.max(0, filtered.size() - limit);
-        return new LogViewResponse(availableLevels, filtered.subList(fromIndex, filtered.size()));
+        return new LogViewResponse(sortBySeverity(presentLevels), List.copyOf(latestEntries));
     }
 
     /**
-     * ログに実在するレベルを、深刻な順に重複なく集める。
+     * 組み上がった 1 件が絞り込みに合えば残し、{@code limit} 件を超えた分は古い方から捨てる。
      *
-     * @param entries 絞り込み前の全ログ
+     * <p>返すのは末尾の {@code limit} 件だけなので、それより古いものを持ち続ける理由がない。
+     * 全件を溜めてから切り出すと、手元に持つ量がファイルの大きさに比例してしまう。
+     *
+     * @param latestEntries 絞り込みに合った直近のログ（古い順）
+     * @param pending       組み上がった 1 件。まだ 1 行も読んでいなければ {@code null}
+     * @param level         絞り込むレベル。{@code null} または空なら絞り込まない
+     * @param limit         残す最大件数
+     */
+    private static void keepIfMatched(Deque<LogEntry> latestEntries, PendingEntry pending, String level, int limit) {
+        if (pending == null) {
+            return;
+        }
+        if (level != null && !level.isBlank() && !level.equalsIgnoreCase(pending.level())) {
+            return;
+        }
+        latestEntries.addLast(pending.toLogEntry());
+        if (latestEntries.size() > limit) {
+            latestEntries.removeFirst();
+        }
+    }
+
+    /**
+     * ログに実在するレベルを深刻な順に並べる。
+     *
+     * @param presentLevels 絞り込み前の全行から集めたレベル（最初に現れた順）
      * @return 実在するレベルの一覧。解析できずレベルが付かない行しかなければ空リスト
      */
-    private List<String> collectLevels(List<LogEntry> entries) {
-        Set<String> present = entries.stream()
-                .map(LogEntry::level)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-
-        return present.stream()
+    private static List<String> sortBySeverity(Set<String> presentLevels) {
+        return presentLevels.stream()
                 .sorted(Comparator.comparingInt(levelName -> {
                     int index = LEVEL_SEVERITY_ORDER.indexOf(levelName);
                     // 未知のレベルは末尾へ回す
@@ -217,63 +257,21 @@ public class ChannelLogReader {
     }
 
     /**
-     * 指定したレベルの行だけを残す。
+     * 続き行を足している途中の 1 件。
      *
-     * @param entries 絞り込み前の全ログ
-     * @param level   絞り込むレベル。{@code null} または空なら絞り込まない
-     * @return 絞り込み後のログ
+     * <p>{@link LogEntry} は後から本文を変えられないため、続き行のたびに作り直すと
+     * 本文全体を毎回複製することになる。本文だけを {@link StringBuilder} に溜め、
+     * 組み上がったときに 1 回だけ {@link LogEntry} にする。
+     *
+     * @param timestamp  出力時刻。ファイル先頭の解析できない行では {@code null}
+     * @param level      ログレベル。ファイル先頭の解析できない行では {@code null}
+     * @param loggerName 出力元クラス名。ファイル先頭の解析できない行では {@code null}
+     * @param message    本文（続き行を改行付きで足していく）
      */
-    private List<LogEntry> filterByLevel(List<LogEntry> entries, String level) {
-        if (level == null || level.isBlank()) {
-            return entries;
+    private record PendingEntry(String timestamp, String level, String loggerName, StringBuilder message) {
+
+        LogEntry toLogEntry() {
+            return new LogEntry(timestamp, level, loggerName, message.toString());
         }
-        return entries.stream()
-                .filter(entry -> level.equalsIgnoreCase(entry.level()))
-                .toList();
     }
-
-    /**
-     * ログの各行を解析して {@link LogEntry} に変換する。
-     *
-     * <p>パターンに当てはまらない行はスタックトレースの続きとみなし、
-     * 直前のエントリのメッセージへ改行付きで連結する。
-     * こうしないと例外 1 件がバラバラの行として並び、画面で読みづらくなる。
-     *
-     * @param rawLines ログファイルの全行
-     * @return 解析済みのログ
-     */
-    private List<LogEntry> parseLogLines(List<String> rawLines) {
-        List<LogEntry> entries = new ArrayList<>();
-
-        for (String rawLine : rawLines) {
-            Matcher matcher = LOG_LINE_PATTERN.matcher(rawLine);
-
-            if (matcher.matches()) {
-                entries.add(new LogEntry(matcher.group(1), matcher.group(2), matcher.group(3), matcher.group(4)));
-            } else if (entries.isEmpty()) {
-                // ファイル先頭がいきなり解析できない行だった場合。連結先がないので本文だけの行として扱う
-                entries.add(new LogEntry(null, null, null, rawLine));
-            } else {
-                entries.set(entries.size() - 1, appendToMessage(entries.get(entries.size() - 1), rawLine));
-            }
-        }
-
-        return entries;
-    }
-
-    /**
-     * 既存のログエントリのメッセージに続きの行を連結した、新しいエントリを返す。
-     *
-     * @param entry           連結先のエントリ
-     * @param continuationLine 連結する行
-     * @return メッセージを連結した新しいエントリ
-     */
-    private LogEntry appendToMessage(LogEntry entry, String continuationLine) {
-        return new LogEntry(
-                entry.timestamp(),
-                entry.level(),
-                entry.loggerName(),
-                entry.message() + "\n" + continuationLine);
-    }
-
 }
