@@ -93,8 +93,9 @@ async function loadChannels() {
                 <td>${channelStateLabel(ch)}</td>
                 <td data-sort-value="${ch.recordEnabled ? "1" : "0"}"><button class="recordBtn" data-id="${ch.id}" data-enabled="${ch.recordEnabled}">${ch.recordEnabled ? "自動録画：有効" : "自動録画：無効"}</button></td>
                 <td data-sort-value="${ch.recordingCount}">${ch.recordingCount}件</td>
+                <td data-sort-value="${ch.subscriberCount}">${ch.subscriberCount}人</td>
                 <td class="titleFilterCell" data-sort-value="${escapeHtml(ch.recordTitleKeywords || "")}">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
-                <td><button data-id="${ch.id}" class="removeBtn">削除</button></td>
+                <td><button class="removeBtn">削除</button></td>
             `;
             // 列を足したときにずれないよう、位置ではなくクラスで対象を選ぶ
             query(".titleFilterCell", tr).addEventListener("click", (ev) => {
@@ -104,15 +105,19 @@ async function loadChannels() {
                     ch.recordTitleKeywords || "",
                     (value) => apiPut(`/api/channels/${ch.id}/record-title-filter`, { titleKeywords: value }));
             });
-            tbody.appendChild(tr);
-        }
-        // 操作のたびに読み直すため、利用者が選んだ並び順をここで掛け直す
-        applyTableSort(/** @type {HTMLTableElement} */ (table));
-        for (const btn of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(".removeBtn"))) {
-            btn.addEventListener("click", async () => {
-                if (!confirm("削除しますか？（通知履歴・録画ログも一緒に削除されます）")) return;
+            query(".removeBtn", tr).addEventListener("click", async () => {
+                // 同じ名前が配信元違いで並ぶため、名前と配信元を出して押し間違いに気付けるようにする。
+                // 購読も連鎖で消える取り消せない操作なので、巻き込む人数も示す
+                let message = `「${ch.channelName}」（${ch.platformLabel}）を監視対象から削除しますか？\n`
+                    + "通知履歴・録画の記録も一緒に削除されます。\n";
+                if (ch.subscriberCount > 0) {
+                    message += `${ch.subscriberCount} 人が購読しています。その人たちの購読・視聴済み・お気に入りも消えます。\n`;
+                }
+                // 削除は DB の行とログだけで録画ファイルは消さないため、消し方を案内する
+                message += "録画ファイルは残ります（アーカイブ一覧の「孤立した録画ファイルを一括削除」で消せます）。";
+                if (!confirm(message)) return;
                 try {
-                    await apiDelete(`/api/channels/${btn.dataset.id}`);
+                    await apiDelete(`/api/channels/${ch.id}`);
                     showToast("監視対象から削除しました", "danger");
                     clearError();
                     loadChannels();
@@ -120,7 +125,10 @@ async function loadChannels() {
                     showError(errorMessage(e));
                 }
             });
+            tbody.appendChild(tr);
         }
+        // 操作のたびに読み直すため、利用者が選んだ並び順をここで掛け直す
+        applyTableSort(/** @type {HTMLTableElement} */ (table));
         for (const btn of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll(".recordBtn"))) {
             btn.addEventListener("click", async () => {
                 const nextEnabled = btn.dataset.enabled !== "true";
