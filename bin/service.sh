@@ -3,6 +3,12 @@
 # YouTube Live Monitor サービス管理コマンド
 # 使い方: bin/service.sh {start|stop|restart|rollback|status}
 #
+# systemd のユーザーユニット（bin/youtube-live-monitor.service）を導入してあれば、
+# start・stop・restart・rollback・status は systemctl --user を呼ぶ（#242）。
+# 導入していなければ、今までどおり nohup で起動する。どちらでも同じ手順で使えるよう、
+# 呼び方（AGENTS.md・.claude/skills の手順）は変えていない。
+# run はユニットの ExecStart 専用（前面で java を動かす）。手で呼ぶものではない。
+#
 # stop は「プロセスが完全に終了してポートが解放されるまで待つ」ことを保証する。
 # これをせずに次の start を試みると、JVMのシャットダウン処理（Tomcat/Hikari等の
 # クローズ）が終わる前にポートを奪い合い、BindException で起動失敗する。
@@ -19,6 +25,16 @@ PREV_JAR="$PID_DIR/youtubeLiveMonitor.prev.jar"
 PORT="${SERVER_PORT:-8080}"
 START_TIMEOUT=30
 STOP_TIMEOUT=30
+UNIT="${SERVICE_UNIT:-youtube-live-monitor}.service"
+
+# ユニットが読み込まれていて、その WorkingDirectory がこのディレクトリのときだけ systemd に任せる。
+# 名前だけで判定すると、worktree や ../ylm-preview の bin/service.sh が本番のユニットを止めてしまう。
+# SERVICE_UNIT は、本番と別の名前の一時ユニットで試すためのもの（普段は指定しない）。
+USE_SYSTEMD=0
+if command -v systemctl >/dev/null \
+        && [[ "$(systemctl --user show -p WorkingDirectory --value "$UNIT" 2>/dev/null)" == "$(pwd)" ]]; then
+    USE_SYSTEMD=1
+fi
 
 mkdir -p "$PID_DIR" "$LOG_DIR"
 
@@ -48,12 +64,24 @@ port_in_use() {
 }
 
 is_running() {
-    [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+    if (( USE_SYSTEMD )); then
+        systemctl --user is-active --quiet "$UNIT"
+    else
+        [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+    fi
+}
+
+main_pid() {
+    if (( USE_SYSTEMD )); then
+        systemctl --user show -p MainPID --value "$UNIT"
+    else
+        cat "$PID_FILE"
+    fi
 }
 
 cmd_start() {
     if is_running; then
-        echo "既に起動しています (PID: $(cat "$PID_FILE"))"
+        echo "既に起動しています (PID: $(main_pid))"
         return 0
     fi
 
@@ -104,7 +132,7 @@ install_jar() {
     cp "$jar" "$RUN_JAR"
 }
 
-launch_jar() {
+java_opts() {
     # ヒープの上限。指定しないと物理メモリの 1/4（この端末で 3.98GB）まで広がる。
     # 実測（2026-09-25、起動 31 分後）は使用 271MB・確保 692MB で、1GB は使用量のおよそ 4 倍の余裕がある。
     # G1PeriodicGCInterval（5 分）は、しばらく GC が無いときにも回して、使っていない確保分を OS へ返させるため
@@ -112,14 +140,19 @@ launch_jar() {
     # TrimNativeHeapInterval（5 分）は、ヒープの外の malloc の領域のうち使っていない分を OS へ返させるため。
     # 本番の実測（2026-09-25）ではヒープの外に 250〜290MB あり、G1 がヒープを縮めた後はヒープ（251MB）より
     # 大きかった（#184）。この端末の JDK 21・25 のどちらにもあるフラグ（無い JDK では起動しなくなる）。
+    # ExitOnOutOfMemoryError は、OOM の後に一部のスレッドだけ死んだ半端な状態で残らず、落ちて systemd の
+    # Restart=on-failure に起こし直させるため（#242。ユニットを使わないときは落ちたままになるが、
+    # 半端に動き続けて監視が止まっていることに気付けないよりよい）。
     # 端末を載せ替えたときに変えられるよう、JAVA_OPTS があればそちらを使う。
-    local java_opts="${JAVA_OPTS:--Xmx1g -XX:G1PeriodicGCInterval=300000 -XX:TrimNativeHeapInterval=300000}"
+    echo "${JAVA_OPTS:--Xmx1g -XX:G1PeriodicGCInterval=300000 -XX:TrimNativeHeapInterval=300000 -XX:+ExitOnOutOfMemoryError}"
+}
 
+prepare_launch() {
     # .env（API キー・Webhook・初期管理者のパスワード）と DB（利用者ごとの Discord Webhook を平文で持つ）を
     # 同じ端末のほかのユーザーから読めないようにする（#241）。umask 077 は java と子の yt-dlp が作る
     # DB・ログ・録画を 600/700 にするため。既にあるものは作り直されないので chmod で揃える
     # （logs/ はこのスクリプトの先頭の mkdir -p が 775 で作る）。
-    # cmd_start ではなくここに置くのは、rollback（cmd_start を通らない）で起動したときにも効かせるため。
+    # cmd_start ではなくここに置くのは、rollback（cmd_start を通らない）とユニットの run で起動したときにも効かせるため。
     # 録画の保存先（MONITOR_RECORDING_DIRECTORY）の新しいファイルも 600/700 になるので、別のユーザーの
     # プログラムに録画を読ませるなら、ここを緩める必要がある。
     umask 077
@@ -127,20 +160,44 @@ launch_jar() {
     [[ -d data ]] && chmod 700 data
     chmod 700 "$LOG_DIR"
     compgen -G "data/*.db" >/dev/null && chmod 600 data/*.db
-
-    echo "起動しています... ($RUN_JAR)"
     rotate_log
-    # MALLOC_ARENA_MAX=2 は、glibc の malloc のアリーナ（スレッドが取り合わないよう分けた確保領域）の数を絞るため。
-    # 既定の上限は 8 × コア数（この端末で 64）で、本番では 64MB 境界の匿名領域（アリーナ）が 66 個・252MB
-    # あった（#184）。java の起動にだけ付ける（JAVA_OPTS を指定しても付く）。
-    # 子プロセスの yt-dlp・ffmpeg にも引き継がれるが、アリーナが減るだけで困ることは無い。
-    # 複数のオプションを空白で区切って渡せるよう、java_opts はクォートせずに展開する
-    MALLOC_ARENA_MAX=2 nohup java $java_opts -jar "$RUN_JAR" > "$LOG_FILE" 2>&1 &
-    echo $! > "$PID_FILE"
+}
+
+# ユニットの ExecStart から呼ぶ。exec で java に置き換わるので、systemd の MainPID が java になる
+# （bash が残ると、停止の SIGTERM が java に届かない）。
+# jar のコピー（install_jar）はここではしない。systemd が異常終了から起こし直すたびに build/libs の jar を
+# 入れると、rollback で戻した版や、ビルドしただけでまだ反映していない版が勝手に動き出すため。
+# コピーは start・restart（build/libs から）と rollback（prev.jar から）がユニットを起動する前に行う。
+# run/ に jar がまだ無い（初めての起動）ときだけ build/libs から入れる。
+cmd_run() {
+    [[ -f "$RUN_JAR" ]] || install_jar "$(find_jar)"
+    prepare_launch
+    # 標準出力は今までどおり logs/service.log に書く（journald に寄せるかはログの保持の Issue で決める）
+    MALLOC_ARENA_MAX=2 exec java $(java_opts) -jar "$RUN_JAR" > "$LOG_FILE" 2>&1
+}
+
+launch_jar() {
+    if (( USE_SYSTEMD )); then
+        echo "起動しています... ($RUN_JAR、$UNIT)"
+        # 起こし直しの上限（StartLimitBurst）に達したユニットは、手で start しても断られる。直してから
+        # 手で起動するときは必ず試させたいので、その記録を消しておく
+        systemctl --user reset-failed "$UNIT" 2>/dev/null || true
+        systemctl --user start "$UNIT"
+    else
+        prepare_launch
+        echo "起動しています... ($RUN_JAR)"
+        # MALLOC_ARENA_MAX=2 は、glibc の malloc のアリーナ（スレッドが取り合わないよう分けた確保領域）の数を絞るため。
+        # 既定の上限は 8 × コア数（この端末で 64）で、本番では 64MB 境界の匿名領域（アリーナ）が 66 個・252MB
+        # あった（#184）。java の起動にだけ付ける（JAVA_OPTS を指定しても付く。cmd_run も同じ）。
+        # 子プロセスの yt-dlp・ffmpeg にも引き継がれるが、アリーナが減るだけで困ることは無い。
+        # 複数のオプションを空白で区切って渡せるよう、java_opts はクォートせずに展開する
+        MALLOC_ARENA_MAX=2 nohup java $(java_opts) -jar "$RUN_JAR" > "$LOG_FILE" 2>&1 &
+        echo $! > "$PID_FILE"
+    fi
 
     for _ in $(seq 1 "$START_TIMEOUT"); do
         if port_in_use "$PORT"; then
-            echo "起動完了 (PID: $(cat "$PID_FILE"), ポート: $PORT)"
+            echo "起動完了 (PID: $(main_pid), ポート: $PORT)"
             return 0
         fi
         if ! is_running; then
@@ -163,8 +220,15 @@ cmd_stop() {
     fi
 
     local pid
-    pid="$(cat "$PID_FILE")"
+    pid="$(main_pid)"
     echo "停止しています (PID: $pid)..."
+    if (( USE_SYSTEMD )); then
+        # 止まるまで戻らない。TimeoutStopSec（STOP_TIMEOUT と同じ 30 秒）を過ぎれば systemd が java だけを
+        # kill -9 する（KillMode=process なので録画中の yt-dlp は残る。理由はユニットファイルのコメント）
+        systemctl --user stop "$UNIT"
+        echo "停止完了（ポート $PORT も解放されました）"
+        return 0
+    fi
     kill "$pid"
 
     for _ in $(seq 1 "$STOP_TIMEOUT"); do
@@ -197,7 +261,7 @@ cmd_rollback() {
 
 cmd_status() {
     if is_running; then
-        echo "起動中 (PID: $(cat "$PID_FILE"), ポート: $PORT)"
+        echo "起動中 (PID: $(main_pid), ポート: $PORT)$( (( USE_SYSTEMD )) && echo "、systemd: $UNIT")"
     else
         echo "停止中"
         if port_in_use "$PORT"; then
@@ -213,6 +277,7 @@ case "${1:-}" in
     restart) find_jar >/dev/null && { cmd_stop; cmd_start; } ;;
     rollback) cmd_rollback ;;
     status)  cmd_status ;;
+    run)     cmd_run ;;
     *)
         echo "使い方: $0 {start|stop|restart|rollback|status}"
         exit 1

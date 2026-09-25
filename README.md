@@ -74,7 +74,8 @@ HTML 解析のような回避策は要りません。
 ```
 YouTubeLiveMonitor/
 ├── bin/
-│   └── service.sh                            # 起動・停止・状態確認コマンド
+│   ├── service.sh                            # 起動・停止・状態確認コマンド
+│   └── youtube-live-monitor.service          # 自動起動用の systemd ユーザーユニット
 ├── src/main/java/com/example/monitor/
 │   ├── YouTubeLiveMonitorApplication.java    # 起動クラス（サービス/CLI の分岐）
 │   ├── scheduler/
@@ -228,6 +229,55 @@ bin/service.sh status
 
 `stop` はプロセスが完全に終了してポートが解放されるまで待ってから完了するため、
 停止直後に起動してもポートの取り合いになりません。
+
+### 5. systemd で自動起動する（任意）
+
+`bin/service.sh start` だけでは、OS の再起動・停電・JVM の異常終了（OOM を含む）の後、
+手で起動し直すまで監視・通知・録画が止まったままになります。
+`bin/youtube-live-monitor.service`（systemd のユーザーユニット）を入れると、systemd が起こし直します。
+
+- `kill -9` や OOM で落ちたら 10 秒後に起こし直す（5 分に 5 回落ちたら諦めて `failed` のまま残す）
+- `loginctl enable-linger` と合わせて、ログインしなくても OS の起動時に立ち上がる
+- **停止・再起動で録画中の yt-dlp を止めない**（`KillMode=process`。理由はユニットファイルのコメント）
+- 入れた後も操作は `bin/service.sh start|stop|restart|rollback|status` のまま（中で `systemctl --user` を呼ぶ）。
+  `status` に `systemd: youtube-live-monitor.service` と出ていれば systemd 経由で動いている
+- ログは今までどおり `logs/service.log`。起こし直した記録は `journalctl --user -u youtube-live-monitor`
+
+ユニットはリポジトリが `~/youtubeLiveMonitor` にある前提です。別の場所なら `WorkingDirectory` と
+`ExecStart` を書き換えてください。
+
+**切り替えの手順**（録画が無いときに行う。リポジトリの場所で実行する）:
+
+```bash
+# 1. nohup で動いている今のプロセスを止める。ユニットを入れた後の bin/service.sh は systemd の側しか
+#    見ないので、先に止めておかないと、古いプロセスがポートを掴んだまま残る
+bin/service.sh stop
+
+# 2. ユニットを登録して起動し、OS の起動時にも立ち上がるようにする
+systemctl --user link "$PWD/bin/youtube-live-monitor.service"
+systemctl --user enable --now youtube-live-monitor
+loginctl enable-linger "$USER"
+
+# 3. 確かめる
+bin/service.sh status                         # 「systemd: youtube-live-monitor.service」と出る
+kill -9 "$(systemctl --user show -p MainPID --value youtube-live-monitor)"
+sleep 40 && bin/service.sh status             # 別の PID で起動中に戻る（10 秒待ってから起動し直す）
+```
+
+`link` なのでリポジトリのユニットファイルを直接読みます。ユニットファイルを更新したら
+`systemctl --user daemon-reload` を実行してください。
+JVM のオプションを変えるときは `systemctl --user edit youtube-live-monitor` で
+`[Service]` に `Environment=JAVA_OPTS=...` を足します（端末の環境変数はユニットに届きません）。
+
+**元に戻す（手動起動に戻す）**:
+
+```bash
+systemctl --user disable --now youtube-live-monitor
+rm -f ~/.config/systemd/user/youtube-live-monitor.service
+systemctl --user daemon-reload
+loginctl disable-linger "$USER"               # ほかに linger を使うものが無ければ
+bin/service.sh start                          # 以後は nohup で起動する
+```
 
 ## 使用方法
 
