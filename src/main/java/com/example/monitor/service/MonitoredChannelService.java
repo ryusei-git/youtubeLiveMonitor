@@ -13,6 +13,7 @@ import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
+import com.example.monitor.repository.UserSubscriptionRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class MonitoredChannelService {
     private final AppUserRepository appUserRepository;
     private final AuditLogger auditLogger;
     private final RecordingRepository recordingRepository;
+    private final UserSubscriptionRepository userSubscriptionRepository;
 
     /**
      * 登録済みの監視対象を全件返す。
@@ -61,6 +63,20 @@ public class MonitoredChannelService {
      */
     public Map<Long, Long> countPlayableRecordingsByChannel() {
         return recordingRepository.countByChannel(List.of(RecordingStatus.COMPLETED, RecordingStatus.PARTIAL))
+                .stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
+    }
+
+    /**
+     * チャンネルごとの購読者数を返す。
+     *
+     * <p>チャンネルを削除すると購読も連鎖で消えるため、管理者が削除する前に
+     * 誰かが購読しているかを見分けられるよう一覧に添える。
+     *
+     * @return チャンネルの主キーから購読者数への対応。購読されていないチャンネルは含まない
+     */
+    public Map<Long, Long> countSubscribersByChannel() {
+        return userSubscriptionRepository.countByChannel()
                 .stream()
                 .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
     }

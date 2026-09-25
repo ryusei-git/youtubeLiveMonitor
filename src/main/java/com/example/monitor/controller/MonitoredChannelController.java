@@ -48,9 +48,12 @@ public class MonitoredChannelController {
     @GetMapping
     public List<MonitoredChannelResponse> listChannels() {
         Map<Long, Long> recordingCounts = monitoredChannelService.countPlayableRecordingsByChannel();
+        Map<Long, Long> subscriberCounts = monitoredChannelService.countSubscribersByChannel();
         return monitoredChannelService.findAll().stream()
                 .map(channel -> MonitoredChannelResponse.from(
-                        channel, recordingCounts.getOrDefault(channel.getId(), 0L)))
+                        channel,
+                        recordingCounts.getOrDefault(channel.getId(), 0L),
+                        subscriberCounts.getOrDefault(channel.getId(), 0L)))
                 .toList();
     }
 
