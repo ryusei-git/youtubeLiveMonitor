@@ -8,6 +8,7 @@ import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
+import com.example.monitor.util.DirectorySizeUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -250,7 +251,7 @@ public class RecordingFileService {
         try (Stream<Path> files = Files.list(directory)) {
             return files.filter(Files::isRegularFile)
                     .filter(candidate -> videoId.equals(extractVideoId(candidate)))
-                    .mapToLong(this::sizeOrZero)
+                    .mapToLong(DirectorySizeUtils::sizeOf)
                     .sum();
         } catch (IOException e) {
             log.warn("録画ファイルの合計サイズを求められませんでした: directory={}", directory, e);
@@ -281,7 +282,7 @@ public class RecordingFileService {
                 byChannel.add(new ChannelDiskUsage(
                         channelId,
                         displayNameFor(channelId, channelNames, unlinkedVideoIds),
-                        sumFileSizes(dir),
+                        DirectorySizeUtils.sizeOf(dir),
                         registered));
             }
         } catch (IOException e) {
@@ -345,34 +346,5 @@ public class RecordingFileService {
     private static String directoryNameOf(String filePath) {
         int separatorIndex = filePath.indexOf('/');
         return separatorIndex < 0 ? "" : filePath.substring(0, separatorIndex);
-    }
-
-    /**
-     * ディレクトリ配下（サブディレクトリを含む）の全ファイルサイズを合計する。
-     *
-     * @param directory 集計対象のディレクトリ
-     * @return 合計サイズ（バイト）。走査に失敗した場合は 0
-     */
-    private long sumFileSizes(Path directory) {
-        try (Stream<Path> files = Files.walk(directory)) {
-            return files.filter(Files::isRegularFile).mapToLong(this::sizeOrZero).sum();
-        } catch (IOException e) {
-            log.error("録画ファイルの集計に失敗しました: {}", directory, e);
-            return 0;
-        }
-    }
-
-    /**
-     * ファイルサイズを取得する。取得できなければ（他プロセスが削除した等）0 として扱う。
-     *
-     * @param file 対象ファイル
-     * @return サイズ（バイト）
-     */
-    private long sizeOrZero(Path file) {
-        try {
-            return Files.size(file);
-        } catch (IOException e) {
-            return 0;
-        }
     }
 }
