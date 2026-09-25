@@ -10,6 +10,7 @@ import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.RecordingActivity;
 import com.example.monitor.util.YtDlpFormatSelector;
+import com.example.monitor.util.YtDlpJsRuntime;
 import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -145,6 +146,15 @@ public class StreamRecorder {
      */
     @Value("${monitor.recording.stall-minutes:30}")
     private long stallMinutes = 30;
+
+    /**
+     * {@code yt-dlp} に {@code --js-runtimes} で渡す JavaScript のランタイム（空なら付けない）。
+     * 理由は {@link YtDlpJsRuntime} を参照。
+     *
+     * <p>{@link MonitorProperties.RecordingProperties} に入れない理由は {@link #minFreeGb} と同じ。
+     */
+    @Value("${monitor.recording.js-runtime:}")
+    private String jsRuntime = "";
 
     /**
      * 録画プロセスの待機の結果。
@@ -319,6 +329,7 @@ public class StreamRecorder {
 
         List<String> command = new ArrayList<>();
         command.add("yt-dlp");
+        command.addAll(YtDlpJsRuntime.options(jsRuntime));
         if (fromStart) {
             command.add("--live-from-start");
         }

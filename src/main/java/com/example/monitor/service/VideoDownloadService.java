@@ -21,14 +21,17 @@ import com.example.monitor.util.ChannelLogContext;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.RequestContext;
 import com.example.monitor.util.YtDlpFormatSelector;
+import com.example.monitor.util.YtDlpJsRuntime;
 import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -91,6 +94,17 @@ public class VideoDownloadService {
     private final MonitoredChannelRepository monitoredChannelRepository;
     private final AppUserRepository appUserRepository;
     private final AuditLogger auditLogger;
+
+    /**
+     * {@code yt-dlp} に {@code --js-runtimes} で渡す JavaScript のランタイム（空なら付けない）。
+     * 理由は {@link YtDlpJsRuntime} を参照。
+     *
+     * <p>{@link MonitorProperties.RecordingProperties} に入れていないのは、record にフィールドを足すと
+     * 正準コンストラクタを直接呼んでいるテストがコンパイルエラーになるため（{@link StreamRecorder} と同じ）。
+     * final でないので {@code @RequiredArgsConstructor} のコンストラクタも変わらない。
+     */
+    @Value("${monitor.recording.js-runtime:}")
+    private String jsRuntime = "";
 
     /**
      * ダウンロード中の動画 ID の予約。同じ動画を二重にダウンロードしないために使う。
@@ -291,15 +305,18 @@ public class VideoDownloadService {
      */
     private List<String> buildCommand(String url, String videoId, Path outputDirectory) {
         String outputTemplate = outputDirectory.resolve(videoId + ".%(ext)s").toString();
-        return List.of(
-                "yt-dlp",
+        List<String> command = new ArrayList<>();
+        command.add("yt-dlp");
+        command.addAll(YtDlpJsRuntime.options(jsRuntime));
+        command.addAll(List.of(
                 "--no-part",
                 "--no-progress",
                 "--no-playlist",
                 "--merge-output-format", "mp4",
                 "-f", YtDlpFormatSelector.of(monitorProperties.recording().maxHeight()),
                 "-o", outputTemplate,
-                url);
+                url));
+        return command;
     }
 
     /**

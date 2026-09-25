@@ -86,6 +86,8 @@ monitor:
     max-height: ${MONITOR_RECORDING_MAX_HEIGHT:0}
     # 空き容量（GB）がこれを下回っていれば録画を始めない（StreamRecorder）。0 で確認しない。
     min-free-gb: ${MONITOR_RECORDING_MIN_FREE_GB:20}
+    # yt-dlp に --js-runtimes で渡す JavaScript のランタイム（例: node:/path/to/node）。空なら付けない（YtDlpJsRuntime）。
+    js-runtime: ${MONITOR_YTDLP_JS_RUNTIME:}
 
   # 起動時に管理者が1人もいなければ、この値から初期管理者を作成する（AdminUserInitializer）。
   # 一度作成された後はこの値を変えても上書きされない（管理者が既に存在するため）。
