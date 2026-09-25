@@ -5,6 +5,7 @@ import com.example.monitor.platform.Platform;
 import com.example.monitor.util.StreamLinkUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 監視対象チャンネル 1 件を API のレスポンスとして返す形。
@@ -33,6 +34,8 @@ import java.time.LocalDateTime;
  *                            録画中・失敗は見られる録画ではないため数えない
  * @param subscriberCount     このチャンネルを購読している利用者の数。削除すると購読も連鎖で消えるため、
  *                            管理者が削除前に誰かが購読しているかを見分けられるよう返す
+ * @param subscriberNames     このチャンネルを購読している利用者の名前（利用者名の順）。購読者が無ければ空。
+ *                            人数だけでは誰の購読が消えるのか分からないため返す
  * @param channelUrl          チャンネルページの URL。Twitch でログイン名をまだ取得できていない場合は {@code null}
  */
 public record MonitoredChannelResponse(
@@ -53,6 +56,7 @@ public record MonitoredChannelResponse(
         LocalDateTime createdAt,
         long recordingCount,
         long subscriberCount,
+        List<String> subscriberNames,
         String channelUrl
 ) {
 
@@ -69,25 +73,27 @@ public record MonitoredChannelResponse(
     }
 
     /**
-     * エンティティと録画件数からレスポンスを組み立てる。購読者数は 0 とする。
+     * エンティティと録画件数からレスポンスを組み立てる。購読者は無いものとする。
      *
      * @param channel        変換元のエンティティ
      * @param recordingCount 再生できる録画の件数
      * @return 変換後のレスポンス
      */
     public static MonitoredChannelResponse from(MonitoredChannel channel, long recordingCount) {
-        return from(channel, recordingCount, 0L);
+        return from(channel, recordingCount, 0L, List.of());
     }
 
     /**
-     * エンティティと録画件数・購読者数からレスポンスを組み立てる。
+     * エンティティと録画件数・購読者数・購読者名からレスポンスを組み立てる。
      *
      * @param channel         変換元のエンティティ
      * @param recordingCount  再生できる録画の件数
      * @param subscriberCount このチャンネルを購読している利用者の数
+     * @param subscriberNames このチャンネルを購読している利用者の名前
      * @return 変換後のレスポンス
      */
-    public static MonitoredChannelResponse from(MonitoredChannel channel, long recordingCount, long subscriberCount) {
+    public static MonitoredChannelResponse from(
+            MonitoredChannel channel, long recordingCount, long subscriberCount, List<String> subscriberNames) {
         return new MonitoredChannelResponse(
                 channel.getId(),
                 channel.getPlatform(),
@@ -106,6 +112,7 @@ public record MonitoredChannelResponse(
                 channel.getCreatedAt(),
                 recordingCount,
                 subscriberCount,
+                subscriberNames,
                 StreamLinkUtils.channelUrl(
                         channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin())
         );
