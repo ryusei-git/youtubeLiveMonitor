@@ -94,6 +94,7 @@ public class DiscordNotifier {
      *
      * @param liveStream 通知対象の配信情報
      * @throws IllegalStateException Webhook URL が未設定の場合
+     * @throws java.util.concurrent.CompletionException Discord への送信に失敗した場合（原因は {@code getCause()}）
      */
     public void sendLiveStartNotification(LiveStreamDetails liveStream) {
         if (webhookClient == null) {

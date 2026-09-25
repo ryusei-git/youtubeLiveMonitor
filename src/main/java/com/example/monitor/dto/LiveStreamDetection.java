@@ -3,7 +3,7 @@ package com.example.monitor.dto;
 import java.time.LocalDateTime;
 
 /**
- * {@link com.example.monitor.service.LiveStreamDetector} が {@code /live} ページを調べた結果。
+ * 配信プラットフォームがチャンネル 1 件の配信状態を調べた結果。
  *
  * <p><b>「配信していない」と「調べられなかった」を必ず区別するための型。</b>
  * 以前はどちらも {@code Optional.empty()} で表していたため、YouTube 側の HTML 構造変更や
@@ -18,19 +18,20 @@ import java.time.LocalDateTime;
  * （配信 ID を使った {@code twitch.tv/videos/{配信ID}} は、Twitch が SPA のため
  * HTTP 200 を返すものの中身は存在しない、という紛らわしい挙動をする）。
  *
- * <p>ログイン名は検知時の API 応答には含まれているが DB には保存していない。
- * そのため<b>「検知した者が URL も組み立てて持たせる」</b>のが、追加の通信も
- * スキーマ変更も伴わない唯一の形になる。ログイン名を保存する案は、配信者が改名した
- * 瞬間に「永久にオフライン」と言い続けるサイレント故障になるため採らなかった。
+ * <p>ログイン名は配信者が変更できるため、監視の識別子には使わない
+ * （{@code MonitoredChannel.channelLogin} はリンク表示用に別途取り直している）。
+ * 検知した時点の応答から URL を組み立てて持たせれば、追加の通信なしで常に正しい URL になる。
  *
  * @param status   判定の結果
- * @param videoId  配信中の動画 ID。{@link DetectionStatus#LIVE} 以外では {@code null}
- * @param title    配信タイトル。{@link DetectionStatus#LIVE} 以外、または取得できなかった場合は {@code null}
+ * @param videoId  配信中または待機所の動画 ID。{@link DetectionStatus#LIVE}・{@link DetectionStatus#UPCOMING}
+ *                 以外では {@code null}
+ * @param title    配信タイトル。{@link DetectionStatus#LIVE}・{@link DetectionStatus#UPCOMING} 以外、
+ *                 または取得できなかった場合は {@code null}
  * @param category 配信のカテゴリ。<b>カテゴリという項目を持つプラットフォームだけが入れる</b>
  *                 （Twitch のゲーム・カテゴリ欄がこれにあたる）。YouTube には配信ごとの
  *                 相当する項目が無いため常に {@code null}
  * @param watchUrl 配信の視聴 URL。録画時に {@code yt-dlp} へ渡す URL でもある。
- *                 {@link DetectionStatus#LIVE} 以外では {@code null}
+ *                 {@link DetectionStatus#LIVE}・{@link DetectionStatus#UPCOMING} 以外では {@code null}
  * @param scheduledStartTime 配信開始予定時刻。待機所で取得できなかった場合は {@code null}
  * @param channelIconUrl チャンネルのアイコン URL。YouTube の検知だけが入れる。
  *                       読み取れなかった場合は {@code null}
