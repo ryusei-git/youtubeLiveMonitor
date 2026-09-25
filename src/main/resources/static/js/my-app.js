@@ -700,6 +700,119 @@ const myChannelsView = {
     },
 };
 
+/**
+ * 通知の設定。自分の Discord の Webhook の登録・解除・テスト送信（#177）。登録すると、購読しているチャンネルの
+ * 配信開始がその Webhook へ届く（#149）。
+ *
+ * 登録した URL は API が返さない（URL を知っていれば誰でもそのチャンネルへ投稿できるため）。管理画面の設定と同じく、
+ * 入力欄は保存のたびに空へ戻し、登録の有無は「設定済み」「未設定」だけで示す。
+ *
+ * 入力欄は管理画面と違って type="password" にしない。ブラウザのパスワード管理が、保存してあるログインのパスワードを
+ * この欄へ自動で入れたり、Webhook の URL をパスワードとして保存するよう勧めたりすることがあるため。
+ * autocomplete="off" は、入力の履歴に URL を残させないため。
+ * @type {MyView}
+ */
+const myNotificationSettingsView = {
+    title: "通知",
+    nav: "/my/settings/notifications",
+    render(root) {
+        root.innerHTML = `<h1>通知</h1>
+            <p class="pageDescription">購読しているチャンネルの配信が始まると、登録した Discord の Webhook へ知らせます（購読しているチャンネルすべてが対象）。通知が要らなければ登録しなくてかまいません。</p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <h2>Discord の Webhook</h2>
+            <div class="inline">
+              <span>状態: <strong id="webhookState">読み込み中...</strong></span>
+              <button type="button" id="webhookTestBtn" disabled>テスト送信</button>
+              <button type="button" id="webhookRemoveBtn" class="removeBtn" disabled>解除</button>
+            </div>
+            <form id="webhookForm" class="inline">
+              <label>Webhook の URL <input type="text" id="webhookUrl" size="60" required autocomplete="off" placeholder="https://discord.com/api/webhooks/..."></label>
+              <button type="submit" id="webhookSaveBtn">保存</button>
+            </form>
+            <p class="muted">
+              <code>https://discord.com/api/webhooks/</code> で始まる URL を受け付けます（続きは「数字/英数字」だけ。英数字には <code>_</code>・<code>-</code> も含みます）。<br>
+              Discord でコピーした URL をそのまま貼り付けてください。<code>?thread_id=</code> などを付け足した URL は受け付けません。<br>
+              保存した URL は、この画面にも表示しません。
+            </p>
+            <h2>Webhook の作り方</h2>
+            <p class="muted">
+              Discord で、通知を受け取りたいサーバーの「サーバー設定」→「連携サービス」→「ウェブフック」を開き、「新しいウェブフック」を作ります。<br>
+              送り先のチャンネルを選んで「ウェブフック URL をコピー」を押し、上の欄に貼り付けて保存します。保存したら「テスト送信」で届くか確かめられます。<br>
+              作るには、そのサーバーの「ウェブフックの管理」の権限が要ります（自分で作ったサーバーなら持っています）。
+            </p>`;
+        const state = el("webhookState");
+        const testBtn = buttonEl("webhookTestBtn");
+        const removeBtn = buttonEl("webhookRemoveBtn");
+        const saveBtn = buttonEl("webhookSaveBtn");
+        const input = inputEl("webhookUrl");
+        /** 登録しているか。読み込めるまでは null */
+        /** @type {boolean|null} */
+        let configured = null;
+        /** 表示を configured に合わせる。テスト送信・解除は登録した Webhook への操作なので、登録しているときだけ押せる */
+        const showState = () => {
+            if (configured !== null) state.textContent = configured ? "設定済み" : "未設定";
+            testBtn.disabled = removeBtn.disabled = configured !== true;
+        };
+        /**
+         * ボタンの操作を行い、失敗はエラー帯に出す。通信の間は押したボタンを止める（続けて押して二重に送らないため）。
+         *
+         * @param {HTMLButtonElement} button 押されたボタン
+         * @param {() => Promise<void>} action 行う操作
+         */
+        const run = async (button, action) => {
+            button.disabled = true;
+            try {
+                await action();
+                // 待つ間に別の画面へ移っていたら、その画面のエラー帯には触らない
+                if (button.isConnected) clearError();
+            } catch (e) {
+                if (button.isConnected) showError(errorMessage(e));
+            } finally {
+                saveBtn.disabled = false;
+                showState();
+            }
+        };
+
+        formEl("webhookForm").addEventListener("submit", (event) => {
+            event.preventDefault();
+            // 不正な URL の 400 は、受け付ける形を書いたサーバーの文言をそのまま出す
+            run(saveBtn, async () => {
+                await apiPut("/api/my/notification-settings", { webhookUrl: input.value });
+                input.value = "";
+                configured = true;
+                showToast("Webhook を保存しました");
+            });
+        });
+        testBtn.addEventListener("click", () => run(testBtn, async () => {
+            // Discord に届かなかった理由（502）は Discord の応答のままなので、何の失敗かを頭に足す
+            await apiPost("/api/my/notification-settings/test", {}).catch((e) => {
+                throw new Error(`テストの通知を送れませんでした: ${errorMessage(e)}`);
+            });
+            showToast("テストの通知を送りました。Discord に届いたか確かめてください");
+        }));
+        removeBtn.addEventListener("click", () => {
+            if (!confirm("Discord の Webhook の登録を解除しますか？\n解除すると、配信開始の通知が届かなくなります。")) return;
+            run(removeBtn, async () => {
+                await apiDelete("/api/my/notification-settings");
+                configured = false;
+                showToast("Webhook の登録を解除しました", "danger");
+            });
+        });
+
+        apiGet("/api/my/notification-settings")
+            .then((/** @type {{configured: boolean}} */ settings) => {
+                // 読み込みを待つ間に保存・解除が済んでいれば、そちらの方が新しい
+                configured ??= settings.configured;
+                showState();
+            })
+            .catch((e) => {
+                if (!state.isConnected) return;
+                state.textContent = "読み込めませんでした";
+                showError(errorMessage(e));
+            });
+    },
+};
+
 /** @type {MyView} */
 const myNotFoundView = {
     title: "ページが見つかりません",
@@ -715,7 +828,7 @@ const myNotFoundView = {
 
 /**
  * ルートの表。上から順にパスと照らし、最初に合った画面を出す。
- * 最後の行は、どれにも合わない /my 配下（まだ作っていない /my/settings/notifications など）。
+ * 最後の行は、どれにも合わない /my 配下（URL の打ち間違いなど）。
  * @type {Array<[RegExp, MyView]>}
  */
 const myRoutes = [
@@ -723,6 +836,7 @@ const myRoutes = [
     [/^\/my\/archive\/?$/, myArchiveView],
     [/^\/my\/watch\/(\d+)\/?$/, myWatchView],
     [/^\/my\/channels\/?$/, myChannelsView],
+    [/^\/my\/settings\/notifications\/?$/, myNotificationSettingsView],
     [/^/, myNotFoundView],
 ];
 
