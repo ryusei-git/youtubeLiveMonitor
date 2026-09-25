@@ -14,55 +14,6 @@ function registrationUrl(token) {
 }
 
 /**
- * リンクをクリップボードへ写す。
- *
- * <p>クリップボード API は安全な文脈（HTTPS か localhost）でしか使えず、
- * Tailscale 経由の http では失敗する。そのため<b>失敗しても入力欄の選択だけは残し</b>、
- * 手動でコピーできるようにしている。
- *
- * @param {HTMLInputElement} field リンクを表示している入力欄
- */
-async function copyLink(field) {
-    field.select();
-    try {
-        await navigator.clipboard.writeText(field.value);
-        showToast("リンクをコピーしました");
-    } catch {
-        showToast("コピーできなかったので選択しました。手動でコピーしてください");
-    }
-}
-
-/**
- * リンクの表示欄（読み取り専用の入力欄＋コピーボタン）を作る。
- *
- * <p>ただの文字列として置くと、長い URL が表のセルを押し広げてしまう。
- * 入力欄にすると幅を決められ、クリックで全選択もできる。
- *
- * @param {string} token 招待の token
- * @returns {HTMLElement} 差し込む要素
- */
-function linkField(token) {
-    const wrap = document.createElement("div");
-    wrap.className = "filterEdit";
-
-    const field = document.createElement("input");
-    field.type = "text";
-    field.readOnly = true;
-    field.value = registrationUrl(token);
-    field.setAttribute("aria-label", "招待リンク");
-    field.addEventListener("click", () => field.select());
-
-    const copy = document.createElement("button");
-    copy.type = "button";
-    copy.className = "filterSave";
-    copy.textContent = "コピー";
-    copy.addEventListener("click", () => copyLink(field));
-
-    wrap.append(field, copy);
-    return wrap;
-}
-
-/**
  * 招待の状態を表示用の HTML にする。
  *
  * @param {any} invitation 招待1件
@@ -108,7 +59,7 @@ async function loadInvitations() {
             // 使えない招待の token はサーバーが返さないので、リンクも出しようがない
             const linkCell = query(".linkCell", tr);
             if (inv.token) {
-                linkCell.appendChild(linkField(inv.token));
+                linkCell.appendChild(linkField(registrationUrl(inv.token), "招待リンク"));
             } else {
                 linkCell.innerHTML = '<span class="muted">—</span>';
             }
@@ -152,7 +103,7 @@ el("issueForm").addEventListener("submit", async (ev) => {
         const heading = document.createElement("p");
         heading.innerHTML = `<strong>発行しました。</strong>`
             + `<span class="muted">このリンクを相手に送ってください（1回使うと無効になります）。</span>`;
-        issued.append(heading, linkField(invitation.token));
+        issued.append(heading, linkField(registrationUrl(invitation.token), "招待リンク"));
 
         showToast("招待リンクを発行しました");
         loadInvitations();

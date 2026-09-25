@@ -18,9 +18,11 @@ async function loadUsers() {
                 <td>${statusLamp(user.enabled ? "live" : "idle", user.enabled ? "有効" : "無効")}</td>
                 <td>${datetimeCell(user.createdAt)}</td>
                 <td>${user.lastLoginAt ? datetimeCell(user.lastLoginAt) : '<span class="muted">未ログイン</span>'}</td>
-                <td>${managed ? `<button type="button" class="disableUser" ${user.enabled ? "" : "disabled"}>無効化</button>
+                <td>${managed ? `<button type="button" class="resetUser" ${user.enabled ? "" : "disabled"}>再設定用のリンクを発行</button>
+                    <button type="button" class="disableUser" ${user.enabled ? "" : "disabled"}>無効化</button>
                     <button type="button" class="deleteUser">削除</button>` : '<span class="muted">管理者は操作できません</span>'}</td>`;
             if (managed) {
+                query(".resetUser", row).addEventListener("click", (ev) => issueResetLink(user, /** @type {HTMLButtonElement} */ (ev.currentTarget)));
                 query(".disableUser", row).addEventListener("click", () => changeUser(user, false));
                 query(".deleteUser", row).addEventListener("click", () => changeUser(user, true));
             }
@@ -74,6 +76,30 @@ async function changeUser(user, remove) {
         });
         userOperationPending = false;
         buttonEl("reloadUsers").disabled = false;
+    }
+}
+
+/**
+ * 一般利用者の再設定用のリンクを発行して、表の上に出す（#326。API は #324）。
+ * パスワードは管理者にも分からないまま、本人が決め直せるようにするため。
+ * URL は招待リンクと同じく画面が組み立てる（サーバーは外から見える自分の URL を知らないため）。
+ * @param {any} user 対象の表示情報
+ * @param {HTMLButtonElement} button 押したボタン
+ */
+async function issueResetLink(user, button) {
+    if (!confirm(`「${user.username}」の再設定用のリンクを発行しますか？\nリンクを開いた人が新しいパスワードを決められます。本人にだけ伝えてください。`)) return;
+    button.disabled = true;
+    try {
+        const result = await apiPost(`/api/admin/users/${user.id}/password-reset`, {});
+        el("resetLinkNote").textContent = `「${user.username}」の再設定用のリンクです。${formatDateTimeSimple(result.expiresAt)} まで、1 回だけ使えます。`;
+        el("resetLinkField").replaceChildren(linkField(`${location.origin}/password-reset.html?token=${encodeURIComponent(result.token)}`, "再設定用のリンク"));
+        el("resetLinkPanel").hidden = false;
+        clearError();
+        showToast("再設定用のリンクを発行しました");
+    } catch (e) {
+        showError(errorMessage(e));
+    } finally {
+        button.disabled = false;
     }
 }
 
