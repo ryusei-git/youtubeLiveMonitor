@@ -290,6 +290,27 @@ loginctl disable-linger "$USER"               # ほかに linger を使うもの
 bin/service.sh start                          # 以後は nohup で起動する
 ```
 
+### 6. 巡回が止まったら Discord へ知らせる（任意）
+
+サービスが落ちたり、巡回が固まったりしても、ポートが開いている限り `bin/service.sh status` は「起動中」と表示します。
+巡回が回っているかは `GET /api/health`（ログイン不要）で分かり、`bin/service.sh status` の「巡回:」の行にも出ます。
+
+| 状態 | HTTP | 意味 |
+|---|---|---|
+| `UP` | 200 | 巡回が回っている |
+| `STARTING` | 200 | 起動直後で、まだ 1 巡していない |
+| `DISABLED` | 200 | 確認用の起動（`bin/preview.sh`）で巡回を止めている |
+| `STALE` | 503 | 最後の巡回から巡回間隔の 3 倍より長く経った（巡回が止まっている） |
+
+`bin/health-watch.sh` を cron から 5 分ごとに呼ぶと、2 回続けて `/api/health` が失敗したとき（落ちている・`STALE`）に
+`.env` の `DISCORD_WEBHOOK_URL` へ 1 度知らせ、戻ったらもう 1 度知らせます。
+
+```bash
+crontab -e
+# 次の 1 行を足す
+*/5 * * * * $HOME/youtubeLiveMonitor/bin/health-watch.sh
+```
+
 ## 使用方法
 
 ### 監視対象チャンネルの登録
@@ -508,6 +529,7 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 | PUT | `/api/settings` | 設定値を`.env`へ保存（反映には再起動が必要。後述） |
 | POST | `/api/settings/directories/pick?initialDirectory=` | OSのフォルダ選択ダイアログを起動し、選ばれたパスを返す（キャンセル時は204） |
 | POST | `/api/monitor/check` | 次の巡回を待たずに今すぐ全チャンネルをチェック（実行中なら 409） |
+| GET | `/api/health` | 巡回が回っているか（ログイン不要。`{"status":"UP","secondsSinceLastPoll":42}`、止まっていれば 503） |
 | GET | `/api/platforms` | 対応している配信プラットフォームの一覧（登録画面の選択肢。認証情報の設定有無も返す） |
 | GET | `/api/channels` | 監視対象の一覧 |
 | POST | `/api/channels` | 監視対象の登録（`platform` は省略可、既定は `YOUTUBE`） |
