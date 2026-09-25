@@ -27,11 +27,11 @@ import java.time.LocalDateTime;
  *
  * <p>設計の根拠は {@code docs/user-portal-design.md} 5.2 節。ただし同節が挙げる
  * 「購読者ゼロのチャンネルは巡回対象から外す」は<b>採用していない</b>
- * （{@code docs/user-channel-tasks.md} の「設計書からの変更点」参照）。既存の 19 チャンネルは
- * 購読という概念が無い時代に登録されており、誰にも紐づいていない。巡回条件に購読を混ぜると、
- * この 19 件の監視が本タスクの導入と同時に全停止してしまう。そのため<b>このテーブルは
- * 「画面にどこまで見せるか」だけを表し、巡回・録画・通知の対象を決める役割は持たない</b>。
- * 巡回対象は従来どおり {@link MonitoredChannel} が全件である。
+ * （{@code docs/user-channel-tasks.md} の「設計書からの変更点」参照）。購読の仕組みより前に
+ * 登録されたチャンネルは誰にも紐づいていない。巡回条件に購読を混ぜると、それらの監視が
+ * 全停止してしまう。そのため<b>巡回の対象は購読に関係なく {@link MonitoredChannel} の全件だが、
+ * 録画の要否（{@code RecordingIntentResolver}）と利用者ごとの通知先（{@code UserNotificationService}）は
+ * 購読から決まる。</b>
  *
  * <h2>{@code (user_id, channel_id)} の一意制約</h2>
  * 同じ利用者が同じチャンネルを二重に購読できてしまうと、一覧に同じチャンネルが複数回
@@ -48,14 +48,10 @@ import java.time.LocalDateTime;
  * 利用者を消しても記録は残さなければならず、あちらは意図的に外部キーを張っていない。
  * こちらは「今の関係」を表すだけなので、関係の一方が消えれば一緒に消えてよい。
  *
- * <h2>チャンネル本体・録画設定はここに持たせない</h2>
+ * <h2>チャンネル本体はここに持たせない</h2>
  * 購読を解除しても {@link MonitoredChannel} 本体（録画履歴の参照元でもある）は消えない。
  * これは本エンティティに削除ロジックを持たせず、{@code UserSubscriptionRepository} を
  * 「このテーブルの行だけを操作するメソッド」に限定することで担保している。
- * また {@link MonitoredChannel#recordEnabled} や {@link MonitoredChannel#recordTitleKeywords}
- * のような録画設定はチャンネル単位のままここには複製しない。購読ごとに持たせると
- * 「誰かが変えると他の購読者にも影響する」設計との整合が必要になり、それは通知の
- * ユーザー別化（設計書 5.3）と合わせて検討すべき範囲のため、今回のタスク（3-1）では触らない。
  */
 @Entity
 @Table(name = "user_subscriptions",
@@ -112,7 +108,7 @@ public class UserSubscription {
      *
      * <p>既に購読の行が存在する DB へ NOT NULL の boolean を足すと
      * 「既存行に入れる値がない」で ALTER が失敗するため、DB 側の既定値を明示している
-     * （CLAUDE.md 参照。実際に発生した事故）。
+     * （{@code docs/pitfalls.md}「既存データがある状態で NOT NULL の boolean カラムを追加すると失敗する」参照。実際に発生した事故）。
      */
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean recordEnabled;
@@ -135,7 +131,8 @@ public class UserSubscription {
      *
      * <p>既に購読の行が存在する DB へ NOT NULL の boolean を足すと
      * 「既存行に入れる値がない」で ALTER が失敗するため、DB 側の既定値を明示している
-     * （{@code docs/pitfalls.md} 参照。実際に発生した事故）。{@link Builder.Default} は、
+     * （{@code docs/pitfalls.md}「既存データがある状態で NOT NULL の boolean カラムを追加すると失敗する」参照。実際に発生した事故）。
+     * {@link Builder.Default} は、
      * 無いと {@code builder()} が初期化式を無視して {@code false} で作るため。
      */
     @Builder.Default

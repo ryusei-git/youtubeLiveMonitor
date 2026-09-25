@@ -12,7 +12,7 @@ package com.example.monitor.entity;
  *
  * <p>{@link AuditLog#action} が {@code columnDefinition = "varchar(48)"} を伴うのは、
  * この enum に将来列挙子を追加した際に H2 のネイティブ ENUM 型で全読み書きが壊れないようにするため
- * （{@code Recording.status} で実際に発生した事故と同じ理由。CLAUDE.md 参照）。
+ * （{@code Recording.status} で実際に発生した事故と同じ理由。{@code docs/pitfalls.md}「enum の列挙子を増やすと既存 DB で全更新が失敗する」参照）。
  * 監査ログは今後この enum の種類が増えていくことがほぼ確実なテーブルなので、
  * 単純な文字列カラムにしておく効果が特に大きい。
  */

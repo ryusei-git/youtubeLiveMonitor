@@ -53,7 +53,7 @@ public class AppUser {
      * <p>{@code columnDefinition} を明示しているのは、H2 のネイティブ ENUM 型を使わせないため。
      * これが無いと Hibernate は列を作成時点の値だけを許すネイティブ ENUM 型として作ってしまい、
      * 後から列挙子を増やした瞬間にその列の全読み書きが壊れる
-     * （{@code Recording.status} で実際に発生した。CLAUDE.md 参照）。
+     * （{@code Recording.status} で実際に発生した。{@code docs/pitfalls.md}「enum の列挙子を増やすと既存 DB で全更新が失敗する」参照）。
      */
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16, columnDefinition = "varchar(16)")
@@ -138,7 +138,7 @@ public class AppUser {
     public enum Role {
         /** 管理者。DB管理・ログ閲覧・設定変更など既存の管理機能にアクセスできる。 */
         ADMIN,
-        /** 一般利用者。設計書の段階4以降で追加するユーザー向け画面の利用を想定している（現時点では未使用）。 */
+        /** 一般利用者。購読したチャンネルの録画を見る画面（{@code /my} と {@code /api/my/**}）を使う。 */
         USER
     }
 }

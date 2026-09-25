@@ -43,7 +43,7 @@ import java.time.LocalDateTime;
  * <h2>enum 列の {@code columnDefinition}</h2>
  * {@link #action} と {@link #outcome} はどちらも {@code columnDefinition} を明示している。
  * 付けないと H2 のネイティブ ENUM 型になり、後から列挙子を追加した瞬間にその列の
- * 全読み書きが壊れる（{@code Recording.status} で実際に発生した。CLAUDE.md 参照）。
+ * 全読み書きが壊れる（{@code Recording.status} で実際に発生した。{@code docs/pitfalls.md}「enum の列挙子を増やすと既存 DB で全更新が失敗する」参照）。
  * 監査ログは今後 {@link AuditAction} の種類が増えていくことが確実なテーブルなので、
  * この対策は特に重要。
  */
@@ -73,8 +73,8 @@ public class AuditLog {
 
     /**
      * リクエストごとの相関ID。同一リクエスト内のアプリログ・アクセスログと突き合わせるために使う
-     * （{@code docs/user-portal-design.md} 1.3, 4.6 参照）。相関IDの発行は段階2-2で実装するため、
-     * それまでは記録できず {@code null} になる。
+     * （{@code docs/user-portal-design.md} 1.3, 4.6 参照）。{@code RequestTracingFilter} が発行した ID。
+     * フィルターを通らない経路（起動時の処理など）では {@code null}。
      */
     @Column(name = "request_id", length = 36)
     private String requestId;
