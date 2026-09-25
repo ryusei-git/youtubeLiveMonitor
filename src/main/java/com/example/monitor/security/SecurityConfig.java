@@ -185,6 +185,9 @@ public class SecurityConfig {
                 // 招待リンクからの利用者登録。まだアカウントが無い時点で開くので認証は掛けられない。
                 // 代わりに招待の token が鍵になる（推測できない乱数・1回限り・期限付き）
                 .requestMatchers("/register.html", "/api/registration/**").permitAll()
+                // パスワードの再設定（#324）。忘れてログインできない人が開くので認証は掛けられない。
+                // 招待と同じく、管理者が発行した token が鍵になる（推測できない乱数・1回限り・24時間）
+                .requestMatchers("/password-reset.html", "/api/password-reset/**").permitAll()
                 .requestMatchers(AUTH_API_PREFIX).permitAll()
                 .requestMatchers("/", "/index.html").hasRole("ADMIN")
                 .requestMatchers("/tables.html", "/api/admin/tables/**").hasRole("ADMIN")

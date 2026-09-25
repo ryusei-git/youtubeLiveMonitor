@@ -119,6 +119,52 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
                        @Param("changedAt") LocalDateTime changedAt);
 
     /**
+     * パスワードの再設定用の token から利用者を引く。再設定の画面を開いた時点の確認に使う。
+     *
+     * @param token 再設定用のリンクに載っていた文字列
+     * @return 該当する利用者。使用済み・上書き済み・存在しない token なら {@link Optional#empty()}
+     */
+    Optional<AppUser> findByPasswordResetToken(String token);
+
+    /**
+     * パスワードの再設定用の token を書き込む。前の token は上書きで使えなくなる。
+     *
+     * <p>{@link #disableUser} と同じく、読み込み後に権限が変わっても管理者に発行しないよう更新条件にも権限を含める。
+     *
+     * @param id        利用者の主キー
+     * @param role      操作可能な権限
+     * @param token     新しい token
+     * @param expiresAt 期限
+     * @return 更新した件数
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE AppUser u SET u.passwordResetToken = :token, u.passwordResetExpiresAt = :expiresAt "
+            + "WHERE u.id = :id AND u.role = :role")
+    int updatePasswordResetToken(@Param("id") Long id, @Param("role") Role role,
+                                 @Param("token") String token, @Param("expiresAt") LocalDateTime expiresAt);
+
+    /**
+     * 再設定用の token を使ってパスワードを書き換え、同時に token を消す。
+     *
+     * <p>token と期限を更新条件に入れた 1 本の UPDATE にしているのは、同じリンクが同時に 2 回送られても
+     * 1 回しか通さないため（読んでから書く 2 段にすると、両方が「未使用」を読んで両方通りうる）。
+     * 変更時刻を書くのは {@link #updatePassword} と同じく、それより前のセッションを失効させるため。
+     *
+     * @param token        再設定用のリンクに載っていた文字列
+     * @param passwordHash エンコード済みの新しいパスワード
+     * @param changedAt    変更した時刻
+     * @param now          期限の判定の基準時刻
+     * @return 更新した件数。token が使えなければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE AppUser u SET u.passwordHash = :passwordHash, u.passwordChangedAt = :changedAt, "
+            + "u.passwordResetToken = NULL, u.passwordResetExpiresAt = NULL "
+            + "WHERE u.passwordResetToken = :token AND u.passwordResetExpiresAt > :now")
+    int resetPasswordByToken(@Param("token") String token, @Param("passwordHash") String passwordHash,
+                             @Param("changedAt") LocalDateTime changedAt, @Param("now") LocalDateTime now);
+
+    /**
      * 読み込み後に権限が変わっても管理者を無効化しないよう、更新条件にも権限を含める。
      * @param id 利用者ID
      * @param role 操作可能な権限

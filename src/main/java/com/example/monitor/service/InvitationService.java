@@ -9,6 +9,7 @@ import com.example.monitor.entity.Invitation;
 import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.InvitationRepository;
 import com.example.monitor.util.PasswordPolicy;
+import com.example.monitor.util.SecureTokens;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import lombok.extern.slf4j.Slf4j;
@@ -16,9 +17,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,30 +47,11 @@ public class InvitationService {
     /** 有効日数の上限。これより長い指定は切り詰める。 */
     private static final int MAX_VALID_DAYS = 90;
 
-    /**
-     * token の乱数のバイト数。
-     *
-     * <p>32 バイト＝256 ビット。総当たりで当てることは現実的に不可能な長さで、
-     * かつ Base64 にしても URL に収まる程度に収まる（43 文字）。
-     */
-    private static final int TOKEN_BYTES = 32;
-
     /** 利用者名の最低文字数。 */
     private static final int MIN_USERNAME_LENGTH = 3;
 
     /** 利用者名の最大文字数（DB の列長と揃えている）。 */
     private static final int MAX_USERNAME_LENGTH = 64;
-
-    /**
-     * token 生成用の乱数。
-     *
-     * <p><b>{@code Math.random()} や {@code Random} を使ってはならない。</b>
-     * それらは次の値を予測できるため、1 つの招待リンクから他の招待を割り出せてしまう。
-     */
-    private static final SecureRandom RANDOM = new SecureRandom();
-
-    /** URL に載せるため、記号を含まない URL セーフな Base64 を使う（末尾の詰め物も付けない）。 */
-    private static final Base64.Encoder TOKEN_ENCODER = Base64.getUrlEncoder().withoutPadding();
 
     private final InvitationRepository invitationRepository;
     private final AppUserRepository appUserRepository;
@@ -91,7 +71,7 @@ public class InvitationService {
                 : Math.min(validDays, MAX_VALID_DAYS);
 
         Invitation invitation = new Invitation();
-        invitation.setToken(generateToken());
+        invitation.setToken(SecureTokens.generate());
         invitation.setLabel(label == null || label.isBlank() ? null : label.trim());
         invitation.setExpiresAt(LocalDateTime.now().plusDays(days));
 
@@ -242,16 +222,5 @@ public class InvitationService {
         Long userId = username == null ? null
                 : appUserRepository.findByUsername(username).map(AppUser::getId).orElse(null);
         auditLogger.record(action, AuditOutcome.SUCCESS, userId, username, null, targetType, targetId, detail);
-    }
-
-    /**
-     * 推測できない token を作る。
-     *
-     * @return URL に載せられる形式の token
-     */
-    private String generateToken() {
-        byte[] bytes = new byte[TOKEN_BYTES];
-        RANDOM.nextBytes(bytes);
-        return TOKEN_ENCODER.encodeToString(bytes);
     }
 }
