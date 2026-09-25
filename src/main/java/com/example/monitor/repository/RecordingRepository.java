@@ -134,7 +134,12 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * <p>購読の限定は {@link #search} と同じ条件。利用者の画面に購読外のジャンル
      * （＝購読外の録画があること）を出さないため。
      *
+     * <p>再生可能の絞り込みも {@link #search} の {@code playableOnly} と同じ条件。選択肢の件数は、
+     * そのジャンルを選んだときの一覧の件数と一致しなければならない。再生できる録画だけを出す一覧に対して
+     * 失敗・録画中まで数えると、「歌枠（14）」を選んで 13 件しか出ない、という食い違いになる（#228）。
+     *
      * @param subscriberId 購読しているチャンネルの録画だけを数える利用者の主キー。{@code null} なら全録画
+     * @param playableOnly 再生できる録画（完了・途中まで）だけを数えるか
      * @return ジャンルと件数の一覧
      */
     @Query("""
@@ -143,10 +148,14 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
              WHERE r.genre IS NOT NULL
                AND (:subscriberId IS NULL OR EXISTS (
                     SELECT s.id FROM UserSubscription s WHERE s.channel = r.channel AND s.user.id = :subscriberId))
+               AND (:playableOnly = FALSE OR r.status IN (
+                    com.example.monitor.entity.Recording.RecordingStatus.COMPLETED,
+                    com.example.monitor.entity.Recording.RecordingStatus.PARTIAL))
              GROUP BY r.genre
              ORDER BY COUNT(r) DESC, r.genre ASC
             """)
-    List<RecordingGenreCountResponse> countByGenre(@Param("subscriberId") Long subscriberId);
+    List<RecordingGenreCountResponse> countByGenre(@Param("subscriberId") Long subscriberId,
+                                                   @Param("playableOnly") boolean playableOnly);
 
     /**
      * ジャンルが未設定でタイトルのある録画を取得する。{@code genre} 列を足す前の行を埋めるのに使う

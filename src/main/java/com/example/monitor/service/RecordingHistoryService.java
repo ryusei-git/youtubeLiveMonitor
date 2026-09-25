@@ -220,14 +220,19 @@ public class RecordingHistoryService {
     /**
      * ジャンルごとの録画件数を、件数の多い順に取得する。
      *
+     * <p>失敗・録画中の録画も数える。管理画面の一覧は状態でも絞り込めて、状態を問わず全部を出すため。
+     *
      * @return ジャンルと件数の一覧
      */
     public List<RecordingGenreCountResponse> countByGenre() {
-        return recordingRepository.countByGenre(null);
+        return recordingRepository.countByGenre(null, false);
     }
 
     /**
      * 利用者が購読しているチャンネルの録画に限って、ジャンルごとの件数を数える。
+     *
+     * <p><b>再生できる録画（完了・途中まで）だけを数える。</b>利用者のアーカイブは再生できる録画だけを
+     * 一覧に出すため、失敗・録画中まで数えると選択肢の件数が一覧の件数より多くなる（#228）。
      *
      * @param username 購読の持ち主のログイン名
      * @return ジャンルと件数の一覧。利用者が見つからなければ空
@@ -235,7 +240,7 @@ public class RecordingHistoryService {
     public List<RecordingGenreCountResponse> countSubscribedByGenre(String username) {
         Long userId = findUserId(username);
         // null を渡すと全録画を数えてしまうため、利用者が特定できなければ何も返さない
-        return userId == null ? List.of() : recordingRepository.countByGenre(userId);
+        return userId == null ? List.of() : recordingRepository.countByGenre(userId, true);
     }
 
     /**
