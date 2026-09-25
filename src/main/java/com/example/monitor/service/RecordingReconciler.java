@@ -33,8 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 両方であり、どちらか一方のクラスに寄せると他方の面倒まで見る不自然な依存が生まれる。
  * 進行中かどうかの判定は両者が共有する {@link ActiveVideoJobs} への問い合わせ1つで済み、
  * {@code ActiveVideoJobs} 自身は {@link RecordingHistoryService} に依存しないため
- * 循環参照の心配もない。結果としてこのクラスは {@link RecordingHistoryService}・
- * {@link ActiveVideoJobs}・{@link ProcessLauncher} にだけ依存する形で完結している。
+ * 循環参照の心配もない。
  *
  * <h2>いつ呼んでも安全な理由（2 段階の除外）</h2>
  * 単に「{@code RECORDING} 行が見つかったら完成ファイルの有無で判定する」だけでは、
@@ -90,9 +89,10 @@ public class RecordingReconciler {
     /**
      * 救済できなかった録画の主キーと、そのときのファイルの合計サイズ。
      *
-     * <p><b>同じ録画を毎巡回 {@code ffmpeg} に掛け続けないための記憶。</b>
+     * <p><b>同じ録画を後始末のたびに {@code ffmpeg} に掛け続けないための記憶。</b>
      * 断片そのものが壊れていて何度やっても失敗する録画は珍しくない。それを放っておくと、
-     * 数GBのファイルに対する外部プロセスの起動が巡回のたび（既定 300 秒ごと）に
+     * 数GBのファイルに対する外部プロセスの起動が後始末のたび（既定 120 秒ごと、
+     * {@code monitor.youtube.interval-seconds}）に
      * <b>永久に繰り返され</b>、CPU とディスク I/O を無駄に食い続ける
      * （通知の再試行に上限を設けているのと同じ理由）。
      *
@@ -163,7 +163,7 @@ public class RecordingReconciler {
      *   <li>{@code FAILED} なのにファイルが残っているもの … 再生できる形に直せれば救済する。
      *       ファイルが実在するときだけ状態が変わるので安全。何も残っていない録画では
      *       外部コマンドを起動せずに読み飛ばす。<b>一度救済に失敗した録画は、ファイルの
-     *       合計サイズが変わるまで再試行しない</b>——必ず失敗する録画を毎巡回 {@code ffmpeg} に
+     *       合計サイズが変わるまで再試行しない</b>——必ず失敗する録画を後始末のたびに {@code ffmpeg} に
      *       掛け続けると、数GBのファイルに対する外部プロセスの起動コストを永久に払い続ける
      *       ことになるため（{@link #unsalvageableFileSizes} 参照）</li>
      * </ul>
@@ -179,7 +179,7 @@ public class RecordingReconciler {
         }
 
         for (Recording recording : recordingRepository.findByStatus(RecordingStatus.FAILED)) {
-            // ファイルが1つも無ければ詰め替えを試みるまでもない（毎巡回 ffprobe を走らせない）
+            // ファイルが1つも無ければ詰め替えを試みるまでもない（後始末のたびに ffprobe を走らせない）
             if (recordingFileService.sizeIfExists(recording).isEmpty()
                     && !recordingFileService.hasAnyFileFor(recording)) {
                 continue;
