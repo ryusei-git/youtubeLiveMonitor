@@ -27,7 +27,7 @@ import java.io.IOException;
  * {@link AuditLogger#recordAuthEvent} には常に {@code userId=null} を渡す。
  * 実在する利用者かどうかで記録の仕方を変えると、監査ログの内容そのものから
  * 利用者名の実在を推測できてしまう（{@code LoginAttemptLimiter} が実在・非実在を
- * 同じ応答にしているのと同じ考え方。CLAUDE.md 参照）。
+ * 同じ応答にしているのと同じ考え方）。
  *
  * <h2>ログイン制限中は記録されない</h2>
  * {@code LoginAttemptFilter} が {@code UsernamePasswordAuthenticationFilter} より前段で

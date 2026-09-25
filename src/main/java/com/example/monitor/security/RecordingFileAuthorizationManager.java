@@ -24,7 +24,7 @@ import java.util.function.Supplier;
  * 判定だけをここで行い、配信そのものは {@code RecordingResourceConfig} の
  * 静的リソース機構に任せる。自前でバイト列を返すコントローラを書くと、
  * {@code <video>} のシークに必要な HTTP Range 対応とパストラバーサル対策を
- * 作り直すことになる（CLAUDE.md 参照）。
+ * 作り直すことになる（{@code docs/pitfalls.md}「録画ファイルの配信は自前のストリーミング処理を書かない」参照）。
  */
 @Component
 @RequiredArgsConstructor

@@ -23,55 +23,68 @@ import org.springframework.security.web.authentication.AuthenticationFailureHand
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 
 /**
- * 認証・認可の設定。認可ルールは {@code docs/user-portal-design.md} 3.4 の表をそのまま実装する。
+ * 認証・認可・CSRF・応答ヘッダーの設定。認可の考え方は {@code docs/user-portal-design.md} 3.4 に従う。
  *
- * <p>{@code requestMatchers} は先に書いたものから順に評価される。個別のパスへの制限
- * （ADMIN専用など）を、包括的なルール（{@code anyRequest().authenticated()}）より
- * 先に書くこと。逆にすると個別の制限が一切効かなくなる。
+ * <h2>認可の規則は上から順に最初に一致したものが使われる</h2>
+ * {@link #filterChain} の {@code authorizeHttpRequests} に並べた {@code requestMatchers} は、
+ * 書いた順に照合され、最初に一致した規則だけが使われる。個別のパスへの制限（ADMIN 専用など）は
+ * 必ず最後の包括的な規則（{@code anyRequest().authenticated()}）より先に書くこと。
+ * 逆にすると個別の制限が一切効かなくなる。
+ * どのパスが誰に開いているかの一覧はここには書かない。規則を足すたびに一覧が古くなり、
+ * 実装と食い違った説明を信じて誤った画面や API を書く元になるため、{@code filterChain} の並びを正とする。
  *
- * <table>
- *   <caption>設計書 3.4 の表と実装の対応</caption>
- *   <tr><th>設計書の記載</th><th>実際のパス</th><th>権限</th></tr>
- *   <tr><td>/login, /css/**, /js/**</td><td>同左（+ /userLogin.html, /adminLogin.html, /error, /favicon.ico）</td><td>全員</td></tr>
- *   <tr><td>/api/auth/**</td><td>同左（ログイン処理・ログアウト）</td><td>全員</td></tr>
- *   <tr><td>/tables.html, /api/tables/**</td>
- *       <td>/tables.html, <b>/api/admin/tables/**</b></td><td>ADMIN</td></tr>
- *   <tr><td>/logs.html, /api/logs/**</td><td>同左</td><td>ADMIN</td></tr>
- *   <tr><td>/api/settings/**</td><td>同左</td><td>ADMIN</td></tr>
- *   <tr><td>/audit.html, /api/audit-logs/**</td><td>同左（段階2で追加予定。先取りで設定）</td><td>ADMIN</td></tr>
- *   <tr><td>/index.html</td><td>同左（+ ルート "/"）</td><td>ADMIN</td></tr>
- *   <tr><td>/recordings/**</td><td>同左</td><td>認証済み</td></tr>
- *   <tr><td>その他</td><td>同左</td><td>認証済み</td></tr>
- * </table>
+ * <p>既定を「認証済みなら誰でも」にしていても、管理者向けの画面と API は個別に ADMIN へ閉じている。
+ * 以前は多くの管理者向け API がこの既定に落ちていて、一般利用者でもチャンネルの削除や
+ * 全利用者の録画の閲覧ができてしまっていた。新しい管理者向けの画面・API を足すときは、
+ * 既定に任せず ADMIN の規則を明示すること。
  *
- * <p><b>{@code /api/tables/**} ではなく {@code /api/admin/tables/**} にしている理由。</b>
- * 設計書のパス表記は概念的なもので、実装済みの {@code DatabaseTableController} は
- * 実際には {@code /api/admin/tables} にマッピングされている（設計書執筆時点の想定と
- * 既存実装の食い違い）。表の意図（DB管理APIをADMIN限定にする）を実現するには
- * 実在するパスを保護する必要があるため、実装済みの物理パスに合わせた。
+ * <h2>設計書 3.4 の表と異なるところ</h2>
+ * <ul>
+ *   <li><b>DB 管理 API は {@code /api/tables/**} ではなく {@code /api/admin/tables/**}。</b>
+ *       設計書のパス表記は概念的なもので、実装済みの {@code DatabaseTableController} は
+ *       {@code /api/admin/tables} にマッピングされている。表の意図（DB 管理 API を ADMIN 限定にする）を
+ *       実現するには実在するパスを保護する必要があるため、実際のパスに合わせた。</li>
+ *   <li><b>{@code /h2-console/**} も ADMIN 限定にしている（設計書に無い自己判断）。</b>
+ *       H2 コンソールは任意の SQL を実行できる、DB 管理画面と同格かそれ以上の生アクセス経路であり、
+ *       設計書の意図（管理者以外に生の DB アクセスを与えない）に沿って同じ扱いにした。
+ *       H2 コンソールの画面はフレームを使うため、フレーム表示の許可
+ *       （{@code frameOptions().sameOrigin()}）も合わせて設定している。</li>
+ *   <li><b>録画ファイル（{@code /recordings/**}）は役割ではなく購読で判定する。</b>
+ *       管理者は全部、一般利用者は購読しているチャンネルのぶんだけ見てよい。誰がどれを購読しているかを
+ *       見ないと決まらず静的な規則では表せないため、{@link RecordingFileAuthorizationManager} に任せている。</li>
+ *   <li><b>招待からの利用者登録とパスワードの再設定は未ログインでも開ける。</b>
+ *       どちらもアカウントを使えない人が開く画面なので認証は掛けられない。代わりに管理者が発行した
+ *       token（推測できない乱数・1 回限り・期限付き）が鍵になる。</li>
+ * </ul>
  *
- * <p><b>設計書に無い自己判断: {@code /h2-console/**} も ADMIN 限定にしている。</b>
- * H2 コンソールは任意の SQL を実行できる、DB管理画面（{@code /tables.html}）と同格かそれ以上の
- * 生アクセス経路であり、設計書の意図（管理者以外に生の DB アクセスを与えない）に沿って
- * 同じ扱いにした。H2 コンソールの画面はフレームを使うため、フレーム表示の許可
- * （{@code frameOptions().sameOrigin()}）も合わせて設定している。
- *
- * <h2>CSRF を無効化している理由</h2>
- * 既存の画面はすべて素の {@code fetch} で API を呼んでおり（{@code common.js} の
- * {@code apiPost}/{@code apiPut}/{@code apiDelete} 参照）、CSRF トークンをヘッダーに
- * 載せる仕組みを持たない。CSRF を有効にすると、ログイン以外の<b>既存の全ての変更系 API が
- * 一斉に 403 になる</b>（チャンネル登録・録画削除・設定変更など）。
- * 設計書 9 章が「CSRF 対策の有効化」を<b>不特定多数へ公開する場合に追加で必要なこと</b>
- * として切り出しているのは、0 章の前提（信頼できる少人数・LAN/Tailscale 限定）では
- * このリスクを許容する判断だと読み取れる。将来、公開範囲を広げる際は設計書 9 章に従って
- * 有効化し、フロントエンド側にもトークンの受け渡しを実装する必要がある。
+ * <h2>CSRF をどう有効にしているか</h2>
+ * CSRF 対策は有効にしている。無効のままだと、悪意のあるページを管理者が開いただけで、
+ * そのブラウザの権限で「チャンネル削除」「招待の発行」などを実行させられる
+ * （ログイン中の Cookie が自動で送られるため。実際に別 Origin からの POST が通ることを確認した）。
+ * そのため、変更系の API をトークン無しの素の {@code fetch} で呼ぶと 403 になる。
+ * 画面からは {@code common.js} の共通処理を通して呼ぶこと。
+ * <ul>
+ *   <li><b>トークンは Cookie（{@code XSRF-TOKEN}）で配り、画面が {@code X-XSRF-TOKEN} ヘッダーで返す。</b>
+ *       画面は静的 HTML と素の JS で、サーバー側でトークンを HTML に埋め込む仕組みを持たない。
+ *       JS から読める Cookie（{@code withHttpOnlyFalse()}）で配れば、{@code common.js} の
+ *       共通処理がヘッダーに載せるだけで全画面に効く。</li>
+ *   <li><b>トークンは要求のたびにその場で確定させる（{@code csrfTokenRequestHandler()}）。</b>
+ *       既定では実際に必要になるまで先延ばしされ、画面を開いただけでは Cookie が配られず、
+ *       最初の POST が必ず失敗するという分かりにくい形で壊れるため。</li>
+ *   <li><b>トークン不一致の 403 も {@link RequestAuthenticationHandler} で返す。</b>
+ *       既定の処理ではエラー画面の HTML が返り、画面側が JSON のエラーメッセージとして扱えない。
+ *       また、セッション切れの POST は認可より先に CSRF の検証で落ちるため、同じハンドラで
+ *       未ログイン（401）と権限不足（403）を区別し、画面が再ログインを促せるようにしている。</li>
+ * </ul>
  *
  * <h2>{@code @Profile("!cli")} を付けている理由</h2>
  * CLI（{@code cli} プロファイル）は Web サーバーを起動しないため、このクラスが定義する
  * {@link SecurityFilterChain} が依存する {@link HttpSecurity} は本来 Bean 化されない
  * （Servlet Web アプリケーションでしか提供されない）。それでも明示するのは、
  * {@code MonitoringController} で実際に「Web専用のBeanへの依存でCLIが起動できなくなる」
- * 事故が起きているため、同種のクラスには常に明示する方針にしているため（CLAUDE.md 参照）。
+ * 事故が起きているため、同種のクラスには常に明示する方針にしているため
+ * （{@code docs/pitfalls.md}「{@code cli} プロファイルで作られない Bean に依存するコントローラーには
+ * {@code @Profile("!cli")} を付ける」参照）。
  */
 @Configuration
 @EnableWebSecurity
@@ -85,15 +98,6 @@ public class SecurityConfig {
      */
     private static final String AUTH_API_PREFIX = "/api/auth/**";
 
-    /**
-     * 認可ルールとログイン・ログアウトの挙動を定義する。
-     *
-     * @param http              設定対象
-     * @param successHandler    ログイン成功時の処理（最終ログイン時刻の記録・遷移先の決定）
-     * @param failureHandler    ログイン失敗時の処理（WARN ログの記録）
-     * @return 構築したフィルターチェーン
-     * @throws Exception Spring Security の設定 API がチェック例外を宣言しているため
-     */
     /** 読み込みを許す出どころ。外部リソースを使っていないので自分自身だけに絞る。 */
     private static final String CONTENT_SECURITY_POLICY = String.join("; ",
             "default-src 'self'",
@@ -128,6 +132,22 @@ public class SecurityConfig {
         return handler;
     }
 
+    /**
+     * 認可の規則・CSRF・応答ヘッダー・ログインとログアウトの挙動をまとめて定義する。
+     *
+     * <p>認可の規則は上から順に照合され、最初に一致したものが使われる（クラスの説明を参照）。
+     *
+     * @param http                              設定対象
+     * @param successHandler                    ログイン成功時の処理（最終ログイン時刻の記録・遷移先の決定）
+     * @param failureHandler                    ログイン失敗時の処理（アプリログと監査ログへの記録）
+     * @param recordingFileAuthorizationManager 録画ファイルを見てよいかを購読で判定する処理
+     * @param appUserRepository                 無効化・削除・パスワード変更の後の古いセッションを毎回の要求で落とすための照合先
+     * @param loginAttemptLimiter               ログイン試行の回数制限（パスワード照合より前で打ち切る）
+     * @param authenticationHandler             未ログイン・権限不足・CSRF 不一致を、API には JSON で返す処理
+     * @param auditLogoutHandler                ログアウトを監査ログへ記録する処理
+     * @return 構築したフィルターチェーン
+     * @throws Exception Spring Security の設定 API がチェック例外を宣言しているため
+     */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
                                             AuthenticationSuccessHandler successHandler,
