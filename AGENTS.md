@@ -3,7 +3,7 @@
 ## 概要
 
 YouTube のライブ配信を監視し、配信開始時に Discord へ通知する個人用サービス。
-Java 21 / Spring Boot 3.3.3 / Gradle / H2（ファイルモード）。
+Java 21 / Spring Boot 4.1.1 / Gradle / H2（ファイルモード）。
 
 セットアップ手順・API 一覧・トラブルシューティングは [README.md](README.md) を参照。
 各クラスの役割と設計判断の理由は JavaDoc に記載（`./gradlew javadoc`）。

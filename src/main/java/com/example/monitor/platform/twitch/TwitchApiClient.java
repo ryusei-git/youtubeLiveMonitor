@@ -84,15 +84,15 @@ public class TwitchApiClient {
         var body = get("https://api.twitch.tv/helix/videos?user_id=" + userId + "&first=100&sort=time");
         var result = new java.util.ArrayList<com.example.monitor.dto.OnlineVideoCandidate>();
         for (var item : body.path("data")) {
-            if (!userId.equals(item.path("user_id").asText())) continue;
-            String stream = item.path("stream_id").asText("");
-            String id = item.path("id").asText();
+            if (!userId.equals(item.path("user_id").asString())) continue;
+            String stream = item.path("stream_id").asString("");
+            String id = item.path("id").asString();
             if (!id.matches("[0-9]+")) continue;
             String key = "TWITCH" + "_" + (stream.isBlank() ? "video_" + id : "stream_" + stream);
-            result.add(new com.example.monitor.dto.OnlineVideoCandidate(key, item.path("title").asText(),
+            result.add(new com.example.monitor.dto.OnlineVideoCandidate(key, item.path("title").asString(),
                     "https://www.twitch.tv/videos/" + id,
-                    item.path("thumbnail_url").asText().replace("%{width}", "640").replace("%{height}", "360"),
-                    java.time.Instant.parse(item.path("published_at").asText())));
+                    item.path("thumbnail_url").asString().replace("%{width}", "640").replace("%{height}", "360"),
+                    java.time.Instant.parse(item.path("published_at").asString())));
         }
         return result;
     }
@@ -140,10 +140,10 @@ public class TwitchApiClient {
         }
         JsonNode item = data.get(0);
         return Optional.of(new TwitchUser(
-                item.path("id").asText(),
-                item.path("login").asText(),
-                item.path("display_name").asText(),
-                item.path("profile_image_url").asText(null)));
+                item.path("id").asString(),
+                item.path("login").asString(),
+                item.path("display_name").asString(),
+                item.path("profile_image_url").asString(null)));
     }
 
     /**
@@ -162,10 +162,10 @@ public class TwitchApiClient {
             JsonNode body = get(USERS_URL + "?" + buildRepeatedQuery("id", chunk));
             for (JsonNode item : body.path("data")) {
                 users.add(new TwitchUser(
-                        item.path("id").asText(),
-                        item.path("login").asText(),
-                        item.path("display_name").asText(),
-                        item.path("profile_image_url").asText(null)));
+                        item.path("id").asString(),
+                        item.path("login").asString(),
+                        item.path("display_name").asString(),
+                        item.path("profile_image_url").asString(null)));
             }
         }
         return users;
@@ -277,15 +277,15 @@ public class TwitchApiClient {
      */
     private TwitchStream toStream(JsonNode item) {
         return new TwitchStream(
-                item.path("id").asText(),
-                item.path("user_id").asText(),
-                item.path("user_login").asText(),
-                item.path("user_name").asText(),
-                item.path("title").asText(),
-                item.path("game_name").asText(""),
+                item.path("id").asString(),
+                item.path("user_id").asString(),
+                item.path("user_login").asString(),
+                item.path("user_name").asString(),
+                item.path("title").asString(),
+                item.path("game_name").asString(""),
                 item.path("viewer_count").asInt(0),
-                item.path("thumbnail_url").asText(null),
-                item.path("started_at").asText(null));
+                item.path("thumbnail_url").asString(null),
+                item.path("started_at").asString(null));
     }
 
     /**
