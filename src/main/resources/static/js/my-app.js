@@ -781,6 +781,8 @@ const myNotificationSettingsView = {
               <button type="button" id="webhookTestBtn" disabled>テスト送信</button>
               <button type="button" id="webhookRemoveBtn" class="removeBtn" disabled>解除</button>
             </div>
+            <p class="muted" id="webhookHistory"></p>
+            <p class="error" role="alert" id="webhookWarning" hidden></p>
             <form id="webhookForm" class="inline">
               <label>Webhook の URL <input type="text" id="webhookUrl" size="60" required autocomplete="off" placeholder="https://discord.com/api/webhooks/..."></label>
               <button type="submit" id="webhookSaveBtn">保存</button>
@@ -801,13 +803,25 @@ const myNotificationSettingsView = {
         const removeBtn = buttonEl("webhookRemoveBtn");
         const saveBtn = buttonEl("webhookSaveBtn");
         const input = inputEl("webhookUrl");
-        /** 登録しているか。読み込めるまでは null */
-        /** @type {boolean|null} */
-        let configured = null;
-        /** 表示を configured に合わせる。テスト送信・解除は登録した Webhook への操作なので、登録しているときだけ押せる */
+        const history = el("webhookHistory");
+        const warning = el("webhookWarning");
+        /**
+         * 設定の状態（GET・PUT・DELETE の応答）。Webhook の URL は含まない。
+         * failing（最近の通知が届いていないか）はサーバーが判定する。条件を画面ごとにずらさないため。
+         * @typedef {{configured: boolean, lastDeliveredAt: string|null, lastFailedAt: string|null, failing: boolean}} NotificationSettings
+         */
+        /** 設定の状態。読み込めるまでは null */
+        /** @type {NotificationSettings|null} */
+        let settings = null;
+        /** 表示を settings に合わせる。テスト送信・解除は登録した Webhook への操作なので、登録しているときだけ押せる */
         const showState = () => {
-            if (configured !== null) state.textContent = configured ? "設定済み" : "未設定";
-            testBtn.disabled = removeBtn.disabled = configured !== true;
+            if (settings !== null) {
+                state.textContent = settings.configured ? "設定済み" : "未設定";
+                history.textContent = `最後に届けた日時: ${settings.lastDeliveredAt ? formatInstant(settings.lastDeliveredAt) : "まだありません"}`;
+                warning.textContent = `最近の通知が届いていません（${formatInstant(settings.lastFailedAt)}）。Discord 側で Webhook かチャンネルが削除された可能性があります。Webhook を作り直して保存し、「テスト送信」で確かめてください。`;
+                warning.hidden = !settings.failing;
+            }
+            testBtn.disabled = removeBtn.disabled = settings?.configured !== true;
         };
         /**
          * ボタンの操作を行い、失敗はエラー帯に出す。通信の間は押したボタンを止める（続けて押して二重に送らないため）。
@@ -835,7 +849,8 @@ const myNotificationSettingsView = {
             run(saveBtn, async () => {
                 await apiPut("/api/my/notification-settings", { webhookUrl: input.value });
                 input.value = "";
-                configured = true;
+                // 登録し直すと過去の失敗が消えるので、警告を消すために登録後の状態を読み直す（apiPut は応答の本文を返さない）
+                settings = await apiGet("/api/my/notification-settings");
                 showToast("Webhook を保存しました");
             });
         });
@@ -849,16 +864,15 @@ const myNotificationSettingsView = {
         removeBtn.addEventListener("click", () => {
             if (!confirm("Discord の Webhook の登録を解除しますか？\n解除すると、配信開始の通知が届かなくなります。")) return;
             run(removeBtn, async () => {
-                await apiDelete("/api/my/notification-settings");
-                configured = false;
+                settings = await apiDelete("/api/my/notification-settings");
                 showToast("Webhook の登録を解除しました", "danger");
             });
         });
 
         apiGet("/api/my/notification-settings")
-            .then((/** @type {{configured: boolean}} */ settings) => {
+            .then((/** @type {NotificationSettings} */ loaded) => {
                 // 読み込みを待つ間に保存・解除が済んでいれば、そちらの方が新しい
-                configured ??= settings.configured;
+                settings ??= loaded;
                 showState();
             })
             .catch((e) => {
