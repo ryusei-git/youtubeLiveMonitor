@@ -14,17 +14,30 @@
     /** 読み直しの予約。多重に走らせないよう1本だけ持ち、予約し直すたびに前の予約を捨てる。 */
     let refreshTimer = 0;
 
+    /** 一覧とディスク使用量を読み直す。見えるようになるのを待つ間の登録と解除で同じ関数を使うため名前を付ける。 */
+    function refreshRunning() {
+        loadRecordings();
+        loadDiskUsage();
+    }
+
     /**
      * 実行中のものが残っていれば、一覧の読み直しを予約する。
+     * タブが見えていない間は読み直さない（ディスク使用量は録画フォルダー全体を走査するため、
+     * 録画が続く数時間ずっと無駄に走査し続けてしまう）。代わりに見えるようになった時点で直ちに 1 回読み直す。
      *
      * @param {Recording[]} recordings 今表示している録画
      */
     function scheduleRefreshWhileRunning(recordings) {
         window.clearTimeout(refreshTimer);
+        document.removeEventListener("visibilitychange", refreshRunning);
         if (!recordings.some((r) => r.status === "RECORDING")) return;
         refreshTimer = window.setTimeout(() => {
-            loadRecordings();
-            loadDiskUsage();
+            if (document.visibilityState === "visible") {
+                refreshRunning();
+                return;
+            }
+            // 非表示から戻る変化でしか発火しないので、状態を見直さずに読み直してよい
+            document.addEventListener("visibilitychange", refreshRunning, { once: true });
         }, RUNNING_REFRESH_INTERVAL_MS);
     }
 
