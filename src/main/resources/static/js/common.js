@@ -1418,7 +1418,8 @@ const studioPages = {
     "my-channels.html": "M4 4h16v16H4z M8 9h8 M8 14h5",
     "my-recordings.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
-    // 利用者の 1 枚のページ（my.html）の録画（/my/archive）
+    // 利用者の 1 枚のページ（my.html）のトップ（/my）とアーカイブ（/my/archive）
+    "my": "M3 11l9-8 9 8 M5 9v12h14V9 M10 21v-6h4v6",
     "archive": "M4 5h16v14H4z M10 9l5 3-5 3z",
 };
 
@@ -1608,20 +1609,83 @@ function buildOnlineVideoCard(video) {
 /** 配信中のカードも投稿動画と同じ再生経路へまとめる。
  * @param {HTMLElement} target
  * @param {any} page
+ * @param {string} [empty] 0 件のときに出す HTML。省くと管理画面のダッシュボードの文言
  */
-function renderLiveVideoCards(target, page) {
+function renderLiveVideoCards(target, page,
+        empty = emptyState("配信中の動画はありません", "起動直後・判定失敗時は、次の正常な確認を待って表示します。")) {
     target.replaceChildren(...page.content.map(buildOnlineVideoCard));
-    if (!page.content.length) target.innerHTML = emptyState("配信中の動画はありません", "起動直後・判定失敗時は、次の正常な確認を待って表示します。");
+    if (!page.content.length) target.innerHTML = empty;
+}
+
+/**
+ * 開始予定を日付・曜日・時間の列に分ける。列ごとに並べ替えや目視での比較をしやすくするため。
+ * @param {string|null} iso 開始予定時刻
+ * @returns {{date: string, weekday: string, time: string}} 表示用の文字列。不明なら全て "-"
+ */
+function splitScheduledStart(iso) {
+    if (!iso) return { date: "-", weekday: "-", time: "-" };
+    const start = new Date(iso);
+    return {
+        date: `${start.getMonth() + 1}/${start.getDate()}`,
+        weekday: "日月火水木金土"[start.getDay()],
+        time: `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
+    };
+}
+
+/**
+ * 配信予定を開始時刻の近さで読み取れる一覧にする。
+ *
+ * <p>配信中の一覧と分けることで、待機所を配信開始と誤解せず、利用者が次の予定を把握できる。
+ * 管理画面のダッシュボードと利用者のトップ（my-app.js）で同じ表を出すため、ここに置いている。
+ *
+ * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string, genre?: string|null, channelIconUrl?: string|null, channelUrl: string|null}>} streams 開始予定の早い順で返された配信予定
+ * @param {HTMLElement} [box] 描く先。省くとダッシュボードの欄
+ * @param {string} [empty] 0 件のときに出す HTML。省くとダッシュボードの文言
+ */
+function renderUpcomingStreams(streams, box = el("upcomingStreams"),
+        empty = emptyState("配信予定はありません", "監視中のチャンネルが YouTube で待機所を作ると、ここに開始予定の早い順で並びます。")) {
+    if (!streams || streams.length === 0) {
+        box.innerHTML = empty;
+        return;
+    }
+    const rows = streams.map(s => {
+        const start = splitScheduledStart(s.scheduledStartTime);
+        // 隣にチャンネル名があるため alt は空にし、読み上げで名前が 2 回読まれないようにする
+        const icon = s.channelIconUrl
+            ? `<img class="channelIcon" src="${escapeHtml(s.channelIconUrl)}" alt="" width="24" height="24" loading="lazy" referrerpolicy="no-referrer">`
+            : "";
+        return `
+        <tr>
+            <td>${escapeHtml(start.date)}</td>
+            <td>${escapeHtml(start.weekday)}</td>
+            <td>${escapeHtml(start.time)}</td>
+            <td><span class="channelWithIcon">${icon}${externalLink(s.channelName, s.channelUrl)}</span></td>
+            <td>${escapeHtml(s.genre || "未設定")}</td>
+            <td>${externalLink(s.title ?? "（タイトル不明）", s.watchUrl)}</td>
+        </tr>`;
+    }).join("");
+    box.innerHTML = `
+        <div class="table-scroll">
+            <table id="upcomingTable">
+                <thead><tr><th>日付</th><th>曜日</th><th>時間</th><th>チャンネル名</th><th>ジャンル</th><th>タイトル</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
 }
 
 /** 非表示中の定期通信を省き、戻ってきたときだけ最新の保存済み状態を読む。
  * @param {() => void} refresh
+ * @returns {() => void} 止める関数。1 枚のページ（my.html）の画面はページを読み込み直さずに移るため、
+ *   画面を離れるときに呼ばないと、離れた画面の読み直しが続く
  */
 function startVisibleRefresh(refresh) {
-    window.setInterval(() => { if (document.visibilityState === "visible") refresh(); }, 60_000);
-    document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") refresh();
-    });
+    const refreshIfVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    const timer = window.setInterval(refreshIfVisible, 60_000);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+        window.clearInterval(timer);
+        document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
 }
 
 /** 失敗時も最後に表示できた時刻を残し、画面の再試行ボタンを案内する。
