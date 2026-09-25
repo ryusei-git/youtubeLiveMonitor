@@ -9,6 +9,7 @@ import com.example.monitor.entity.Recording;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.util.DirectorySizeUtils;
+import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -61,9 +62,14 @@ public class RecordingFileService {
      * が DB からの削除を先に済ませている前提で、ファイル削除はそれに追随する後始末という位置づけのため
      * （{@code ChannelLogReader.deleteChannelLogs} と同じ考え方）。
      *
+     * <p>yt-dlp のログ（{@code logs/yt-dlp/<動画ID>.log}）も一緒に消す。録画を消した後に残しても、調べる相手の録画が無いため。
+     * 録画ファイルが見つからない経路でもログは残っているので、早期 return より前の先頭で消す。
+     *
      * @param recording 削除対象の録画履歴
      */
     public void deleteFile(Recording recording) {
+        deleteYtDlpLog(recording.getVideoId());
+
         Path directory = resolveFilePath(recording).getParent();
         if (directory == null || !Files.isDirectory(directory)) {
             log.warn("削除対象の録画ファイルが見つかりませんでした: video={}", recording.getVideoId());
@@ -84,6 +90,22 @@ public class RecordingFileService {
         int removed = deleteFiles(matchingFiles);
         if (removed == 0) {
             log.warn("削除対象の録画ファイルが見つかりませんでした: video={}", recording.getVideoId());
+        }
+    }
+
+    /**
+     * 動画 1 本ぶんの yt-dlp のログを削除する。
+     *
+     * <p>失敗しても例外は投げない（{@link #deleteFile(Recording)} と同じく、DB 削除に追随する後始末のため）。
+     *
+     * @param videoId 対象の動画 ID
+     */
+    private void deleteYtDlpLog(String videoId) {
+        Path path = YtDlpLogFile.of(videoId);
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException e) {
+            log.warn("yt-dlp のログの削除に失敗しました: {}", path, e);
         }
     }
 
