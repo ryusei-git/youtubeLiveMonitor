@@ -84,6 +84,9 @@ class LiveStreamPollingSchedulerTest {
     @Mock
     private com.example.monitor.service.UserNotificationService userNotificationService;
 
+    @Mock
+    private com.example.monitor.service.PollingStatusTracker pollingStatusTracker;
+
     @InjectMocks
     private LiveStreamPollingScheduler scheduler;
 

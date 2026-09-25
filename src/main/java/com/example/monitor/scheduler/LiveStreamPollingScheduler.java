@@ -10,6 +10,7 @@ import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.service.NotificationDispatcher;
 import com.example.monitor.service.NotificationHistoryService;
+import com.example.monitor.service.PollingStatusTracker;
 import com.example.monitor.service.RecordingIntentResolver;
 import com.example.monitor.service.RecordingIntentResolver.RecordingIntent;
 import com.example.monitor.service.StreamRecorder;
@@ -110,6 +111,7 @@ public class LiveStreamPollingScheduler {
     private final RecordingIntentResolver recordingIntentResolver;
     private final com.example.monitor.service.OnlineVideoService onlineVideoService;
     private final UserNotificationService userNotificationService;
+    private final PollingStatusTracker pollingStatusTracker;
 
     /**
      * 巡回が実行中かどうか。定期実行と手動実行が同時に走るのを防ぐために使う。
@@ -156,6 +158,11 @@ public class LiveStreamPollingScheduler {
      * 1 リクエストに集約される（Twitch は 100 チャンネルまで）。1 件ずつ呼ぶとこの最適化が
      * 一切効かず、チャンネル数に比例して通信回数が増える。
      *
+     * <p><b>最後まで回ったら {@link PollingStatusTracker#recordSuccess()} を呼ぶ</b>（{@code GET /api/health} の基準）。
+     * {@code finally} では呼ばない。{@code findAll()} などが例外で抜けた巡回を成功と数えないため。
+     * チャンネル・プラットフォームごとの検知の失敗は中で握って最後まで回るので成功に数える。
+     * ここで見るのは「巡回が回っているか」で、YouTube に届くかはダッシュボードの検知失敗の警告が受け持つ。
+     *
      * @return 巡回を実行した場合 {@code true}。既に巡回中で見送った場合は {@code false}
      */
     private boolean runPollingCycle() {
@@ -178,6 +185,7 @@ public class LiveStreamPollingScheduler {
                             MonitoredChannel::getPlatform, LinkedHashMap::new, Collectors.toList()));
 
             channelsByPlatform.forEach(this::pollPlatformGroup);
+            pollingStatusTracker.recordSuccess();
             return true;
         } finally {
             pollingInProgress.set(false);

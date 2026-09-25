@@ -7,6 +7,7 @@ import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.context.annotation.Configuration;
@@ -55,6 +56,7 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
  *   <li><b>招待からの利用者登録とパスワードの再設定は未ログインでも開ける。</b>
  *       どちらもアカウントを使えない人が開く画面なので認証は掛けられない。代わりに管理者が発行した
  *       token（推測できない乱数・1 回限り・期限付き）が鍵になる。</li>
+ *   <li><b>巡回の生存（{@code GET /api/health}）も未ログインで開ける。</b>外の見張りが叩くためで、返すのは状態と経過秒だけ。</li>
  * </ul>
  *
  * <h2>CSRF をどう有効にしているか</h2>
@@ -202,6 +204,9 @@ public class SecurityConfig {
                 // ブラウザがどの画面でも取りに行く。ログイン画面へ転送しても意味が無いので、
                 // 未ログインでもそのまま返す（ファイルは無いので 404）
                 .requestMatchers("/favicon.ico").permitAll()
+                // 巡回の生存（#412）。外の見張り（cron・bin/service.sh status）がログイン無しで叩く。
+                // 返すのは状態と経過秒だけ
+                .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
                 // 招待リンクからの利用者登録。まだアカウントが無い時点で開くので認証は掛けられない。
                 // 代わりに招待の token が鍵になる（推測できない乱数・1回限り・期限付き）
                 .requestMatchers("/register.html", "/api/registration/**").permitAll()

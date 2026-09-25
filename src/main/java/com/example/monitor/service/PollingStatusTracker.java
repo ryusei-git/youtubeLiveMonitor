@@ -3,22 +3,32 @@ package com.example.monitor.service;
 import java.time.LocalDateTime;
 import org.springframework.stereotype.Component;
 
-/** JVMの稼働と巡回の停止を混同しないよう、巡回の境界を別に記録する。 */
+/**
+ * 巡回が最後に最後まで回った時刻を JVM の中に持つ。{@code GET /api/health} の判定の基準。
+ *
+ * <p>ポートが開いていることと巡回が回っていることは別。巡回が固まる・例外で抜け続けると、
+ * 画面も API も応答したまま、この時刻だけが古くなる。
+ *
+ * <p>開始時刻や「実行中」の印は持たない。固まった巡回は終わらないので、
+ * 終わった時刻の古さだけで検出できる。
+ */
 @Component
 public class PollingStatusTracker {
-    private LocalDateTime startedAt;
-    private LocalDateTime finishedAt;
-    private boolean running;
-    private boolean successful;
 
-    /** 排他取得後だけ呼び、重複要求で時刻を上書きしない。 */
-    public synchronized void start() { startedAt = LocalDateTime.now(); running = true; }
-    /** 例外終了も記録し、実行中のままに見せない。 */
-    public synchronized void finish(boolean success) {
-        finishedAt = LocalDateTime.now(); running = false; successful = success;
+    /** 巡回のスレッドが書き、ヘルスの要求のスレッドが読むので {@code volatile} にする。 */
+    private volatile LocalDateTime lastSucceededAt;
+
+    /** 巡回が最後まで回ったときに呼ぶ。例外で抜けた巡回を成功と数えないため、{@code finally} からは呼ばない。 */
+    public void recordSuccess() {
+        lastSucceededAt = LocalDateTime.now();
     }
-    /** 表示側に整合した一組の状態を渡す。 */
-    public synchronized Snapshot snapshot() { return new Snapshot(startedAt, finishedAt, running, successful); }
-    /** 最終終了時刻は成功・失敗を併せて解釈する。 */
-    public record Snapshot(LocalDateTime startedAt, LocalDateTime finishedAt, boolean running, boolean successful) {}
+
+    /**
+     * 巡回が最後に最後まで回った時刻を返す。
+     *
+     * @return 最後に成功した時刻。起動してからまだ 1 巡もしていなければ {@code null}
+     */
+    public LocalDateTime lastSucceededAt() {
+        return lastSucceededAt;
+    }
 }
