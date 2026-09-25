@@ -23,17 +23,17 @@ import java.util.Optional;
 public interface MonitoredChannelRepository extends JpaRepository<MonitoredChannel, Long> {
 
     /**
-     * YouTube のチャンネル ID で監視対象を検索する。
+     * プラットフォームのチャンネル識別子で監視対象を検索する。
      *
-     * @param youtubeChannelId YouTube が発行するチャンネル ID
+     * @param youtubeChannelId プラットフォームが発行するチャンネル識別子（名前は YouTube 専用だった頃の名残）
      * @return 見つかった監視対象。未登録なら {@link Optional#empty()}
      */
     Optional<MonitoredChannel> findByYoutubeChannelId(String youtubeChannelId);
 
     /**
-     * 指定した YouTube チャンネルが既に登録済みかを判定する。
+     * 指定したチャンネル識別子が既に登録済みかを判定する。
      *
-     * @param youtubeChannelId YouTube が発行するチャンネル ID
+     * @param youtubeChannelId プラットフォームが発行するチャンネル識別子（名前は YouTube 専用だった頃の名残）
      * @return 登録済みなら {@code true}
      */
     boolean existsByYoutubeChannelId(String youtubeChannelId);
@@ -165,7 +165,7 @@ public interface MonitoredChannelRepository extends JpaRepository<MonitoredChann
     int clearUpcoming(@Param("id") Long id);
 
     /**
-     * 通知済みの動画 ID のみを更新する。通知が成功したときだけ呼ぶこと。
+     * 通知済みの動画 ID を記録し、通知失敗回数を 0 に戻す。通知が成功したときだけ呼ぶこと。
      *
      * <p>失敗時に更新しないでおくことで、次回の監視サイクルが自動的に再送信の役割を果たす。
      *
@@ -243,7 +243,7 @@ public interface MonitoredChannelRepository extends JpaRepository<MonitoredChann
     int updateRecordEnabled(@Param("id") Long id, @Param("recordEnabled") boolean recordEnabled);
 
     /**
-     * 録画対象を絞り込むタイトルキーワードを更新する。
+     * 通知・録画の対象を絞り込むタイトルキーワードを更新する。
      *
      * @param id            監視対象の主キー
      * @param titleKeywords 絞り込みキーワード（カンマ区切り）。空またはnullで絞り込み解除
@@ -253,7 +253,16 @@ public interface MonitoredChannelRepository extends JpaRepository<MonitoredChann
     @Transactional
     @Query("UPDATE MonitoredChannel c SET c.recordTitleKeywords = :titleKeywords WHERE c.id = :id")
     int updateRecordTitleKeywords(@Param("id") Long id, @Param("titleKeywords") String titleKeywords);
-    /** ライブラリの絞り込みと取得状態にも、購読の境界を適用する。 */
+
+    /**
+     * ライブラリに表示してよいチャンネルを、チャンネル名順に返す。
+     *
+     * <p>管理者はすべて、一般の利用者は購読しているチャンネルだけ。ライブラリの絞り込みと取得状態にも、購読の境界を適用するため。
+     *
+     * @param admin    管理者なら {@code true}
+     * @param username 利用者のログイン ID
+     * @return 表示してよいチャンネル
+     */
     @Query("select c from MonitoredChannel c where :admin = true or exists (select s.id from UserSubscription s where s.channel = c and s.user.username = :username) order by c.channelName")
     java.util.List<MonitoredChannel> findLibraryChannels(@Param("admin") boolean admin, @Param("username") String username);
 

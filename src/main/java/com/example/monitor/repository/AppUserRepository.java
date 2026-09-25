@@ -89,7 +89,9 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     List<AppUser> findNotificationTargets(@Param("channel") MonitoredChannel channel);
 
     /**
-     * セッションに残った認証情報だけでは無効化・削除・パスワードの変更を検出できないため、毎回現状を照合する。
+     * 指定した利用者が今も存在して有効で、ログイン後にパスワードが変わっていないかを判定する。
+     *
+     * <p>セッションに残った認証情報だけでは無効化・削除・パスワードの変更を検出できないため、リクエストのたびに DB と照合する。
      *
      * <p>パスワードの変更は、DB の変更時刻がセッションの値より後なら失効とする。セッションの値が
      * {@code null}（変更前にログインした）で DB に値があれば、SQL の比較が偽になって失効する。
@@ -167,7 +169,10 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
                              @Param("changedAt") LocalDateTime changedAt, @Param("now") LocalDateTime now);
 
     /**
-     * 読み込み後に権限が変わっても管理者を無効化しないよう、更新条件にも権限を含める。
+     * 指定した権限の利用者に限って無効化する。
+     *
+     * <p>読み込んだ後に権限が変わっても管理者を無効化しないよう、更新条件にも権限を含める。
+     *
      * @param id 利用者ID
      * @param role 操作可能な権限
      * @return 更新件数
@@ -187,7 +192,10 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     int enableUser(@Param("id") Long id, @Param("role") Role role);
 
     /**
-     * 管理者保護をDBの削除条件でも保証し、購読だけを外部キーで連鎖削除する。
+     * 指定した権限の利用者に限って削除する。
+     *
+     * <p>管理者を消さないよう削除条件にも権限を含める。購読・視聴済みの印・利用者ごとの通知の記録は、外部キーの連鎖削除で一緒に消える。
+     *
      * @param id 利用者ID
      * @param role 操作可能な権限
      * @return 削除件数
