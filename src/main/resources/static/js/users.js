@@ -78,4 +78,35 @@ async function changeUser(user, remove) {
 }
 
 el("reloadUsers").addEventListener("click", loadUsers);
+
+/**
+ * 管理者が自分のパスワードを変える（#323。API は #321）。
+ * 管理者の画面は利用者の /my を通らないため、同じ API をここから呼ぶ。
+ * 確認欄はサーバーへ送らない。打ち間違いに気づかないまま変えると本人がログインできなくなるため、画面だけで確かめる。
+ * パスワードは見せないので、入力欄は成功・失敗にかかわらず送信後に空へ戻す。
+ */
+formEl("passwordForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const current = inputEl("currentPassword");
+    const next = inputEl("newPassword");
+    const confirmInput = inputEl("newPasswordConfirm");
+    if (next.value !== confirmInput.value) {
+        showError("新しいパスワードが一致しません");
+        return;
+    }
+    const button = /** @type {HTMLButtonElement} */ (query("button[type=submit]", formEl("passwordForm")));
+    button.disabled = true;
+    try {
+        await apiPut("/api/my/password", { currentPassword: current.value, newPassword: next.value });
+        clearError();
+        showToast("パスワードを変更しました");
+    } catch (e) {
+        // 今のパスワードの誤りなどの 400 は、サーバーの文言をそのまま出す
+        showError(errorMessage(e));
+    } finally {
+        button.disabled = false;
+        current.value = next.value = confirmInput.value = "";
+    }
+});
+
 loadUsers();
