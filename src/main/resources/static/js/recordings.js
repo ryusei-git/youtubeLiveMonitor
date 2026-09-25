@@ -235,20 +235,23 @@
             confirmButton.className = "deleteBtn";
             container.appendChild(confirmButton);
             confirmButton.addEventListener("click", async () => {
-            confirmButton.disabled = true;
-            try {
-            const res = await apiDelete(`/api/recordings/orphaned/confirmed?token=${encodeURIComponent(preview.token)}`);
-            clearError();
-            let message = `${res.deletedChannels}チャンネル・${res.deletedFiles}ファイル`
-                + `（${formatFileSize(res.freedBytes)}）を削除しました`;
-            if (res.skippedChannels.length > 0) {
-                message += `／録画中のため${res.skippedChannels.length}件は見送りました`;
-            }
-            summary.textContent = message;
-            container.replaceChildren();
-            loadDiskUsage();
-            loadRecordings();
-            } catch (e) { showError(errorMessage(e)); container.replaceChildren(); }
+                confirmButton.disabled = true;
+                try {
+                    const res = await apiDelete(`/api/recordings/orphaned/confirmed?token=${encodeURIComponent(preview.token)}`);
+                    clearError();
+                    let message = `${res.deletedChannels}チャンネル・${res.deletedFiles}ファイル`
+                        + `（${formatFileSize(res.freedBytes)}）を削除しました`;
+                    if (res.skippedChannels.length > 0) {
+                        message += `／録画中のため${res.skippedChannels.length}件は見送りました`;
+                    }
+                    summary.textContent = message;
+                    container.replaceChildren();
+                    loadDiskUsage();
+                    loadRecordings();
+                } catch (e) {
+                    showError(errorMessage(e));
+                    container.replaceChildren();
+                }
             });
         } catch (e) {
             summary.textContent = "";
