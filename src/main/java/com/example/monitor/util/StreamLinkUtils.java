@@ -10,7 +10,7 @@ public final class StreamLinkUtils {
     public static String videoUrl(Platform platform, String videoId, String sourceUrl) {
         if (sourceUrl != null && !sourceUrl.isBlank()) return sourceUrl;
         return platform == Platform.YOUTUBE && videoId != null
-                ? "https://www.youtube.com/watch?v=" + videoId : null;
+                ? YouTubeWatchUrl.of(videoId) : null;
     }
 
     /** Twitchの不変IDはログイン名とは異なるため、チャンネルURLを推測しない。 */
