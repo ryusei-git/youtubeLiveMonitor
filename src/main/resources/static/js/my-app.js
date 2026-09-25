@@ -189,6 +189,11 @@ const myTopView = {
         const live = query(".livePanel .videoGrid", root);
         const upcoming = query(".upcomingPanel > div", root);
         myPauseDockOnVideoDialog(live);
+        /**
+         * 前回描いた内容の要約。同じなら描き直さない（描き直すとフォーカスしていたカードが DOM から外れ、body へ飛ぶため）。
+         * lastObservedAt は巡回のたびに配信中の動画ごとに書き換わる（OnlineVideoService.observe）が画面には出ないので、比べる値から外す。
+         */
+        let lastKey = "";
         const load = async () => {
             try {
                 const [page, streams] = await Promise.all([
@@ -197,6 +202,12 @@ const myTopView = {
                     apiGet("/api/my/upcoming"),
                 ]);
                 if (!live.isConnected) return;
+                const key = JSON.stringify([page.content.map((/** @type {any} */ v) => ({ ...v, lastObservedAt: null })), streams]);
+                if (key === lastKey) {
+                    clearError();
+                    return;
+                }
+                lastKey = key;
                 clearError();
                 const none = emptyState("今はありません");
                 renderLiveVideoCards(live, page, none);
