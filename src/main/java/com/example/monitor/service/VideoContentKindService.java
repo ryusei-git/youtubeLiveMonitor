@@ -34,6 +34,12 @@ public class VideoContentKindService {
     private final OnlineVideoRepository videos;
     private final HttpClient httpClient;
 
+    /**
+     * 種類（配信・投稿・待機所）が未判定か待機所の動画を、1 回 {@value #BATCH_SIZE} 件まで判定し直す。
+     *
+     * <p>上限を設ける理由は {@link #BATCH_SIZE} を参照。待機所を毎回見直すのは、配信が始まって
+     * 終わると種類が変わるため。判定できなかった動画は種類をそのまま残し、次の収集で再試行する。
+     */
     public void classifyPending() {
         for (var video : videos.pendingContentKind(PageRequest.of(0, BATCH_SIZE))) {
             if (Thread.currentThread().isInterrupted()) return;
