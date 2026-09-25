@@ -550,8 +550,7 @@ async function myLoadRelated(rec, grid) {
  */
 
 /**
- * 購読しているチャンネルの状態の表示。旧画面（my-channels.js の subscribedStateLabel）と同じ中身で、
- * 旧画面は消す予定（#179）のため common.js へは移さない。
+ * 購読しているチャンネルの状態の表示。使うのはこの画面だけなので common.js へは移さない。
  * 「配信していない」と「判定できなかった」は必ず分ける。まとめると、検知が壊れていても平常運転に見える。
  *
  * @param {MySubscribedChannel} ch 購読しているチャンネル
@@ -636,7 +635,7 @@ function myChannelRow(ch, reload) {
 }
 
 /**
- * マイチャンネル。購読しているチャンネルの表と、購読の追加・解除・録画の希望・キーワード（旧画面 my-channels.html の操作）。
+ * マイチャンネル。購読しているチャンネルの表と、購読の追加・解除・録画の希望・キーワード。
  *
  * 並べ替えは全件を持っている表の中だけで行い（common.js の makeTableSortable）、選んだ列と向きを URL の sort に残す。
  * 残すのは replaceState にする。見出しを押すたびに履歴を積むと、「戻る」で並べ替えを 1 つずつ戻ることになり、

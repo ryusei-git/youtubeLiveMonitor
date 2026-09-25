@@ -1587,7 +1587,6 @@ async function initLiveIndicator() {
     // 管理者のナビにだけダッシュボードへのリンクがある。これが無い画面（ログイン・
     // 利用者向け）から /api/dashboard を叩いても 403 が返るだけなので、行かない
     // （握り潰していたが、開くたびに無駄な要求とコンソールエラーが出ていた）。
-    // 利用者向けの画面は自分が持っているデータから setLiveIndicator を呼ぶ
     const bar = document.querySelector(".masthead .shell");
     if (!bar || !document.querySelector('.globalnav a[href="/index.html"]')) return;
 
@@ -1604,8 +1603,7 @@ async function initLiveIndicator() {
 /**
  * ヘッダの配信中カウンタを設定する。
  *
- * <p>数を持っている画面から直接呼べるようにしてある。ユーザー画面は
- * {@code /api/dashboard}（管理者専用）を見られないため、自分の購読一覧から数えて渡す。
+ * <p>数を持っている画面（ダッシュボード）から直接呼べるようにしてある。
  *
  * @param {number} liveNow 配信中の数。0 なら表示しない
  */
@@ -1652,10 +1650,14 @@ const adminSections = [
     ["アカウント管理", [["/users.html", "利用者管理"], ["/invitations.html", "招待"]]],
     ["ログ", [["/logs.html", "ログ"], ["/audit.html", "監査ログ"]]]
 ];
-/** @type {Array<[string, string]>} 一般利用者には管理リンクを載せない。 */
+/**
+ * 一般利用者には管理リンクを載せない。使うのは動画一覧（videos.js）で閲覧者を判定できなかったときだけで、
+ * 利用者の画面（/my 配下）のメニューは my.html に書いてある。
+ * @type {Array<[string, string]>}
+ */
 const userNavigation = [
-    ["/videos.html", "動画・配信"], ["/my-channels.html", "マイチャンネル"],
-    ["/my-recordings.html", "録画"]
+    ["/my/videos", "動画・配信"], ["/my/channels", "マイチャンネル"],
+    ["/my/archive", "アーカイブ"]
 ];
 
 /** @type {Record<string, string>} 画面ごとのメニューアイコン（SVG の path）。 */
@@ -1670,8 +1672,6 @@ const studioPages = {
     "tables.html": "M3 4h18v16H3z M3 9h18 M9 9v11",
     "users.html": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6",
     "invitations.html": "M3 5h18v14H3z M3 5l9 7 9-7",
-    "my-channels.html": "M4 4h16v16H4z M8 9h8 M8 14h5",
-    "my-recordings.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     // 利用者の 1 枚のページ（my.html）のトップ（/my）・動画・配信（/my/videos）・アーカイブ（/my/archive）・
     // マイチャンネル（/my/channels）・通知（/my/settings/notifications。管理者の通知履歴と同じベル）
@@ -1740,13 +1740,14 @@ function initStudioShell() {
     const current = location.pathname.split("/").pop();
     if (/^\/my(\/|$)/.test(location.pathname)) {
         // 利用者の 1 枚のページ（/my 配下、my.html）は HTML に書いたメニューをそのまま使う。
-        // 下の分岐はファイル名で利用者の画面を見分けるため、/my/archive などは管理者のメニューに描き直されてしまう
+        // 下の分岐は管理者のメニューを描くため、通すと /my/archive なども管理者のメニューに描き直されてしまう
         decorateStudioNavigation();
         document.querySelector(".globalnav")?.classList.add("navReady");
     } else if (current !== "videos.html") {
         // 動画一覧は videos.js が閲覧者を判定してから 1 回だけ描く。
         // 仮に利用者用を描くと、管理者には一瞬別のメニューが見えてから組み替わるため。
-        renderNavigationForViewer(!["my-channels.html", "my-recordings.html"].includes(current || ""));
+        // ほかは管理者の画面か、メニューの無いログイン画面だけ（利用者の旧画面は #179 で消した）
+        renderNavigationForViewer(true);
     }
     const main = document.querySelector("main");
     if (main) {
