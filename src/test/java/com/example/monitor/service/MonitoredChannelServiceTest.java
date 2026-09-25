@@ -8,6 +8,7 @@ import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
+import com.example.monitor.repository.RecordingRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,10 @@ class MonitoredChannelServiceTest {
 
     @Mock
     private AuditLogger auditLogger;
+
+    /** remove() が録画中の録画を探すのに使う。既定の空リストで「録画中の録画は無い」になる。 */
+    @Mock
+    private RecordingRepository recordingRepository;
 
     @InjectMocks
     private MonitoredChannelService monitoredChannelService;

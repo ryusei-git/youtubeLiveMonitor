@@ -359,6 +359,11 @@ public class StreamRecorder {
      * 次の巡回が二重に録画したり、{@link RecordingReconciler} が置き去りと誤判定したりするため。
      * 待機が中断された（アプリ停止など）場合は録り直さない。
      *
+     * <p><b>プロセスが終わった時点で録画履歴の行が無ければ、録り直しも記録もしない。</b>行が無いのは、
+     * チャンネルの削除で連鎖削除され、録画プロセスも止められたとき（{@link MonitoredChannelService#remove(Long)}）。
+     * 止めた yt-dlp は完成ファイルを残さないことが多く、そのままでは「最初からの録画に失敗した」と見て録り直してしまい、
+     * 削除したチャンネルを録り続ける。記録しても更新する行が無い。
+     *
      * <p>MDC はスレッドローカルなため、このメソッドは呼び出し元（監視ループのスレッド）とは
      * 別スレッドで動く仮想スレッドの中から呼ばれる。呼び出し元が設定していた MDC の値を
      * 引数で受け取って改めて設定しないと、チャンネル別ログへの振り分けが効かなくなる。
@@ -379,6 +384,11 @@ public class StreamRecorder {
 
         try {
             ExitResult exit = awaitExit(process, channel, videoId, outputFile.getParent());
+            if (!recordingHistoryService.exists(recordingId)) {
+                log.info("録画履歴が削除されているため（チャンネルの削除）、録画の結果を記録しません: channel={}, video={}, exitCode={}",
+                        channel.getChannelName(), videoId, exit.exitCode());
+                return;
+            }
             // プロセスは既に終了しているので、書き込み中のファイルを壊す心配なく詰め替えられる
             SalvageOutcome salvage = recordingSalvager.ensurePlayable(outputFile);
             boolean resumedMidway = false;

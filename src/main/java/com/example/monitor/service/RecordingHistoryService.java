@@ -100,6 +100,19 @@ public class RecordingHistoryService {
     }
 
     /**
+     * 録画履歴の行がまだあるかを返す。
+     *
+     * <p>チャンネルの削除で行が連鎖削除された録画を、録画スレッドが記録・録り直ししないために使う
+     * （{@code StreamRecorder.awaitCompletion} 参照）。
+     *
+     * @param recordingId {@link #recordStart}で発行された録画履歴の主キー
+     * @return 行があれば {@code true}
+     */
+    public boolean exists(Long recordingId) {
+        return recordingRepository.existsById(recordingId);
+    }
+
+    /**
      * 録画の失敗を記録する。
      *
      * @param recordingId {@link #recordStart}で発行された録画履歴の主キー

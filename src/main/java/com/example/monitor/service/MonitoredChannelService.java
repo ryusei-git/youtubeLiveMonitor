@@ -15,11 +15,13 @@ import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.repository.UserSubscriptionRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
+import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -43,6 +45,7 @@ public class MonitoredChannelService {
     private final AuditLogger auditLogger;
     private final RecordingRepository recordingRepository;
     private final UserSubscriptionRepository userSubscriptionRepository;
+    private final ProcessLauncher processLauncher;
 
     /**
      * 登録済みの監視対象を全件返す。
@@ -174,6 +177,17 @@ public class MonitoredChannelService {
      * このメソッドが明示的に削除する。DB は連鎖削除で消えるのにログファイルだけ
      * ディスクに残り続けるのは片手落ちなため（実際に指摘を受けた）。
      *
+     * <p><b>録画中の yt-dlp も子孫ごと止める。</b>止めないと、録画履歴の行が消えて画面から見えないまま
+     * 録り続ける（実際に発生した：削除したチャンネルの {@code --live-from-start} が約 1 時間で 6.9GB を書いた。
+     * {@link RecordingReconciler} は「プロセスが動いている」ので触らず、出力が増え続けるので
+     * {@link StreamRecorder} の固まりの見張りも止めない）。止める録画は削除の<b>前</b>に集める
+     * （削除すると録画履歴も連鎖削除で消える）。プロセスは OS から探すので、再起動で追跡を失った録画も止まる。
+     * 録画ファイルは消さない（削除済みチャンネルの録画ファイルは孤立ファイルの削除で片付ける設計のまま）。
+     *
+     * <p>止める処理は、SIGKILL へ切り替えるまで最大 30 秒待つため、仮想スレッドで行い HTTP の応答を待たせない。
+     * 追跡中の録画スレッドは、プロセスが終わると行が無いことを見て記録も録り直しもしない
+     * （{@code StreamRecorder.awaitCompletion} 参照）。
+     *
      * @param channelRecordId 監視対象の主キー（YouTube のチャンネル ID ではない）
      * @throws ChannelNotFoundException 指定 ID の監視対象が存在しない場合
      */
@@ -181,11 +195,37 @@ public class MonitoredChannelService {
         MonitoredChannel channel = monitoredChannelRepository.findById(channelRecordId)
                 .orElseThrow(() -> new ChannelNotFoundException(channelRecordId));
 
+        List<String> recordingVideoIds = recordingRepository.findRecordingVideoIdsByChannelId(channelRecordId);
+
         monitoredChannelRepository.deleteById(channelRecordId);
         channelLogReader.deleteChannelLogs(channel.getYoutubeChannelId());
+        if (!recordingVideoIds.isEmpty()) {
+            Thread.ofVirtual().name("stop-recordings-" + channelRecordId)
+                    .start(() -> stopRecordings(channel.getYoutubeChannelId(), recordingVideoIds));
+        }
 
         log.info("監視対象から削除しました: id={}, channel={}", channelRecordId, channel.getYoutubeChannelId());
         recordChannelAction(AuditAction.CHANNEL_DELETE, channelRecordId, "channel=" + channel.getYoutubeChannelId());
+    }
+
+    /**
+     * 削除したチャンネルの録画の yt-dlp を子孫ごと止める。理由は {@link #remove(Long)} を参照。
+     *
+     * @param youtubeChannelId 削除したチャンネルの識別子（ログ用）
+     * @param videoIds         止める録画の動画 ID
+     */
+    private void stopRecordings(String youtubeChannelId, List<String> videoIds) {
+        for (String videoId : videoIds) {
+            for (ProcessHandle handle : processLauncher.findYtDlpProcessesWithCommandLineContaining(videoId)) {
+                log.info("削除したチャンネルの録画プロセスを止めます: channel={}, video={}, pid={}",
+                        youtubeChannelId, videoId, handle.pid());
+                if (ProcessTermination.terminateTreeAndAwait(handle, Duration.ofSeconds(30))) {
+                    return;
+                }
+                log.info("削除したチャンネルの録画プロセスを止めました: channel={}, video={}, pid={}",
+                        youtubeChannelId, videoId, handle.pid());
+            }
+        }
     }
 
     /**
