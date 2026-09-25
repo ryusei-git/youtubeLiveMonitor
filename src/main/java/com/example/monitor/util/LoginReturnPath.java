@@ -11,10 +11,12 @@ import java.util.Set;
  * {@code .}・{@code ..} のセグメントだけを拒む。
  */
 public final class LoginReturnPath {
-    private static final Set<String> USER_PAGES = Set.of("/videos.html", "/my-channels.html", "/my-recordings.html",
-            "/player.html");
+    /** 利用者の旧画面の URL（{@code /videos.html} は管理者の動画一覧も兼ねる）。ブックマークから来た利用者が
+     *  ログイン後にここへ戻り、そこから新しい画面へ移されるよう残す（#178）。 */
+    private static final Set<String> USER_PAGES = Set.of("/videos.html", "/my-channels.html", "/my-recordings.html");
+    /** 再生画面は管理者だけの画面（利用者は {@code /my/watch/<ID>}、#178）。利用者の復帰先に選ばせると 403 になる。 */
     private static final Set<String> ADMIN_PAGES = Set.of("/", "/index.html", "/channels.html",
-            "/recordings.html", "/notifications.html", "/users.html",
+            "/recordings.html", "/player.html", "/notifications.html", "/users.html",
             "/invitations.html", "/logs.html", "/tables.html", "/audit.html");
 
     private LoginReturnPath() { }

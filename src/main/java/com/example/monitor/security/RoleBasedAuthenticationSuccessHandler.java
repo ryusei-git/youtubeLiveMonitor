@@ -42,8 +42,8 @@ public class RoleBasedAuthenticationSuccessHandler extends SavedRequestAwareAuth
     private static final String ADMIN_DEFAULT_TARGET = "/index.html";
 
     /** ADMIN 以外のログイン後の既定の遷移先。{@code /index.html} も {@code /channels.html} も
-     *  ADMIN 専用なので、一般利用者は自分の購読一覧へ送る。 */
-    private static final String NON_ADMIN_DEFAULT_TARGET = "/my-channels.html";
+     *  ADMIN 専用なので、一般利用者は利用者画面の 1 枚のページ（#146）のトップへ送る。 */
+    private static final String NON_ADMIN_DEFAULT_TARGET = "/my";
 
     private final AppUserRepository appUserRepository;
     private final AuditLogger auditLogger;
