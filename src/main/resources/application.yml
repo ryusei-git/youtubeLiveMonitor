@@ -13,6 +13,24 @@ server:
       # 既定の信頼範囲には Tailscale の 100.64.0.0/10 や LAN のアドレスが含まれ、tailnet や LAN から
       # 直接つないだ人が X-Forwarded-For を偽装してログイン試行の制限をすり抜けられるため。
       internal-proxies: '127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0:0:0:0:0:0:0:1|::1'
+  # セッションの Cookie（JSESSIONID）の属性を明示する（#310）。
+  servlet:
+    session:
+      # 操作が無いまま 30 分でセッションを失効させる（Spring Boot の既定と同じ値を、意図して選んだものとして書く）。
+      # Cookie 自体には期限（Max-Age）を付けない。付けても Tomcat は要求のたびに延ばさないので、
+      # 使っている最中でも決まった時刻にログアウトさせられてしまう。ブラウザを閉じれば消える Cookie のままにする。
+      timeout: 30m
+      cookie:
+        # 平文の HTTP へ Cookie が漏れないよう、Secure を常に付ける。
+        # localhost / 127.0.0.1 は curl・Chromium とも安全な接続先として扱うので、
+        # http://localhost の bin/api.sh・bin/preview.sh・Playwright はこのままでログインできる（#310 で確認）。
+        # SERVER_ADDRESS=0.0.0.0 で LAN から http://192.168.x.x を開くときだけは、ブラウザが Secure の
+        # Cookie を捨ててログインできなくなるので、.env に SESSION_COOKIE_SECURE=false を書く。
+        # false にしても、tailscale serve を通った要求（X-Forwarded-Proto: https）には Tomcat が Secure を付ける。
+        secure: ${SESSION_COOKIE_SECURE:true}
+        # 別サイトから始まる POST などに Cookie を載せない。Strict にすると、Discord の通知のリンクから
+        # 開いたときにログインしていない扱いになるので Lax にする。
+        same-site: lax
 
 spring:
   application:
