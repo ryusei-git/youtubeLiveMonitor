@@ -57,6 +57,22 @@ public class AppUserManagementService {
     }
 
     /**
+     * 無効化した利用者を有効に戻す（#327）。削除して招待し直すと購読・視聴済み・Webhook が連鎖で消えるため、
+     * 一時的に止めた・誤って無効化した利用者はこちらで戻す。
+     * @param id 対象ID
+     * @param actor 操作者の利用者名（認証情報由来）
+     */
+    @Transactional
+    public void enable(Long id, String actor) {
+        AppUser target = checkTarget(id, actor);
+        if (repository.enableUser(id, AppUser.Role.USER) != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "利用者の状態が変わりました。再読み込みしてください");
+        }
+        log.info("利用者を有効に戻しました: id={}, actor={}", id, actor);
+        recordActorAction(AuditAction.USER_ENABLE, actor, target);
+    }
+
+    /**
      * パスワードを忘れた利用者を、削除せずに戻すためのリンクの token を発行する（#324）。
      *
      * <p>管理者にもパスワードが分からないまま本人が決め直せるよう、パスワードではなく token を渡す。

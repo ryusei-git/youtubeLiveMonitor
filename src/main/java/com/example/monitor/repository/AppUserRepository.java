@@ -175,6 +175,16 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     int disableUser(@Param("id") Long id, @Param("role") Role role);
 
     /**
+     * {@link #disableUser} と同じく、読み込み後に権限が変わっても管理者を操作しないよう、更新条件にも権限を含める。
+     * @param id 利用者ID
+     * @param role 操作可能な権限
+     * @return 更新件数
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE AppUser u SET u.enabled = true WHERE u.id = :id AND u.role = :role")
+    int enableUser(@Param("id") Long id, @Param("role") Role role);
+
+    /**
      * 管理者保護をDBの削除条件でも保証し、購読だけを外部キーで連鎖削除する。
      * @param id 利用者ID
      * @param role 操作可能な権限
