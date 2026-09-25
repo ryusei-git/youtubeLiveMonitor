@@ -38,6 +38,18 @@ public class AppUserManagementController {
     }
 
     /**
+     * 有効化だけを受け付け、リクエスト本文による権限変更を許さない（{@link #disable} と同じ理由）。
+     * @param id 利用者ID
+     * @param authentication 操作者の認証情報
+     * @return 成功時204
+     */
+    @PostMapping("/{id}/enable")
+    public ResponseEntity<Void> enable(@PathVariable Long id, Authentication authentication) {
+        service.enable(id, authentication.getName());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * パスワードの再設定用の token を発行する。URL は画面が組み立てる。
      * @param id 利用者ID
      * @param authentication 操作者の認証情報

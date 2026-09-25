@@ -45,6 +45,9 @@ public enum AuditAction {
     /** 管理者が利用者を無効化した。 */
     USER_DISABLE,
 
+    /** 管理者が無効化した利用者を有効に戻した。 */
+    USER_ENABLE,
+
     /** 管理者が招待リンクを発行した。 */
     INVITATION_ISSUE,
 
