@@ -25,7 +25,14 @@ public final class ThumbnailRetryPolicy {
                 .plusSeconds(Math.floorMod(videoId.hashCode(), JITTER_SECONDS));
     }
 
-    /** 上限到達を一覧でも区別できるよう、保存した回数だけから判定する。 */
+    /**
+     * 再試行の上限に達したかを返す。
+     *
+     * <p>上限到達を一覧でも区別できるよう、保存した回数だけから判定する。
+     *
+     * @param attempts 保存済みの試行回数
+     * @return 上限到達なら true
+     */
     public static boolean exhausted(int attempts) {
         return attempts >= MAX_ATTEMPTS;
     }
