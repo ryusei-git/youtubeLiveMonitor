@@ -17,7 +17,12 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
-/** 管理者の締め出しと権限昇格を防ぐため、一般利用者の無効化・削除だけを提供する。 */
+/**
+ * 管理者が一般利用者を一覧・無効化・有効化・削除し、パスワードの再設定用のリンクを発行するための処理。
+ *
+ * <p>管理者の締め出しと権限昇格を防ぐため、操作できるのは一般利用者だけにしている
+ * （管理者と自分自身は対象にできない）。
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
