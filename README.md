@@ -198,6 +198,17 @@ chmod 600 .env   # API キーや Webhook を同じ端末のほかのユーザー
 python3 -m pip install --user --break-system-packages yt-dlp
 ```
 
+#### yt-dlp の更新
+
+YouTube 側の変更で録画が失敗するようになったときは、まず yt-dlp を最新にします。
+
+```bash
+python3 -m pip install -U --user --break-system-packages yt-dlp
+yt-dlp --version
+```
+
+**録画中は更新しないでください**（`pgrep -f "^/usr/bin/python3 .*yt-dlp"` が何かを返す間は録画中です）。
+
 `ffmpeg` も別途必要です（映像・音声の結合と、一覧に出すサムネイル・再生時間の取り出しに使用）。
 Debian/Ubuntu 系なら次の通りです。`ffprobe` は `ffmpeg` パッケージに同梱されています。
 
@@ -631,7 +642,7 @@ java -cp "$H2_JAR" org.h2.tools.Shell -url "jdbc:h2:file:./data/monitor" \
 通知履歴には失敗した試行も残るので、`errorMessage` を見れば後者かどうかが分かります。
 
 ```bash
-curl -s "http://localhost:8080/api/notifications"
+bin/api.sh GET /api/notifications
 ```
 
 履歴が 1 件も無ければ検知の段階で止まっています。該当チャンネルのログを確認してください。
@@ -643,7 +654,7 @@ curl -s "http://localhost:8080/api/notifications"
 再通知を試したい場合は該当チャンネルの `LAST_NOTIFIED_VIDEO_ID` を空にしてください。
 
 ```bash
-curl -s -X PUT http://localhost:8080/api/admin/tables/CHANNELS/1 -H "Content-Type: application/json" -d '{"LAST_NOTIFIED_VIDEO_ID":null}'
+bin/api.sh PUT /api/admin/tables/CHANNELS/1 '{"LAST_NOTIFIED_VIDEO_ID":null}'
 ```
 
 ### 録画したファイルでディスクを圧迫する
@@ -685,6 +696,8 @@ curl -s -X PUT http://localhost:8080/api/admin/tables/CHANNELS/1 -H "Content-Typ
 詰め替えは**録画プロセスが終わっていることを確認してから**行うため、録画中の配信には影響しません。
 
 ### 録画一覧に「失敗」と表示され再生できない
+
+まず yt-dlp を更新してください（上の「yt-dlp の更新」）。
 
 録画の成否は **再生できるファイルを用意できたかどうか** だけで判定しています。
 配信終了間際に一部のデータを取得できず `yt-dlp` がエラー終了しても、ファイルさえ
