@@ -402,7 +402,7 @@ const myArchiveView = {
             buildCard: (r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath),
             buildRow: myArchiveRow,
             empty: emptyState("該当する録画はありません",
-                "絞り込みを外してお試しください。マイチャンネルで録画を「する」にすると、条件に合う配信が自動で保存されます"),
+                "絞り込みを外してお試しください。マイチャンネルで自動録画をオンにすると、条件に合う配信が自動で保存されます"),
         });
         /**
          * 選択肢を API から足す。失敗しても一覧は出す（その選択肢で絞れないだけで、ほかの条件では探せる。管理画面と同じ）。
@@ -593,7 +593,7 @@ function myChannelRow(ch, reload) {
         <td>${myChannelStateLabel(ch)}</td>
         <td data-sort-value="${ch.recordingCount}">${ch.recordingCount}件</td>
         <td data-sort-value="${subscribed}" title="${subscribed}">${subscribed.slice(0, 10)}</td>
-        <td><button type="button" class="recordBtn">${ch.recordEnabled ? "録画する" : "録画しない"}</button></td>
+        <td><button type="button" class="recordBtn" aria-pressed="${ch.recordEnabled}">自動録画: ${ch.recordEnabled ? "オン" : "オフ"}</button></td>
         <td class="titleFilterCell">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
         <td><button type="button" class="unsubscribeBtn">解除</button></td>`;
 
@@ -605,7 +605,8 @@ function myChannelRow(ch, reload) {
             // 変えるのは自分の希望だけ。キーワードは今の値をそのまま送る
             await apiPut(`/api/my/channels/${ch.id}/record`, { enabled: next, titleKeywords: ch.recordTitleKeywords || "" });
             ch.recordEnabled = next;
-            recordBtn.textContent = next ? "録画する" : "録画しない";
+            recordBtn.textContent = `自動録画: ${next ? "オン" : "オフ"}`;
+            recordBtn.setAttribute("aria-pressed", String(next));
             if (recordBtn.isConnected) clearError();
             showToast(next ? "この配信者の録画を始めます" : "この配信者の録画をやめます");
         } catch (e) {
@@ -667,16 +668,16 @@ const myChannelsView = {
             </form>
             <h2>購読しているチャンネル</h2>
             <p class="muted">
-              録画を「する」にすると、条件に合う配信が自動で保存されます。保存された録画は<a href="/my/archive">アーカイブ</a>から見られます。<br>
+              自動録画をオンにすると、条件に合う配信が自動で保存されます。保存された録画は<a href="/my/archive">アーカイブ</a>から見られます。<br>
               設定はあなた専用です。ただし<strong>同じチャンネルを他の人も録画している場合、
-              あなたが「しない」にしても録画自体は続きます</strong>（保存先が共通のため）。
+              あなたがオフにしても録画自体は続きます</strong>（保存先が共通のため）。
             </p>
             <div class="table-scroll">
               <table>
                 <thead><tr>
                   <th data-sort="text" data-key="name">チャンネル名</th><th>配信元</th><th>状態</th>
                   <th data-sort="number" data-key="recordings">録画数</th><th data-sort="text" data-key="subscribed">購読した日</th>
-                  <th>録画の希望</th><th>キーワード</th><th></th>
+                  <th>自動録画</th><th>キーワード</th><th></th>
                 </tr></thead>
                 <tbody></tbody>
               </table>
