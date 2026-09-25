@@ -37,7 +37,9 @@ spring:
 
   h2:
     console:
-      enabled: true
+      # 本番では無効（管理者のセッション 1 つで CREATE ALIAS から端末ごと乗っ取れるため、#312）。
+      # 使うときだけ -Dspring.h2.console.enabled=true で起動する。
+      enabled: false
       path: /h2-console
 
 # ログ出力の設定は logback-spring.xml 側で一元管理する
