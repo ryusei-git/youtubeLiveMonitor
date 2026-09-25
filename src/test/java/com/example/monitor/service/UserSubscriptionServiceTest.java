@@ -11,7 +11,6 @@ import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.repository.UserSubscriptionRepository;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -20,9 +19,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.AuthorityUtils;
-import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -46,6 +42,9 @@ class UserSubscriptionServiceTest {
     private AppUserRepository appUserRepository;
 
     @Mock
+    private CurrentAppUser currentAppUser;
+
+    @Mock
     private MonitoredChannelRepository monitoredChannelRepository;
 
     @Mock
@@ -65,15 +64,7 @@ class UserSubscriptionServiceTest {
 
     @BeforeEach
     void logIn() {
-        SecurityContextHolder.getContext().setAuthentication(
-                new UsernamePasswordAuthenticationToken("viewer", "n/a", AuthorityUtils.NO_AUTHORITIES));
-        when(appUserRepository.findByUsername("viewer")).thenReturn(Optional.of(viewer));
-    }
-
-    @AfterEach
-    void clearContext() {
-        // 認証はスレッドに残るため、片付けないと同じスレッドで後に動くテストがログインしたまま始まる
-        SecurityContextHolder.clearContext();
+        when(currentAppUser.require()).thenReturn(viewer);
     }
 
     private static MonitoredChannel channel(long id) {

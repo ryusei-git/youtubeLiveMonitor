@@ -61,6 +61,7 @@ public class UserSubscriptionService {
 
     private final UserSubscriptionRepository userSubscriptionRepository;
     private final AppUserRepository appUserRepository;
+    private final CurrentAppUser currentAppUser;
     private final MonitoredChannelRepository monitoredChannelRepository;
     private final RecordingRepository recordingRepository;
     private final MonitoredChannelService monitoredChannelService;
@@ -76,7 +77,7 @@ public class UserSubscriptionService {
         // 件数はチャンネルごとに数えず、全チャンネル分を 1 回の問い合わせで数えて引き当てる
         // （購読数ぶん問い合わせが走るのを避けるため。管理者の一覧と同じやり方）
         Map<Long, Long> recordingCounts = monitoredChannelService.countPlayableRecordingsByChannel();
-        return userSubscriptionRepository.findByUserOrderBySubscribedAtDesc(currentUser()).stream()
+        return userSubscriptionRepository.findByUserOrderBySubscribedAtDesc(currentAppUser.require()).stream()
                 .map(subscription -> SubscribedChannelResponse.from(
                         subscription, recordingCounts.getOrDefault(subscription.getChannel().getId(), 0L)))
                 .toList();
@@ -94,7 +95,7 @@ public class UserSubscriptionService {
     @Transactional(readOnly = true)
     public List<UpcomingStreamResponse> listMyUpcomingStreams() {
         return UpcomingStreamResponse.listWithinWindow(
-                userSubscriptionRepository.findByUserOrderBySubscribedAtDesc(currentUser()).stream()
+                userSubscriptionRepository.findByUserOrderBySubscribedAtDesc(currentAppUser.require()).stream()
                         .map(UserSubscription::getChannel)
                         .toList());
     }
@@ -115,7 +116,7 @@ public class UserSubscriptionService {
      */
     @Transactional
     public SubscribedChannelResponse subscribe(Platform platform, String channelInput, String channelName) {
-        AppUser user = currentUser();
+        AppUser user = currentAppUser.require();
 
         // 上限の判定は findOrRegister より前に行う。後ろに置くと、上限に達した利用者でも
         // 未登録チャンネルの行だけが増えてしまい、巡回対象が無制限に伸びる
@@ -161,7 +162,7 @@ public class UserSubscriptionService {
     @Transactional
     public Optional<SubscribedChannelResponse> updateRecordSetting(
             Long channelId, boolean enabled, String titleKeywords) {
-        AppUser user = currentUser();
+        AppUser user = currentAppUser.require();
         return monitoredChannelRepository.findById(channelId)
                 .flatMap(channel -> userSubscriptionRepository.findByUserAndChannel(user, channel))
                 .map(subscription -> {
@@ -193,7 +194,7 @@ public class UserSubscriptionService {
      */
     @Transactional(readOnly = true)
     public Recording findMyRecording(Long recordingId) {
-        AppUser user = currentUser();
+        AppUser user = currentAppUser.require();
         return recordingRepository.findById(recordingId)
                 .filter(recording -> recording.getChannel() != null
                         && userSubscriptionRepository.existsByUserAndChannel(user, recording.getChannel()))
@@ -231,7 +232,7 @@ public class UserSubscriptionService {
      */
     @Transactional
     public boolean unsubscribe(Long channelId) {
-        AppUser user = currentUser();
+        AppUser user = currentAppUser.require();
         // 主キーだけ詰めた仮のインスタンスは作らない。エンティティの作り
         // （コンストラクタや setter の有無）に依存して壊れやすいため
         MonitoredChannel channel = monitoredChannelRepository.findById(channelId).orElse(null);
@@ -247,23 +248,5 @@ public class UserSubscriptionService {
                     "channel=" + channel.getYoutubeChannelId());
         }
         return removed > 0;
-    }
-
-    /**
-     * ログイン中の利用者を取得する。
-     *
-     * <p>認証を必須にしている経路からしか呼ばれないため、取得できない場合は
-     * 想定外の状態として例外にする（誰の購読か分からないまま処理を続けると、
-     * 別の利用者のデータを操作しかねない）。
-     *
-     * @return ログイン中の利用者
-     */
-    private AppUser currentUser() {
-        String username = RequestContext.currentUsername();
-        if (username == null) {
-            throw new IllegalStateException("ログイン情報を特定できませんでした");
-        }
-        return appUserRepository.findByUsername(username)
-                .orElseThrow(() -> new IllegalStateException("ログイン中の利用者が見つかりません: " + username));
     }
 }

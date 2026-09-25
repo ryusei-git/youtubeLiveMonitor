@@ -13,7 +13,6 @@ import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.UserNotificationRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import com.example.monitor.util.DiscordWebhookUrl;
-import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -69,6 +68,7 @@ public class UserNotificationService {
     private static final String AUDIT_TARGET_TYPE = "USER";
 
     private final AppUserRepository appUserRepository;
+    private final CurrentAppUser currentAppUser;
     private final UserNotificationRepository userNotificationRepository;
     private final DiscordNotifier discordNotifier;
     private final AuditLogger auditLogger;
@@ -79,7 +79,7 @@ public class UserNotificationService {
      * @return 登録していれば {@code true}
      */
     public boolean isWebhookConfigured() {
-        return currentUser().getDiscordWebhookUrl() != null;
+        return currentAppUser.require().getDiscordWebhookUrl() != null;
     }
 
     /**
@@ -91,7 +91,7 @@ public class UserNotificationService {
      * @return 通知が届いているかの状況
      */
     public NotificationDeliveryStatus getDeliveryStatus() {
-        AppUser user = currentUser();
+        AppUser user = currentAppUser.require();
         return new NotificationDeliveryStatus(userNotificationRepository.findLastDeliveredAt(user),
                 userNotificationRepository.findLastFailedAt(user));
     }
@@ -110,7 +110,7 @@ public class UserNotificationService {
             throw new IllegalArgumentException("Discord の Webhook の URL"
                     + "（https://discord.com/api/webhooks/ で始まるもの）を入力してください");
         }
-        AppUser user = currentUser();
+        AppUser user = currentAppUser.require();
         String change = user.getDiscordWebhookUrl() == null ? "登録" : "更新";
         DatabaseUpdateVerifier.verify(appUserRepository.updateDiscordWebhookUrl(user.getId(), url),
                 "Discord の Webhook の" + change, user.getId());
@@ -126,7 +126,7 @@ public class UserNotificationService {
      * 登録していなければ何もしない。
      */
     public void unregisterWebhook() {
-        AppUser user = currentUser();
+        AppUser user = currentAppUser.require();
         if (user.getDiscordWebhookUrl() == null) {
             return;
         }
@@ -144,7 +144,7 @@ public class UserNotificationService {
      * @throws IllegalArgumentException Webhook を登録していない場合
      */
     public NotificationOutcome sendTestNotification() {
-        AppUser user = currentUser();
+        AppUser user = currentAppUser.require();
         String url = user.getDiscordWebhookUrl();
         if (url == null) {
             throw new IllegalArgumentException("テストの通知を送る Webhook が登録されていません");
@@ -245,22 +245,5 @@ public class UserNotificationService {
             // メッセージの無い例外でも理由が空にならないようにする（API の応答にも使うため）
             return NotificationOutcome.failure(e.getMessage() != null ? e.getMessage() : e.toString());
         }
-    }
-
-    /**
-     * ログイン中の利用者を取得する。
-     *
-     * <p>認証を必須にしている経路からしか呼ばれないため、取得できなければ想定外として例外にする
-     * （誰の設定か分からないまま書き込むと、別の利用者のデータを変えかねない）。
-     *
-     * @return ログイン中の利用者
-     */
-    private AppUser currentUser() {
-        String username = RequestContext.currentUsername();
-        if (username == null) {
-            throw new IllegalStateException("ログイン情報を特定できませんでした");
-        }
-        return appUserRepository.findByUsername(username)
-                .orElseThrow(() -> new IllegalStateException("ログイン中の利用者が見つかりません: " + username));
     }
 }

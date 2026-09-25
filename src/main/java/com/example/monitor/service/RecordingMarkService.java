@@ -5,10 +5,8 @@ import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.RecordingMark;
 import com.example.monitor.exception.RecordingNotFoundException;
-import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.RecordingMarkRepository;
 import com.example.monitor.repository.RecordingRepository;
-import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,7 +28,7 @@ public class RecordingMarkService {
 
     private final RecordingMarkRepository recordingMarkRepository;
     private final RecordingRepository recordingRepository;
-    private final AppUserRepository appUserRepository;
+    private final CurrentAppUser currentAppUser;
 
     /**
      * 視聴済みを切り替える。
@@ -67,25 +65,10 @@ public class RecordingMarkService {
     private RecordingMarkResponse update(Long recordingId, Consumer<RecordingMark> change) {
         Recording recording = recordingRepository.findById(recordingId)
                 .orElseThrow(() -> new RecordingNotFoundException(recordingId));
-        AppUser user = currentUser();
+        AppUser user = currentAppUser.require();
         RecordingMark mark = recordingMarkRepository.findByUserAndRecording(user, recording)
                 .orElseGet(() -> new RecordingMark(user, recording));
         change.accept(mark);
         return RecordingMarkResponse.from(recordingMarkRepository.save(mark));
-    }
-
-    /**
-     * ログイン中の利用者を取得する。
-     *
-     * <p>認証を必須にしている経路からしか呼ばれないため、取得できなければ想定外として例外にする
-     * （誰の印か分からないまま書き込むと、別の利用者のデータを変えかねない）。
-     */
-    private AppUser currentUser() {
-        String username = RequestContext.currentUsername();
-        if (username == null) {
-            throw new IllegalStateException("ログイン情報を特定できませんでした");
-        }
-        return appUserRepository.findByUsername(username)
-                .orElseThrow(() -> new IllegalStateException("ログイン中の利用者が見つかりません: " + username));
     }
 }
