@@ -869,6 +869,61 @@ const myNotificationSettingsView = {
     },
 };
 
+/**
+ * アカウントの設定。自分のパスワードを変える（#322。API は #321）。
+ *
+ * パスワードは見せないので、入力欄は成功・失敗にかかわらず送信後に空へ戻す。
+ * 確認欄はサーバーへ送らない。打ち間違いに気づかないまま変えると本人がログインできなくなるため、画面だけで確かめる。
+ * @type {MyView}
+ */
+const myAccountSettingsView = {
+    title: "アカウント",
+    nav: "/my/settings/account",
+    render(root) {
+        root.innerHTML = `<h1>アカウント</h1>
+            <p class="pageDescription">ログインのパスワードを変えます。変えると、ほかの端末やブラウザではログインし直しが必要になります。</p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <h2>パスワードの変更</h2>
+            <form id="passwordForm">
+              <p><label>今のパスワード<br>
+                <input type="password" id="currentPassword" autocomplete="current-password" required size="28"></label></p>
+              <p><label>新しいパスワード（8 文字以上）<br>
+                <input type="password" id="newPassword" autocomplete="new-password" required minlength="8" size="28"></label></p>
+              <p><label>新しいパスワード（確認）<br>
+                <input type="password" id="newPasswordConfirm" autocomplete="new-password" required minlength="8" size="28"></label></p>
+              <p><button type="submit">変更する</button></p>
+            </form>`;
+        const form = formEl("passwordForm");
+        const current = inputEl("currentPassword");
+        const next = inputEl("newPassword");
+        const confirmInput = inputEl("newPasswordConfirm");
+        const button = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (next.value !== confirmInput.value) {
+                showError("新しいパスワードが一致しません");
+                return;
+            }
+            button.disabled = true;
+            try {
+                await apiPut("/api/my/password", { currentPassword: current.value, newPassword: next.value });
+                // 待つ間に別の画面へ移っていたら、その画面のエラー帯には触らない
+                if (form.isConnected) {
+                    clearError();
+                    showToast("パスワードを変更しました");
+                }
+            } catch (e) {
+                // 今のパスワードの誤りなどの 400 は、サーバーの文言をそのまま出す
+                if (form.isConnected) showError(errorMessage(e));
+            } finally {
+                button.disabled = false;
+                current.value = next.value = confirmInput.value = "";
+            }
+        });
+    },
+};
+
 /** @type {MyView} */
 const myNotFoundView = {
     title: "ページが見つかりません",
@@ -894,6 +949,7 @@ const myRoutes = [
     [/^\/my\/watch\/(\d+)\/?$/, myWatchView],
     [/^\/my\/channels\/?$/, myChannelsView],
     [/^\/my\/settings\/notifications\/?$/, myNotificationSettingsView],
+    [/^\/my\/settings\/account\/?$/, myAccountSettingsView],
     [/^/, myNotFoundView],
 ];
 
