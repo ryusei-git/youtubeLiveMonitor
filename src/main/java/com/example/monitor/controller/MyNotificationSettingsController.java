@@ -1,5 +1,6 @@
 package com.example.monitor.controller;
 
+import com.example.monitor.dto.NotificationDeliveryStatus;
 import com.example.monitor.dto.NotificationOutcome;
 import com.example.monitor.dto.NotificationSettingsRequest;
 import com.example.monitor.dto.NotificationSettingsResponse;
@@ -23,7 +24,7 @@ import java.util.Map;
  * <p>{@code /api/my/} の下に置き、対象は常にログイン中の本人にする（{@link MyChannelController} と同じ理由。
  * 利用者をリクエストから指定できる形にすると、検証漏れがそのまま他人の設定の書き換えになる）。
  *
- * <p><b>Webhook の URL はどの応答にも載せない。</b>返すのは登録済みかどうか（{@link NotificationSettingsResponse}）だけ。
+ * <p><b>Webhook の URL はどの応答にも載せない。</b>返すのは登録済みかどうかと届いた・送れなかった時刻（{@link NotificationSettingsResponse}）だけ。
  *
  * <p>依存する {@link UserNotificationService} はプロファイルを問わず作られるため、
  * {@code @Profile("!cli")} は付けていない。
@@ -36,13 +37,13 @@ public class MyNotificationSettingsController {
     private final UserNotificationService userNotificationService;
 
     /**
-     * Webhook を登録しているかを返す。
+     * Webhook を登録しているかと、通知が届いているかを返す。
      *
      * @return 設定の状態
      */
     @GetMapping
     public NotificationSettingsResponse getSettings() {
-        return new NotificationSettingsResponse(userNotificationService.isWebhookConfigured());
+        return currentSettings();
     }
 
     /**
@@ -54,7 +55,7 @@ public class MyNotificationSettingsController {
     @PutMapping
     public NotificationSettingsResponse registerWebhook(@RequestBody NotificationSettingsRequest request) {
         userNotificationService.registerWebhook(request.webhookUrl());
-        return new NotificationSettingsResponse(true);
+        return currentSettings();
     }
 
     /**
@@ -65,7 +66,19 @@ public class MyNotificationSettingsController {
     @DeleteMapping
     public NotificationSettingsResponse unregisterWebhook() {
         userNotificationService.unregisterWebhook();
-        return new NotificationSettingsResponse(false);
+        return currentSettings();
+    }
+
+    /**
+     * 今の設定の状態を組み立てる。登録・解除の応答も読み込みと同じ内容にするのは、登録し直すと過去の失敗が消える
+     * （{@code UserNotificationRepository#clearFailures}）ため、画面が警告を消すには登録後の状態を知る必要があるから。
+     *
+     * @return 設定の状態
+     */
+    private NotificationSettingsResponse currentSettings() {
+        NotificationDeliveryStatus status = userNotificationService.getDeliveryStatus();
+        return new NotificationSettingsResponse(userNotificationService.isWebhookConfigured(),
+                status.lastDeliveredAt(), status.lastFailedAt(), status.failing());
     }
 
     /**
