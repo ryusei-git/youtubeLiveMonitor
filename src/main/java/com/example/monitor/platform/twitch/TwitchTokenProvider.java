@@ -128,7 +128,7 @@ public class TwitchTokenProvider {
             }
 
             JsonNode body = objectMapper.readTree(response.body());
-            String token = body.path("access_token").asText(null);
+            String token = body.path("access_token").asString(null);
             long expiresInSeconds = body.path("expires_in").asLong(0);
             if (token == null || token.isBlank()) {
                 throw new IllegalStateException("Twitch の応答にアクセストークンが含まれていませんでした");

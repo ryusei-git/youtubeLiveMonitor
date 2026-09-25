@@ -8,7 +8,7 @@ YouTube と Twitch のライブ配信を監視し、配信開始時に Discord �
 ## 技術スタック
 
 - **言語**: Java 21
-- **フレームワーク**: Spring Boot 3.3.3
+- **フレームワーク**: Spring Boot 4.1.1
 - **ビルドツール**: Gradle
 - **DB**: H2（ファイルモード）+ Spring Data JPA
 - **CLI**: Picocli
