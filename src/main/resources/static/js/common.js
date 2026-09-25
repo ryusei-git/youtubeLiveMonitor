@@ -970,6 +970,9 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
         renderResults();
         prevButton.disabled = page <= 0;
         nextButton.disabled = page + 1 >= totalPages;
+        // 押せないページ送りを残さない（1 ページに収まるとき、0 件を含む）。
+        // hidden 属性は .inline の display: flex に負けて効かないため、style で消す
+        pager.style.display = totalPages <= 1 ? "none" : "";
         renderPageNumbers();
         return true;
     }
