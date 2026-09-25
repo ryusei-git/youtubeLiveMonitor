@@ -128,3 +128,8 @@ monitor:
   admin:
     username: ${ADMIN_USERNAME:admin}
     password: ${ADMIN_PASSWORD:}
+
+  security:
+    # 「ログインしたままにする」の Cookie に署名する鍵（SecurityConfig・RememberMeKeyFile）。
+    # 無ければ起動時に作る。消して再起動すると、全員の「ログインしたまま」が無効になる。
+    remember-me-key-file: ${MONITOR_REMEMBER_ME_KEY_FILE:data/remember-me.key}

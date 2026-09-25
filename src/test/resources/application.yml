@@ -31,3 +31,7 @@ monitor:
   admin:
     username: testadmin
     password: test-admin-password
+
+  # 「ログインしたままにする」の鍵を本物の data/ に作らない。
+  security:
+    remember-me-key-file: ${java.io.tmpdir}/youtube-live-monitor-test/remember-me.key

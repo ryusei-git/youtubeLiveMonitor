@@ -6,6 +6,7 @@ import com.example.monitor.repository.AppUserRepository;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.ObjectPostProcessor;
@@ -22,6 +23,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.rememberme.TokenBasedRememberMeServices;
+import org.springframework.security.web.authentication.rememberme.TokenBasedRememberMeServices.RememberMeTokenAlgorithm;
+import java.nio.file.Path;
 
 /**
  * 認証・認可・CSRF・応答ヘッダーの設定。認可の考え方は {@code docs/user-portal-design.md} 3.4 に従う。
@@ -76,6 +80,31 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
  *       未ログイン（401）と権限不足（403）を区別し、画面が再ログインを促せるようにしている。</li>
  * </ul>
  *
+ * <h2>「ログインしたままにする」（remember-me）の方式</h2>
+ * ログイン画面でチェックを付けた端末は、ログインから 30 日間、セッションが切れても（30 分の放置・
+ * アプリの再起動・ブラウザを閉じる）Cookie から自動でログインし直す。iPhone で使うたびに
+ * ログインし直しになっていたため（#441）。
+ * <ul>
+ *   <li><b>ハッシュ方式（{@link TokenBasedRememberMeServices}）にしている。</b>Cookie の署名に
+ *       パスワードのハッシュが入るので、パスワードを変えるとその利用者の「ログインしたまま」は全端末で
+ *       無効になる。無効化・削除した利用者は {@link AppUserDetailsService} が有効でない・見つからないを
+ *       返すので自動ログインできない。どちらも追加の処理が要らず、DB のテーブルも要らない。
+ *       DB 方式（{@code PersistentTokenBasedRememberMeServices}）にしないのは、ログアウトで
+ *       その利用者の<b>全端末</b>のトークンが消えるうえ、パスワード変更・無効化のたびに消す処理を
+ *       足す必要があるため。</li>
+ *   <li><b>期間はログインした時から 30 日で、使うたびには延ばさない。</b>ハッシュ方式の Cookie は
+ *       期限が署名に入っており、延ばすには Cookie を発行し直すしかない。</li>
+ *   <li><b>自動ログインで作る主体も {@link AuthenticatedAppUser}。</b>{@link AppUserDetailsService} から
+ *       その時点の DB の値で作るので、{@link ActiveAppUserFilter} の照合（パスワードの変更時刻）とも食い違わない。</li>
+ *   <li><b>署名の鍵はファイルに残す（{@link RememberMeKeyFile}）。</b>起動のたびに作り直すと、
+ *       反映のたびに全員の「ログインしたまま」が無効になるため。</li>
+ *   <li><b>チェックボックスは利用者用・管理者用の両方のログイン画面に置く。</b>利用者用の画面からログインしても
+ *       管理者の権限は付いてくるので、片方だけにしても守りにならない。既定はオフ。</li>
+ *   <li><b>Cookie の Secure は既定のまま</b>（要求が HTTPS のときだけ付く）。今は http で使っており、
+ *       {@code tailscale serve} の https（{@code forward-headers-strategy: native} で HTTPS と判定される）に
+ *       しても、そのまま Secure が付く。</li>
+ * </ul>
+ *
  * <h2>{@code @Profile("!cli")} を付けている理由</h2>
  * CLI（{@code cli} プロファイル）は Web サーバーを起動しないため、このクラスが定義する
  * {@link SecurityFilterChain} が依存する {@link HttpSecurity} は本来 Bean 化されない
@@ -96,6 +125,9 @@ public class SecurityConfig {
      * 設計書 3.4 の「{@code /api/auth/**} は全員（ログイン処理自体）」をそのまま満たす。
      */
     private static final String AUTH_API_PREFIX = "/api/auth/**";
+
+    /** 「ログインしたままにする」の期間。ログインした時から数え、使っても延ばさない（クラスの説明を参照）。 */
+    private static final int REMEMBER_ME_SECONDS = 30 * 24 * 60 * 60;
 
     /** 読み込みを許す出どころ。外部リソースを使っていないので自分自身だけに絞る。 */
     private static final String CONTENT_SECURITY_POLICY = String.join("; ",
@@ -143,6 +175,10 @@ public class SecurityConfig {
      * @param loginAttemptLimiter               ログイン試行の回数制限（パスワード照合より前で打ち切る）
      * @param authenticationHandler             未ログイン・権限不足・CSRF 不一致を、API には JSON で返す処理
      * @param auditLogoutHandler                ログアウトを監査ログへ記録する処理
+     * @param appUserDetailsService             「ログインしたままにする」の Cookie から利用者を読み直す先
+     *                                          （無効化・削除された利用者はここで弾かれる）
+     * @param rememberMeKeyFile                 「ログインしたままにする」の Cookie に署名する鍵のファイル
+     *                                          （再起動しても鍵を変えないため。クラスの説明を参照）
      * @return 構築したフィルターチェーン
      * @throws Exception Spring Security の設定 API がチェック例外を宣言しているため
      */
@@ -153,8 +189,15 @@ public class SecurityConfig {
                                             AppUserRepository appUserRepository,
                                             LoginAttemptLimiter loginAttemptLimiter,
                                             RequestAuthenticationHandler authenticationHandler,
-                                            AuditLogoutHandler auditLogoutHandler)
+                                            AuditLogoutHandler auditLogoutHandler,
+                                            AppUserDetailsService appUserDetailsService,
+                                            @Value("${monitor.security.remember-me-key-file}") Path rememberMeKeyFile)
             throws Exception {
+        String rememberMeKey = RememberMeKeyFile.loadOrCreate(rememberMeKeyFile);
+        TokenBasedRememberMeServices rememberMeServices = new TokenBasedRememberMeServices(
+                rememberMeKey, appUserDetailsService, RememberMeTokenAlgorithm.SHA256);
+        rememberMeServices.setMatchingAlgorithm(RememberMeTokenAlgorithm.SHA256);
+        rememberMeServices.setTokenValiditySeconds(REMEMBER_ME_SECONDS);
         HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
         // ログイン後に戻る先として正しい画面（GET）だけを保存する。保存は後の要求で上書きされるため、
         // ログイン画面を開いたブラウザが取りに行く /favicon.ico まで保存すると、開こうとしていた画面ではなく
@@ -246,6 +289,8 @@ public class SecurityConfig {
                 .successHandler(successHandler)
                 .failureHandler(failureHandler)
                 .permitAll())
+            // パラメーター名・Cookie 名は既定の remember-me（ログイン画面のチェックボックスの name）
+            .rememberMe(remember -> remember.rememberMeServices(rememberMeServices).key(rememberMeKey))
             .logout(logout -> logout
                 .logoutUrl("/api/auth/logout")
                 .addLogoutHandler(auditLogoutHandler)
