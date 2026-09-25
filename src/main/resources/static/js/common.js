@@ -1877,8 +1877,45 @@ function initStudioShell() {
         const label = control.getAttribute("placeholder") || control.querySelector("option")?.textContent;
         if (label) control.setAttribute("aria-label", label);
     });
+    initHints();
     // トーストの読み上げ領域は、最初のトーストより前に置いておく（理由は ensureToastStack）
     ensureToastStack();
+}
+
+/**
+ * 管理画面の補足の ⓘ（`<span class="hint" title="...">`）を、キーボード・タップ・読み上げでも読めるようにする。
+ *
+ * <p>ⓘ の中身は title 属性にしか無く、マウスを乗せない限り読めない（WCAG 1.4.13）。
+ * HTML の 27 行を書き換えずに済むよう、ここでフォーカスと読み上げ名を付け、
+ * フォーカス中（スマホではタップ）は style.css の `.hint:focus::after` で本文を吹き出しに出す。
+ * title は消さない（マウスで乗せたときの吹き出しに使う）。
+ *
+ * <p>吹き出しは position: fixed で出し、位置はここで CSS 変数に渡す。absolute だと、
+ * 表の見出しの ⓘ は横スクロールの枠（`.table-scroll`）に切り取られるため。
+ * Esc で閉じられるようにし、閉じた後はフォーカスが外れるまで出さない（WCAG 1.4.13 の「消せる」）。
+ */
+function initHints() {
+    /** @param {Element | null} hint */
+    const place = (hint) => {
+        if (!(hint instanceof HTMLElement) || !hint.matches(".hint[title]")) return;
+        const rect = hint.getBoundingClientRect();
+        hint.style.setProperty("--hint-left", `${rect.left}px`);
+        hint.style.setProperty("--hint-top", `${rect.bottom + 6}px`);
+    };
+    document.querySelectorAll(".hint[title]").forEach((hint) => {
+        if (!(hint instanceof HTMLElement)) return;
+        hint.tabIndex = 0;
+        hint.setAttribute("role", "note");
+        // 見出しの中の ⓘ は見出しの読み上げ名に「補足: …」が入るが、補足を読み上げ環境に届けるのが目的なので許す
+        hint.setAttribute("aria-label", `補足: ${hint.title}`);
+        hint.addEventListener("focus", () => place(hint));
+        hint.addEventListener("blur", () => hint.classList.remove("hintDismissed"));
+        hint.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") hint.classList.add("hintDismissed");
+        });
+    });
+    // 吹き出しは画面に固定なので、スクロールしたら ⓘ の位置に付け直す
+    document.addEventListener("scroll", () => place(document.activeElement), { capture: true, passive: true });
 }
 
 initStudioShell();
