@@ -222,7 +222,7 @@ public class UserNotificationService {
 
         String error = outcome.errorMessage();
         DatabaseUpdateVerifier.verify(userNotificationRepository.recordFailure(record.getId(), LocalDateTime.now(),
-                        error.length() > MAX_ERROR_LENGTH ? error.substring(0, MAX_ERROR_LENGTH) : error),
+                        error != null && error.length() > MAX_ERROR_LENGTH ? error.substring(0, MAX_ERROR_LENGTH) : error),
                 "利用者への通知の失敗の記録", record.getId());
         int failures = record.getFailureCount() + 1;
         log.warn("利用者への通知に失敗しました（{}/{} 回目{}）: user={}, video={}, reason={}",
