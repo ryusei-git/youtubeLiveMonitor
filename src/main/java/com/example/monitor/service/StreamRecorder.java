@@ -8,6 +8,7 @@ import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.ProcessTermination;
+import com.example.monitor.util.RecordingActivity;
 import com.example.monitor.util.YtDlpFormatSelector;
 import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
@@ -19,9 +20,12 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -50,6 +54,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * （{@link #isRecording(String)} は録画中のプロセスについても {@code false} を返すようになる）、
  * 録画履歴の完了・失敗を記録する者がいなくなる。これは {@link RecordingReconciler} が
  * 完成ファイルの有無で補正する。
+ *
+ * <p>出力が止まったまま終わらない yt-dlp は {@link #awaitExit} が子孫ごと止め、既存の救済・記録へ流す
+ * （止めないと {@code RECORDING} が残り続け、その動画 ID は {@link ActiveVideoJobs} に押さえられたまま録り直せない）。
+ * 再起動後に残った yt-dlp（追跡する仮想スレッドが無いもの）は対象外。実際に固まった例が出てから作る。
  *
  * <h2>出力形式を mp4 に固定する理由</h2>
  * {@code --merge-output-format mp4} を指定し、映像・音声のコンテナを常に mp4 に揃えている。
@@ -123,6 +131,29 @@ public class StreamRecorder {
      */
     @Value("${monitor.recording.min-free-gb:20}")
     private long minFreeGb = 0;
+
+    /**
+     * 録画の出力（{@code {動画ID}.*} と yt-dlp のログ）がこの分数だけ更新されなければ、
+     * 固まったとみなして録画プロセスを止める。
+     *
+     * <p><b>30 分と長めに取っている。</b>正常な録画では出力が数秒おきに更新されるので、短くても見分けは付く。
+     * しかし配信者側の回線断で断片が止まっている間に誤って止めると、{@code lastRecordedVideoId} が
+     * 更新済みのためその配信の残りを録れない。止めるのが遅れても、{@code RECORDING} の表示が長く残るだけで済む。
+     * 損が大きいのは誤って止める方なので、遅めに倒している。
+     *
+     * <p>{@link MonitorProperties.RecordingProperties} に入れない理由は {@link #minFreeGb} と同じ。
+     */
+    @Value("${monitor.recording.stall-minutes:30}")
+    private long stallMinutes = 30;
+
+    /**
+     * 録画プロセスの待機の結果。
+     *
+     * @param exitCode {@code yt-dlp} の終了コード。待機が中断された場合は {@code null}
+     * @param stalled  出力が止まっていたためこちらから止めた場合 {@code true}
+     */
+    private record ExitResult(Integer exitCode, boolean stalled) {
+    }
 
     /**
      * 配信の録画を開始する。既にこの動画IDを録画中であれば何もせず成功として扱う。
@@ -336,18 +367,21 @@ public class StreamRecorder {
         }
 
         try {
-            Integer exitCode = awaitExit(process, videoId);
+            ExitResult exit = awaitExit(process, channel, videoId, outputFile.getParent());
             // プロセスは既に終了しているので、書き込み中のファイルを壊す心配なく詰め替えられる
             SalvageOutcome salvage = recordingSalvager.ensurePlayable(outputFile);
             boolean resumedMidway = false;
 
-            if (!salvage.isPlayable() && fallbackCommand != null && !Thread.currentThread().isInterrupted()) {
+            // 固まって止めたときは録り直さない。配信が終わっていれば「今の時点から」は失敗するか、
+            // 終わった配信のアーカイブ全体を落とし始める。配信中でも同じ固まり方を繰り返しうる
+            if (!salvage.isPlayable() && fallbackCommand != null && !exit.stalled()
+                    && !Thread.currentThread().isInterrupted()) {
                 log.warn("最初からの録画に失敗したため、今の時点から録画し直します: channel={}, video={}, exitCode={}",
-                        channel.getChannelName(), videoId, exitCode);
+                        channel.getChannelName(), videoId, exit.exitCode());
                 try {
                     Process retry = processLauncher.launch(fallbackCommand, YtDlpLogFile.of(videoId));
                     resumedMidway = true;
-                    exitCode = awaitExit(retry, videoId);
+                    exit = awaitExit(retry, channel, videoId, outputFile.getParent());
                     salvage = recordingSalvager.ensurePlayable(outputFile);
                 } catch (IOException e) {
                     log.error("録り直しの録画プロセスの起動に失敗しました: channel={}, video={}",
@@ -355,7 +389,7 @@ public class StreamRecorder {
                 }
             }
 
-            recordOutcome(recordingId, channel, videoId, salvage, resumedMidway, exitCode);
+            recordOutcome(recordingId, channel, videoId, salvage, resumedMidway, exit.exitCode());
         } finally {
             // 結果を記録し終えてから追跡を外す。順序を逆にすると、その隙に
             // RecordingReconciler が「追跡されていないのに RECORDING のまま＝置き去り」と
@@ -368,22 +402,56 @@ public class StreamRecorder {
     }
 
     /**
-     * 録画プロセスの終了を待つ。
+     * 録画プロセスの終了を待つ。出力が {@link #stallMinutes} 分止まっていたら、子孫ごと止める。
      *
      * <p>出力はファイルへ向けているため（クラスの JavaDoc「プロセスの生存期間」参照）、ここでは読まない。
+     * 1 分ごとに {@link RecordingActivity#lastModified(Path, String)} を見る。待機を始めた時刻を下限にするのは、
+     * 起動直後でまだ何も書かれていないときと、録り直しで待ち直したときに、古い時刻で誤って止めないため。
+     * 更新時刻を読めなかったときは止めない（「判定できなかった」を「固まった」と扱わない）。
      *
-     * @param process 起動済みの録画プロセス
-     * @param videoId 録画対象の動画 ID（ログ用）
-     * @return {@code yt-dlp} の終了コード。待機が中断された場合は {@code null}（割り込み状態は立て直す）
+     * @param process         起動済みの録画プロセス
+     * @param channel         録画対象のチャンネル（ログ・通知用）
+     * @param videoId         録画対象の動画 ID
+     * @param outputDirectory 録画フォルダ
+     * @return 終了コード（待機が中断された場合は {@code null}。割り込み状態は立て直す）と、こちらから止めたか
      */
-    private Integer awaitExit(Process process, String videoId) {
+    private ExitResult awaitExit(Process process, MonitoredChannel channel, String videoId, Path outputDirectory) {
+        Instant watchStart = Instant.now();
         try {
-            return process.waitFor();
+            while (!process.waitFor(1, TimeUnit.MINUTES)) {
+                Instant lastActivity;
+                try {
+                    Instant modified = RecordingActivity.lastModified(outputDirectory, videoId);
+                    lastActivity = modified.isAfter(watchStart) ? modified : watchStart;
+                } catch (IOException e) {
+                    log.warn("録画の出力の更新時刻を読めなかったため、固まっているかの判定を見送ります: video={}", videoId, e);
+                    continue;
+                }
+                if (Duration.between(lastActivity, Instant.now()).toMinutes() < stallMinutes) {
+                    continue;
+                }
+
+                log.warn("録画の出力が {}分間止まっているため、録画プロセスを止めます: channel={}, video={}, 最終更新={}",
+                        stallMinutes, channel.getChannelName(), videoId, lastActivity);
+                if (ProcessTermination.terminateTreeAndAwait(process.toHandle(), Duration.ofSeconds(30))) {
+                    Thread.currentThread().interrupt();
+                    return new ExitResult(null, true);
+                }
+                try {
+                    discordNotifier.sendAdminAlert("録画の出力が " + stallMinutes + " 分間止まっていたため、録画プロセスを止めました: "
+                            + channel.getChannelName() + "（" + videoId + "）");
+                } catch (RuntimeException e) {
+                    // 通知の失敗で録画の記録を妨げない
+                    log.warn("録画プロセスを止めたことを管理者へ通知できませんでした", e);
+                }
+                return new ExitResult(process.waitFor(), true);
+            }
+            return new ExitResult(process.exitValue(), false);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             // 中断された場合も、既にファイルが出来ていれば成功として扱う（呼び出し側で判定する）
             log.warn("録画の完了待ちが中断されました: video={}", videoId);
-            return null;
+            return new ExitResult(null, false);
         }
     }
 

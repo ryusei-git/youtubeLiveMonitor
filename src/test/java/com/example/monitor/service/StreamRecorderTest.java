@@ -28,6 +28,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -115,12 +116,26 @@ class StreamRecorderTest {
     @DisplayName("startRecording()")
     class StartRecording {
 
+        /**
+         * 起動直後に終わる録画プロセスを模す。完了待ちの仮想スレッドは {@code waitFor(1, 分)} を繰り返すため、
+         * スタブしないと既定の {@code false} で空回りし続ける。テストより先に終わることもあるので lenient にする。
+         */
+        private Process exitedProcess() {
+            Process process = mock(Process.class);
+            try {
+                lenient().when(process.waitFor(anyLong(), any(TimeUnit.class))).thenReturn(true);
+            } catch (InterruptedException e) {
+                throw new IllegalStateException(e);
+            }
+            return process;
+        }
+
         @Test
         @DisplayName("正常系：yt-dlpを正しい引数で起動する")
         void testMethod01(@TempDir Path tempDir) throws IOException {
             StreamRecorder recorder = newRecorder(tempDir);
             MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
-            Process mockProcess = mock(Process.class);
+            Process mockProcess = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(mockProcess);
 
             recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル");
@@ -141,7 +156,7 @@ class StreamRecorderTest {
         void testMethod02(@TempDir Path tempDir) throws IOException {
             StreamRecorder recorder = newRecorder(tempDir);
             MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
-            Process mockProcess = mock(Process.class);
+            Process mockProcess = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(mockProcess);
 
             boolean result = recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル");
@@ -196,7 +211,7 @@ class StreamRecorderTest {
         void testMethod06(@TempDir Path tempDir) throws IOException {
             StreamRecorder recorder = newRecorder(tempDir, 0);
             MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
-            Process mockProcess = mock(Process.class);
+            Process mockProcess = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(mockProcess);
 
             recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル");
@@ -214,7 +229,7 @@ class StreamRecorderTest {
         void testMethod07(@TempDir Path tempDir) throws IOException {
             StreamRecorder recorder = newRecorder(tempDir);
             MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
-            Process mockProcess = mock(Process.class);
+            Process mockProcess = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(mockProcess);
 
             recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル");
@@ -230,7 +245,7 @@ class StreamRecorderTest {
             // この動画IDは以降永久に録画できなくなる
             StreamRecorder recorder = newRecorder(tempDir);
             MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
-            Process mockProcess = mock(Process.class);
+            Process mockProcess = exitedProcess();
             when(processLauncher.launch(any(), any()))
                     .thenThrow(new IOException("yt-dlp: command not found"))
                     .thenReturn(mockProcess);
@@ -303,7 +318,7 @@ class StreamRecorderTest {
             shared.release("video001");
             StreamRecorder recorder = newRecorder(tempDir, shared);
             MonitoredChannel channel = new MonitoredChannel("UCSMOQeBJ2RAnuFungnQOxLg", "テストチャンネル");
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
 
             assertThat(recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル")).isTrue();
@@ -358,7 +373,8 @@ class StreamRecorderTest {
 
         private Process processExiting(int exitCode) throws Exception {
             Process mockProcess = mock(Process.class);
-            when(mockProcess.waitFor()).thenReturn(exitCode);
+            when(mockProcess.waitFor(anyLong(), any(TimeUnit.class))).thenReturn(true);
+            when(mockProcess.exitValue()).thenReturn(exitCode);
             return mockProcess;
         }
 
@@ -368,7 +384,8 @@ class StreamRecorderTest {
             StreamRecorder recorder = newRecorder(tempDir);
             MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
             Process mockProcess = mock(Process.class);
-            when(mockProcess.waitFor()).thenReturn(0);
+            when(mockProcess.waitFor(anyLong(), any(TimeUnit.class))).thenReturn(true);
+            when(mockProcess.exitValue()).thenReturn(0);
             activeRecordingsOf(recorder).add("video001");
             stubFileExists(12345L);
 
@@ -433,7 +450,7 @@ class StreamRecorderTest {
             StreamRecorder recorder = newRecorder(tempDir);
             MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
             Process mockProcess = mock(Process.class);
-            when(mockProcess.waitFor()).thenThrow(new InterruptedException());
+            when(mockProcess.waitFor(anyLong(), any(TimeUnit.class))).thenThrow(new InterruptedException());
             activeRecordingsOf(recorder).add("video001");
             stubFileMissing();
 
@@ -450,7 +467,7 @@ class StreamRecorderTest {
             StreamRecorder recorder = newRecorder(tempDir);
             MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
             Process mockProcess = mock(Process.class);
-            when(mockProcess.waitFor()).thenThrow(new InterruptedException());
+            when(mockProcess.waitFor(anyLong(), any(TimeUnit.class))).thenThrow(new InterruptedException());
             activeRecordingsOf(recorder).add("video001");
             stubFileExists(555L);
 
@@ -493,7 +510,7 @@ class StreamRecorderTest {
             recorder.awaitCompletion(mockProcess, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
 
             InOrder inOrder = inOrder(mockProcess, recordingSalvager);
-            inOrder.verify(mockProcess).waitFor();
+            inOrder.verify(mockProcess).waitFor(anyLong(), any(TimeUnit.class));
             inOrder.verify(recordingSalvager).ensurePlayable(any(Path.class));
         }
     }
