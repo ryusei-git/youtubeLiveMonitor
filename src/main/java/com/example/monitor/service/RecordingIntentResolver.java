@@ -37,17 +37,12 @@ public class RecordingIntentResolver {
      * 録画すべきかどうかの判定結果。
      *
      * <p>「そもそも誰も希望していない」と「希望者はいるが条件に合わない」を分けているのは、
-     * 画面に出す判定理由を書き分けるため（利用者が「なぜ録画されないのか」を追えるように）。
+     * ログに出す見送りの理由を書き分けるため（「誰も録画を希望していない」のか「希望者はいるが条件に合わない」のか）。
      *
      * @param anyoneEnabled 希望している人が 1 人でもいるか
      * @param matched       希望者のうち、この配信が条件に合う人がいるか
      */
     public record RecordingIntent(boolean anyoneEnabled, boolean matched) {
-
-        /** @return 録画すべきなら {@code true} */
-        public boolean shouldRecord() {
-            return anyoneEnabled && matched;
-        }
     }
 
     /**
