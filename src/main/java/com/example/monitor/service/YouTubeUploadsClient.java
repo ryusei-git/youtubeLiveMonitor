@@ -1,6 +1,7 @@
 package com.example.monitor.service;
 
 import com.example.monitor.dto.OnlineVideoCandidate;
+import com.example.monitor.util.YouTubeWatchUrl;
 import com.google.api.services.youtube.YouTube;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -45,12 +46,12 @@ public class YouTubeUploadsClient {
                 var details = item.getContentDetails(); var snippet = item.getSnippet();
                 if (details == null || snippet == null || details.getVideoPublishedAt() == null) continue;
                 String id = details.getVideoId();
-                if (id == null || !id.matches("[A-Za-z0-9_-]{11}")) continue;
+                if (!YouTubeWatchUrl.isVideoId(id)) continue;
                 Instant published = Instant.ofEpochMilli(details.getVideoPublishedAt().getValue());
                 if (published.isBefore(since)) reachedBoundary = true;
                 videos.add(new OnlineVideoCandidate("YOUTUBE_" + id, snippet.getTitle(),
-                        "https://www.youtube.com/watch?v=" + id,
-                        "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg", published));
+                        YouTubeWatchUrl.of(id),
+                        YouTubeWatchUrl.thumbnailOf(id), published));
             }
             token = response.getNextPageToken();
         } while (!reachedBoundary && token != null && !token.isBlank());

@@ -20,11 +20,11 @@ public final class YouTubeFeedParser {
         for (var entry : document.getElementsByTag("entry")) {
             String id = entry.getElementsByTag("yt:videoId").text();
             if (!channelId.equals(entry.getElementsByTag("yt:channelId").text())
-                    || !id.matches("[A-Za-z0-9_-]{11}")) continue;
+                    || !YouTubeWatchUrl.isVideoId(id)) continue;
             Instant published = Instant.parse(entry.getElementsByTag("published").text());
             result.add(new OnlineVideoCandidate("YOUTUBE_" + id,
-                    entry.getElementsByTag("title").text(), "https://www.youtube.com/watch?v=" + id,
-                    "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg", published));
+                    entry.getElementsByTag("title").text(), YouTubeWatchUrl.of(id),
+                    YouTubeWatchUrl.thumbnailOf(id), published));
         }
         return result;
     }
