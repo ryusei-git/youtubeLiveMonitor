@@ -262,6 +262,12 @@ cmd_rollback() {
 cmd_status() {
     if is_running; then
         echo "起動中 (PID: $(main_pid), ポート: $PORT)$( (( USE_SYSTEMD )) && echo "、systemd: $UNIT")"
+        # ポートが開いていても巡回が止まっていることがある（#243）。/api/health はログイン無しで読める
+        local health state seconds
+        health="$(curl -s --max-time 5 "http://127.0.0.1:$PORT/api/health" || true)"
+        state="$(sed -nE 's/.*"status":"([A-Z]+)".*/\1/p' <<< "$health")"
+        seconds="$(sed -nE 's/.*"secondsSinceLastPoll":([0-9]+).*/\1/p' <<< "$health")"
+        echo "巡回: ${state:-応答なし}${seconds:+ (最後の巡回から ${seconds} 秒)}"
     else
         echo "停止中"
         if port_in_use "$PORT"; then
