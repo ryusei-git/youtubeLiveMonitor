@@ -3,6 +3,7 @@ package com.example.monitor.service;
 import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
+import com.example.monitor.notification.DiscordNotifier;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.DiskSpaceUtils;
@@ -21,6 +22,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 配信を {@code yt-dlp} で録画する。
@@ -95,6 +97,18 @@ public class StreamRecorder {
      */
     private final ActiveVideoJobs activeVideoJobs;
 
+    private final DiscordNotifier discordNotifier;
+
+    /**
+     * 空き容量の逼迫を管理者へ知らせ済みか。下回った状態が続く間は 1 回だけ知らせるために使う。
+     *
+     * <p>巡回（2 分ごと）のたびに録画を試みて弾かれるので、毎回送ると通知が溢れる。
+     * 空き容量の確認を通ったときに戻し、再び下回ったら改めて知らせる。
+     * 送信に失敗しても戻さない（Webhook の設定ミスのような直らない失敗で毎巡回送り続けないため）。
+     * 知らせ済みかを DB に持たないので、アプリを再起動すると下回ったままでも 1 回送り直す。
+     */
+    private final AtomicBoolean lowDiskAlerted = new AtomicBoolean(false);
+
     /**
      * 録画を始めるのに必要な空き容量（GB）。これを下回っていれば録画を始めない。
      * 録画・H2（{@code data/}）・ログが同じファイルシステムにあり、満杯になると録画が壊れるだけでなく
@@ -165,8 +179,18 @@ public class StreamRecorder {
                 // return は try の中なので、予約の解放は finally 節が行う
                 log.warn("空き容量がしきい値を下回っているため録画を始めません: channel={}, video={}, 空き={}GB, しきい値={}GB",
                         channel.getChannelName(), videoId, disk.usableBytes() / (1024L * 1024 * 1024), minFreeGb);
+                if (lowDiskAlerted.compareAndSet(false, true)) {
+                    try {
+                        discordNotifier.sendAdminAlert("空き容量が " + disk.usableBytes() / (1024L * 1024 * 1024)
+                                + "GB（しきい値 " + minFreeGb + "GB）を下回ったため、録画を始めていません。");
+                    } catch (RuntimeException e) {
+                        // 通知の失敗で録画の判断（false を返す）を変えない
+                        log.warn("空き容量の通知を送れませんでした", e);
+                    }
+                }
                 return false;
             }
+            lowDiskAlerted.set(false);
 
             Path outputDirectory = Path.of(monitorProperties.recording().directory(), channel.getYoutubeChannelId());
             try {

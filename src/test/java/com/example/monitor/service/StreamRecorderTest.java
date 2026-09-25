@@ -7,6 +7,7 @@ import com.example.monitor.config.MonitorProperties.RecordingProperties;
 import com.example.monitor.config.MonitorProperties.YouTubeProperties;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
+import com.example.monitor.notification.DiscordNotifier;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import org.junit.jupiter.api.BeforeEach;
@@ -94,7 +95,8 @@ class StreamRecorderTest {
                 new RecordingProperties(recordingDirectory.toString(), 1080),
                 new MonitorProperties.AdminProperties("admin", ""));
         return new StreamRecorder(
-                properties, processLauncher, recordingHistoryService, recordingSalvager, activeVideoJobs);
+                properties, processLauncher, recordingHistoryService, recordingSalvager, activeVideoJobs,
+                mock(DiscordNotifier.class));
     }
 
     private StreamRecorder newRecorder(Path recordingDirectory, int maxHeight) {
@@ -105,7 +107,8 @@ class StreamRecorderTest {
                 new RecordingProperties(recordingDirectory.toString(), maxHeight),
                 new MonitorProperties.AdminProperties("admin", ""));
         return new StreamRecorder(
-                properties, processLauncher, recordingHistoryService, recordingSalvager, new ActiveVideoJobs());
+                properties, processLauncher, recordingHistoryService, recordingSalvager, new ActiveVideoJobs(),
+                mock(DiscordNotifier.class));
     }
 
     @Nested

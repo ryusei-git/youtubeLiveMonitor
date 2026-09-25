@@ -129,6 +129,24 @@ public class DiscordNotifier {
     }
 
     /**
+     * 管理者向けの知らせを、全体向けの Webhook（{@code DISCORD_WEBHOOK_URL}）へ送る。
+     *
+     * <p>起動時に作った {@link WebhookClient} ではなく {@link #post} で送るのは、
+     * 利用者ごとの送信と同じく応答待ちの上限（{@link #SEND_TIMEOUT}）が効くため。
+     * 呼び出し元は録画の開始判断の途中にあり、Discord の応答待ちで巡回を止めたくない。
+     *
+     * @param message 知らせる本文
+     * @throws IllegalStateException Webhook URL が未設定・不正な場合や、送信できなかった場合
+     */
+    public void sendAdminAlert(String message) {
+        post(monitorProperties.discord().webhookUrl(), new WebhookEmbedBuilder()
+                .setColor(EMBED_COLOR)
+                .setTitle(new WebhookEmbed.EmbedTitle("管理者への通知", null))
+                .setDescription(message)
+                .build());
+    }
+
+    /**
      * 配信開始の通知の本文を組み立てる。全体向けと利用者向けで同じものを使う。
      *
      * @param liveStream 通知対象の配信情報
