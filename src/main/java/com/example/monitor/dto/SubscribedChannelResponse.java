@@ -25,7 +25,6 @@ import java.time.LocalDateTime;
  * @param youtubeChannelId    プラットフォームが発行するチャンネル識別子
  * @param currentlyLive       最終観測時点で配信中か
  * @param currentLiveVideoId  配信中の動画 ID。配信していなければ {@code null}
- * @param currentWatchUrl     配信中の視聴 URL。配信していなければ {@code null}
  * @param lastCheckedAt       最後に巡回した時刻
  * @param detectionFailing    配信状態を判定できていない状態が続いているか。
  *                            <b>「配信していない」と区別して画面に出すために要る</b>
@@ -45,7 +44,6 @@ public record SubscribedChannelResponse(
         String youtubeChannelId,
         boolean currentlyLive,
         String currentLiveVideoId,
-        String currentWatchUrl,
         LocalDateTime lastCheckedAt,
         boolean detectionFailing,
         LocalDateTime subscribedAt,
@@ -87,7 +85,6 @@ public record SubscribedChannelResponse(
                 channel.getYoutubeChannelId(),
                 channel.isCurrentlyLive(),
                 channel.getCurrentLiveVideoId(),
-                channel.getCurrentWatchUrl(),
                 channel.getLastCheckedAt(),
                 channel.getConsecutiveDetectionFailures() > 0,
                 subscription.getSubscribedAt(),

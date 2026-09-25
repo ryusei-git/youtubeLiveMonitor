@@ -96,10 +96,6 @@ public class MonitoredChannel {
     /** 直近の監視サイクルで配信中と判定された動画 ID。配信中でなければ {@code null}。 */
     private String currentLiveVideoId;
 
-    /** Twitchのログイン名はIDから復元できないため、検知時の視聴先を保持する。 */
-    @Column(length = 2048)
-    private String currentWatchUrl;
-
     /**
      * 配信開始前の待機所として検知している予約枠の動画ID。予定が無ければ {@code null}。
      *
@@ -136,10 +132,6 @@ public class MonitoredChannel {
      */
     @Column(length = 64)
     private String channelLogin;
-
-    /** 通知や録画が行われなかった理由を、ログを掘る前に確認できるようにする。 */
-    @Column(length = 2048)
-    private String lastDecision;
 
 
     /** 直近にこのチャンネルを監視した時刻。この値が更新されていなければ監視ループが止まっている疑いがある。 */
