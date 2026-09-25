@@ -125,6 +125,23 @@ public class UserSubscription {
     @Column(length = 500)
     private String recordTitleKeywords;
 
+    /**
+     * この購読者へ、このチャンネルの配信開始を通知するか。
+     *
+     * <p>購読は「録画を見たい」「通知がほしい」「録画してほしい」を兼ねているため、
+     * 録画を見るためだけに購読したチャンネルの通知まで届いてしまう。うるさくなった利用者が
+     * Webhook ごと外すと本当に欲しい通知も失うので、購読とは別に通知の要否を持たせる。
+     * 既定は導入前の動き（購読していれば通知する）に合わせて {@code true}。
+     *
+     * <p>既に購読の行が存在する DB へ NOT NULL の boolean を足すと
+     * 「既存行に入れる値がない」で ALTER が失敗するため、DB 側の既定値を明示している
+     * （{@code docs/pitfalls.md} 参照。実際に発生した事故）。{@link Builder.Default} は、
+     * 無いと {@code builder()} が初期化式を無視して {@code false} で作るため。
+     */
+    @Builder.Default
+    @Column(nullable = false, columnDefinition = "boolean default true")
+    private boolean notifyEnabled = true;
+
     /** 開始時刻を自動設定する。JPA が INSERT 直前に呼び出す。 */
     @PrePersist
     void applySubscribedAtOnInsert() {
