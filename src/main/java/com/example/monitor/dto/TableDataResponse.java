@@ -16,6 +16,8 @@ import java.util.Map;
  * @param columnLabels      カラム名（DB 上の物理名） → 論理名（日本語）の対応。
  *                          対応表に無いカラムは物理名と同じ値になる（画面側が必ず表示文字列を得られるように）
  * @param primaryKeyColumn  主キーのカラム名。行の更新時にこの値で行を特定する。主キーがない表では {@code null}
+ * @param binaryColumns     バイナリの列の名前。セルには中身ではなく「（バイナリ n バイト）」の文字が入るため、
+ *                          画面はこの列を編集させない（サーバーも更新を断る）
  * @param rows              1 行を「カラム名 → 値」で表したもののリスト
  * @param totalElements     ページングを無視した全体の行数
  * @param page              現在のページ番号（0 始まり）
@@ -27,6 +29,7 @@ public record TableDataResponse(
         List<String> columns,
         Map<String, String> columnLabels,
         String primaryKeyColumn,
+        List<String> binaryColumns,
         List<Map<String, Object>> rows,
         long totalElements,
         int page,

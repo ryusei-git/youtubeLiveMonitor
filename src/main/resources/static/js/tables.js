@@ -46,7 +46,11 @@
                 for (const col of data.columns) {
                     const td = document.createElement("td");
                     showValue(td, row[col]);
-                    if (col !== data.primaryKeyColumn && inputEl("editMode").checked) {
+                    // バイナリの列のセルは中身ではなく「（バイナリ n バイト）」の文字なので編集させない
+                    // （保存すると入力した文字がそのまま BLOB に書き込まれて壊れる。サーバーも断る）
+                    const binary = data.binaryColumns.includes(col);
+                    if (binary) td.title = "バイナリの列は編集できません";
+                    if (col !== data.primaryKeyColumn && !binary && inputEl("editMode").checked) {
                         td.tabIndex = 0;
                         td.addEventListener("click", () => editCell(td, row, col, data.primaryKeyColumn));
                         td.addEventListener("keydown", (ev) => { if (ev.key === "Enter") editCell(td, row, col, data.primaryKeyColumn); });

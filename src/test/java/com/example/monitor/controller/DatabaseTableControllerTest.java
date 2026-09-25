@@ -53,7 +53,7 @@ class DatabaseTableControllerTest {
         @DisplayName("正常系：指定テーブルのデータをそのまま返す")
         void testMethod01() {
             TableDataResponse response = new TableDataResponse(
-                    "CHANNELS", "チャンネル", List.of("ID"), Map.of("ID", "ID"), "ID", List.of(), 0, 0, 50);
+                    "CHANNELS", "チャンネル", List.of("ID"), Map.of("ID", "ID"), "ID", List.of(), List.of(), 0, 0, 50);
             when(databaseTableService.getTableData("CHANNELS", 0, 50)).thenReturn(response);
 
             TableDataResponse result = controller.getTableData("CHANNELS", 0, 50);
