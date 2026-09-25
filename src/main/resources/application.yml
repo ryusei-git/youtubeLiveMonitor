@@ -31,6 +31,13 @@ spring:
       maximum-pool-size: 5
       minimum-idle: 1
 
+  # Jackson 3（Boot 4）は FAIL_ON_NULL_FOR_PRIMITIVES などの既定が Jackson 2 と違い、
+  # ChannelRegistrationRequest.recordEnabled などの primitive の boolean が JSON に無いと、
+  # 検証の 400 ではなく「予期しないエラー」の 500 になる（#320 で確認）。
+  # Boot が用意している「3.x の Jackson 2 と同じ既定にする」設定で、今の API の振る舞いを変えない
+  jackson:
+    use-jackson2-defaults: true
+
   jpa:
     hibernate:
       ddl-auto: update
