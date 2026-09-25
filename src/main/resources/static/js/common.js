@@ -28,6 +28,7 @@
  * @property {string} filePath 録画ディレクトリからの相対パス
  * @property {number|null} fileSizeBytes ファイルサイズ。録画中・失敗時は null
  * @property {number|null} durationSeconds 再生時間。未取得なら null
+ * @property {number} playCount 再生回数（全員の合計）
  * @property {string|null} thumbnailPath サムネイルの相対パス。未生成なら null
  * @property {"RECORDING"|"COMPLETED"|"PARTIAL"|"FAILED"} status 録画の状態
  * @property {string} startedAt 録画を開始した時刻（ISO形式）
@@ -645,7 +646,7 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null,
           <div class="cardTitle">${title}</div>
           <div class="muted">${channelLink(recording.channelName, recording.channelUrl)}</div>
           <div class="muted">${datetimeCell(recording.startedAt)} ・ ${status}`
-        + ` ・ ${formatFileSize(recording.fileSizeBytes)}</div>
+        + ` ・ ${formatFileSize(recording.fileSizeBytes)} ・ <span class="playCount">再生 ${Number(recording.playCount)} 回</span></div>
           <div class="cardActions">${playButton}${deletable ? '<button class="deleteBtn">削除</button>' : ""}</div>
         </div>
     `;

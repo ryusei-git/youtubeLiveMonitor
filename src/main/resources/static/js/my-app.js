@@ -25,6 +25,12 @@ let myDockRecording = null;
 let myDockWatchedSent = false;
 
 /**
+ * 読み込んだ録画の再生回数をもう数えたか。一時停止から戻したときの {@code play} で数え直さないため、
+ * 録画を読み込むたびに戻す（{@link myDockWatchedSent} と同じ考え方）。
+ */
+let myDockPlayCounted = false;
+
+/**
  * 再生を始めて視聴済みを付け終えたときに呼ぶ処理。再生画面が、自分のボタンの表示を合わせるために入れる。
  * 付けられなかったときは呼ばない（ボタンには保存された状態を出すため）。
  * @type {((recordingId: number) => void)|null}
@@ -47,6 +53,7 @@ function myDockLoad(rec) {
     if (myDockRecording?.id === rec.id) return;
     myDockRecording = rec;
     myDockWatchedSent = false;
+    myDockPlayCounted = false;
     const video = myDockVideo();
     // ファイル名に日本語や記号が入るため、パスとして安全な形に符号化する
     video.src = `/recordings/${encodeURI(rec.filePath)}`;
@@ -114,7 +121,13 @@ function myDockInit() {
     // 再生を始めた時点で「見た」とみなす（管理者の再生画面と同じ）。
     // 印が付かなくても再生には関係ないので、失敗しても画面にエラーは出さない
     video.addEventListener("play", () => {
-        if (!myDockRecording || myDockWatchedSent) return;
+        if (!myDockRecording) return;
+        // 回数が増えなくても再生には関係ないので、視聴済みの印と同じく失敗しても何も出さない
+        if (!myDockPlayCounted) {
+            myDockPlayCounted = true;
+            apiPost(`/api/my/recordings/${myDockRecording.id}/play`, {}).catch(() => {});
+        }
+        if (myDockWatchedSent) return;
         myDockWatchedSent = true;
         const id = myDockRecording.id;
         apiPut(`/api/my/recordings/${id}/watched`, { watched: true })

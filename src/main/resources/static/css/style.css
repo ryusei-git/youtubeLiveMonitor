@@ -589,6 +589,11 @@ button:disabled:hover {
     flex: 1;
 }
 
+/* カードの幅が狭いと「再生 3」と「回」の間で折れて読みにくいため、回数の表示だけはひとまとまりで折り返す */
+.videoCard .playCount {
+    white-space: nowrap;
+}
+
 /* タイトルは表と違い折り返してよい。ただし2行で打ち切り、カードの高さを揃える */
 .videoCard .cardTitle {
     font-size: 0.85rem;
