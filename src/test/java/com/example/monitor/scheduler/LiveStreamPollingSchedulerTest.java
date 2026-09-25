@@ -43,6 +43,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -606,17 +607,17 @@ class LiveStreamPollingSchedulerTest {
         }
 
         @Test
-        @DisplayName("正常系：巡回のたびに置き去りの録画履歴の補正を行う")
+        @DisplayName("正常系：巡回では置き去りの録画履歴の補正を行わない（ffmpeg を待って検知が止まらないように）")
         void testMethod16() {
             when(monitoredChannelRepository.findAll()).thenReturn(List.of());
 
             scheduler.pollAllChannels();
 
-            verify(recordingReconciler).reconcileOrphanedRecordings();
+            verifyNoInteractions(recordingReconciler);
         }
 
         @Test
-        @DisplayName("正常系：既に巡回中で見送られた場合は補正処理を呼ばない")
+        @DisplayName("正常系：既に巡回中で見送られた場合はチャンネルを読み出さない")
         void testMethod17() {
             AtomicBoolean inProgress =
                     (AtomicBoolean) ReflectionTestUtils.getField(scheduler, "pollingInProgress");
@@ -624,7 +625,7 @@ class LiveStreamPollingSchedulerTest {
 
             scheduler.pollAllChannels();
 
-            verify(recordingReconciler, never()).reconcileOrphanedRecordings();
+            verify(monitoredChannelRepository, never()).findAll();
         }
 
         @Test
@@ -863,7 +864,7 @@ class LiveStreamPollingSchedulerTest {
 
             assertThat(result).isTrue();
             verify(streamPlatform).detectLiveStreams(List.of("UCxxxxxxxx"));
-            verify(recordingReconciler).reconcileOrphanedRecordings();
+            verifyNoInteractions(recordingReconciler);
         }
 
         @Test

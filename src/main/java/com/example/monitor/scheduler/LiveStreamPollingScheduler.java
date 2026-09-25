@@ -10,7 +10,6 @@ import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.service.NotificationDispatcher;
 import com.example.monitor.service.NotificationHistoryService;
-import com.example.monitor.service.RecordingReconciler;
 import com.example.monitor.service.RecordingIntentResolver;
 import com.example.monitor.service.RecordingIntentResolver.RecordingIntent;
 import com.example.monitor.service.StreamRecorder;
@@ -41,7 +40,6 @@ import java.util.stream.Collectors;
  *
  * <h2>1 サイクルの流れ</h2>
  * <ol>
- *   <li>{@link RecordingReconciler} で、前回以前の起動中に置き去りになった録画履歴を補正する</li>
  *   <li>登録済みチャンネルを DB から読み出し、<b>プラットフォームごとに束ねる</b></li>
  *   <li>束ねた単位で {@link StreamPlatform#detectLiveStreams} を 1 回だけ呼び、配信中かどうか・
  *       タイトルを調べる。まとめて問い合わせられるプラットフォーム（Twitch は 1 リクエストで
@@ -64,6 +62,9 @@ import java.util.stream.Collectors;
  *   <li>{@link NotificationDispatcher} で通知し、結果を履歴に残す</li>
  *   <li>通知に成功した場合のみ「通知済みの動画 ID」を更新する</li>
  * </ol>
+ *
+ * <p>置き去りになった録画履歴の補正は巡回に含めない。{@code ffmpeg} を待つ間に配信検知が
+ * 止まるため、{@link com.example.monitor.service.RecordingReconciler} が別のスレッドで行う。
  *
  * <h2>失敗しても止まらない設計</h2>
  * 1 チャンネルの処理で例外が出ても捕まえて次のチャンネルへ進む。
@@ -106,7 +107,6 @@ public class LiveStreamPollingScheduler {
     private final NotificationHistoryService notificationHistoryService;
     private final StreamRecorder streamRecorder;
     private final RecordingIntentResolver recordingIntentResolver;
-    private final RecordingReconciler recordingReconciler;
     private final com.example.monitor.service.OnlineVideoService onlineVideoService;
     private final UserNotificationService userNotificationService;
 
@@ -168,8 +168,6 @@ public class LiveStreamPollingScheduler {
         }
 
         try {
-            recordingReconciler.reconcileOrphanedRecordings();
-
             List<MonitoredChannel> channels = monitoredChannelRepository.findAll();
             log.debug("監視サイクルを開始します: 対象={}件", channels.size());
 

@@ -239,8 +239,8 @@ yt-dlp はそれらをスキップして残りを最後までダウンロード�
 録画一覧から再生できないままになる）。
 
 `RecordingReconciler.reconcileOrphanedRecordings()` が `RECORDING` 行を完成ファイルの
-有無で完了・失敗に補正する。`LiveStreamPollingScheduler` の巡回サイクル（定期実行・
-「今すぐチェック」の両方が通る共通経路）から毎回呼ばれる。
+有無で完了・失敗に補正する。配信の巡回と同じ間隔で、巡回とは別の仮想スレッドから呼ばれる
+（巡回の中で呼ぶと `ffmpeg` の詰め替えを待つ間、全チャンネルの検知が止まるため。#252）。
 
 補正の対象外とする判定は **2 段階**。`StreamRecorder.isRecording()`（このアプリが追跡中か）
 だけでなく、`ProcessLauncher.isRunningWithCommandLineContaining()`（OS 上に yt-dlp が
