@@ -9,7 +9,7 @@ html { scrollbar-gutter: stable; }
     --text: #20212b;
     --text-muted: #626674;
     --border: #e4e5eb;
-    --border-strong: #b8bcc9;
+    --border-strong: #8a8e9b;
     --link: #5842b9;
     --navy-900: #23212d;
     --navy-800: #6246c8;
@@ -52,15 +52,15 @@ h2 { font-size: 16px; color: var(--text); border: 0; padding: 0; margin: 26px 0 
 .pageDescription { color: var(--text-muted); font-size: 13px; margin: 7px 0 28px; }
 button, input, select, textarea { font: inherit; border-radius: 8px; }
 input:not([type="checkbox"]):not([type="radio"]), select, textarea { min-height: 40px; border: 1px solid var(--border-strong); background: #fff; color: var(--text); padding: 8px 12px; max-width: 100%; }
-input::placeholder { color: #767a86; font-size: 12px; }
-button { min-height: 38px; background: #fff; border: 1px solid var(--border); color: var(--text); padding: 8px 14px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+input::placeholder { color: #6a6e7a; font-size: 12px; }
+button { min-height: 38px; background: #fff; border: 1px solid var(--border-strong); color: var(--text); padding: 8px 14px; font-weight: 600; white-space: nowrap; cursor: pointer; }
 button:hover { background: #f0edf9; border-color: #c0b4e6; color: #5035ad; }
 button[type="submit"], #checkNowBtn, .filterSave { background: var(--navy-800); border-color: var(--navy-800); color: #fff; }
 button[type="submit"]:hover, #checkNowBtn:hover { background: var(--navy-700); color: #fff; }
 button:disabled { opacity: .45; cursor: default; }
-:focus-visible { outline: 3px solid #a18ddd; outline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--navy-700); outline-offset: 2px; box-shadow: 0 0 0 4px #fff; }
 h1[tabindex="-1"]:focus { outline: none; box-shadow: none; }
-.deleteBtn, .removeBtn, #cleanupOrphanedBtn { background: #fff; color: var(--danger); border-color: #eddadd; }
+.deleteBtn, .removeBtn, #cleanupOrphanedBtn { background: #fff; color: var(--danger); border-color: #c17983; }
 .inline { gap: 10px; margin: 16px 0; flex-wrap: wrap; }
 #filterForm { padding: 16px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
 #filterForm input[type="search"] { flex: 1 1 240px; }
