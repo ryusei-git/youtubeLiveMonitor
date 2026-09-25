@@ -2,6 +2,9 @@ package com.example.monitor.controller;
 
 import com.example.monitor.exception.ChannelAlreadyRegisteredException;
 import com.example.monitor.exception.ChannelNotFoundException;
+import com.example.monitor.exception.DeviceDownloadInProgressException;
+import com.example.monitor.exception.DeviceDownloadNotFoundException;
+import com.example.monitor.exception.InsufficientDiskSpaceException;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.MonitoringInProgressException;
 import com.example.monitor.exception.RecordingInProgressException;
@@ -137,6 +140,41 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleLiveStreamDownloadRejected(
             LiveStreamDownloadRejectedException e) {
         return clientError(HttpStatus.BAD_REQUEST, e);
+    }
+
+    /**
+     * 空き容量が足りずにダウンロードを始めない場合を 503 Service Unavailable として返す。
+     *
+     * <p>サーバーの異常ではなく「今は受け付けられない」状態なので、スタックトレースは残さない。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(InsufficientDiskSpaceException.class)
+    public ResponseEntity<Map<String, String>> handleInsufficientDiskSpace(InsufficientDiskSpaceException e) {
+        return clientError(HttpStatus.SERVICE_UNAVAILABLE, e);
+    }
+
+    /**
+     * 同じ利用者が「端末に保存」を重ねて始めようとした場合を 409 Conflict として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(DeviceDownloadInProgressException.class)
+    public ResponseEntity<Map<String, String>> handleDeviceDownloadInProgress(DeviceDownloadInProgressException e) {
+        return clientError(HttpStatus.CONFLICT, e);
+    }
+
+    /**
+     * 見つからない（他人のものを含む）「端末に保存」の仕事の指定を 404 Not Found として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(DeviceDownloadNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleDeviceDownloadNotFound(DeviceDownloadNotFoundException e) {
+        return clientError(HttpStatus.NOT_FOUND, e);
     }
 
     /**

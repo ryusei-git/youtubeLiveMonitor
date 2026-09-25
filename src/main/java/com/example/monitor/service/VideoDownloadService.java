@@ -8,6 +8,7 @@ import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
+import com.example.monitor.exception.InsufficientDiskSpaceException;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.platform.StreamPlatform;
@@ -146,7 +147,8 @@ public class VideoDownloadService {
      * @throws LiveStreamDownloadRejectedException 配信中・配信開始前の URL の場合
      * @throws VideoAlreadyDownloadedException    同じ動画の録画履歴が既にある、
      *                                            または既に処理中の場合
-     * @throws IllegalStateException              空き容量がしきい値を下回る、保存先を作れない、
+     * @throws InsufficientDiskSpaceException     空き容量がしきい値を下回る場合（503）
+     * @throws IllegalStateException              保存先を作れない、
      *                                            {@code yt-dlp} を起動できない場合
      */
     public DownloadResponse startDownload(String rawUrl) {
@@ -155,10 +157,8 @@ public class VideoDownloadService {
         }
         // 利用者にも開いた口なので、満杯にして録画と H2 まで巻き込まないよう最初に断る。
         // 容量を読めなかったときは始める（「判定できなかった」を「満杯」と扱わない。StreamRecorder と同じ）
-        DiskSpaceUtils.Capacity disk = DiskSpaceUtils.read(Path.of(monitorProperties.recording().directory()));
-        if (minFreeGb > 0 && disk.error() == null && disk.usableBytes() != null
-                && disk.usableBytes() < minFreeGb * 1024L * 1024 * 1024) {
-            throw new IllegalStateException("空き容量が少ないため、ダウンロードを始められません");
+        if (DiskSpaceUtils.isBelow(Path.of(monitorProperties.recording().directory()), minFreeGb)) {
+            throw new InsufficientDiskSpaceException();
         }
         String url = rawUrl.trim();
 
@@ -266,7 +266,8 @@ public class VideoDownloadService {
 
         Process process;
         try {
-            process = processLauncher.launch(buildCommand(url, videoId, outputDirectory), YtDlpLogFile.of(videoId));
+            process = processLauncher.launch(buildCommand(url, videoId, outputDirectory, jsRuntime,
+                    monitorProperties.recording().maxHeight()), YtDlpLogFile.of(videoId));
         } catch (IOException e) {
             throw new IllegalStateException(
                     "yt-dlp を起動できませんでした（インストールされていないか、出力先のログファイルを作れない可能性があります）");
@@ -317,12 +318,18 @@ public class VideoDownloadService {
      * <p>{@code --no-progress} を付けるのは、進捗行が出力のほとんどを占め、ローテーションの無い
      * {@link YtDlpLogFile} のファイルが 1 本で数十 MB になるため（録画と同じ理由）。
      *
+     * <p>「端末に保存」（{@link DeviceDownloadService}）も同じコマンドで取得するため、状態を持たない
+     * static にしている。付けるオプションの理由はどちらも同じで、片方だけ直す事故を防ぐため。
+     *
      * @param url             ダウンロード対象の URL
      * @param videoId         動画 ID（出力ファイル名に使う）
      * @param outputDirectory 保存先ディレクトリ
+     * @param jsRuntime       {@code --js-runtimes} に渡すランタイム（空なら付けない）
+     * @param maxHeight       最大の高さ（{@link YtDlpFormatSelector#of(int)} に渡す）
      * @return {@code yt-dlp} 実行コマンド
      */
-    private List<String> buildCommand(String url, String videoId, Path outputDirectory) {
+    static List<String> buildCommand(String url, String videoId, Path outputDirectory,
+                                     String jsRuntime, int maxHeight) {
         String outputTemplate = outputDirectory.resolve(videoId + ".%(ext)s").toString();
         List<String> command = new ArrayList<>();
         command.add("yt-dlp");
@@ -332,7 +339,7 @@ public class VideoDownloadService {
                 "--no-progress",
                 "--no-playlist",
                 "--merge-output-format", "mp4",
-                "-f", YtDlpFormatSelector.of(monitorProperties.recording().maxHeight()),
+                "-f", YtDlpFormatSelector.of(maxHeight),
                 "-o", outputTemplate,
                 url));
         return command;
