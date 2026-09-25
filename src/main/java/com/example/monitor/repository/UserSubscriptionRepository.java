@@ -74,6 +74,18 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
     java.util.Optional<UserSubscription> findByUserAndChannel(AppUser user, MonitoredChannel channel);
 
     /**
+     * チャンネルごとの購読者数をまとめて数える。
+     *
+     * <p>管理者のチャンネル一覧に件数を添えるために使う（チャンネルを削除すると購読も連鎖で消えるため、
+     * 誰かが購読しているかを削除前に見分けられるようにする）。チャンネルごとに問い合わせると
+     * 登録数に比例してクエリが増えるため、1 回の GROUP BY でまとめて数える。
+     *
+     * @return 各要素が {@code [チャンネルの主キー(Long), 件数(Long)]} の配列。購読が 1 件も無いチャンネルは含まない
+     */
+    @Query("SELECT s.channel.id, COUNT(s) FROM UserSubscription s GROUP BY s.channel.id")
+    List<Object[]> countByChannel();
+
+    /**
      * 指定した利用者と指定したチャンネルの組み合わせの購読を削除する。
      *
      * <p><b>{@code user_subscriptions} テーブルの行を直接 DELETE するだけで、

@@ -31,6 +31,8 @@ import java.time.LocalDateTime;
  * @param createdAt           監視対象として登録した時刻
  * @param recordingCount      再生できる録画の件数（状態が {@code COMPLETED} と {@code PARTIAL} のもの）。
  *                            録画中・失敗は見られる録画ではないため数えない
+ * @param subscriberCount     このチャンネルを購読している利用者の数。削除すると購読も連鎖で消えるため、
+ *                            管理者が削除前に誰かが購読しているかを見分けられるよう返す
  * @param channelUrl          チャンネルページの URL。Twitch でログイン名をまだ取得できていない場合は {@code null}
  */
 public record MonitoredChannelResponse(
@@ -50,6 +52,7 @@ public record MonitoredChannelResponse(
         LocalDateTime lastDetectionSuccessAt,
         LocalDateTime createdAt,
         long recordingCount,
+        long subscriberCount,
         String channelUrl
 ) {
 
@@ -66,13 +69,25 @@ public record MonitoredChannelResponse(
     }
 
     /**
-     * エンティティと録画件数からレスポンスを組み立てる。
+     * エンティティと録画件数からレスポンスを組み立てる。購読者数は 0 とする。
      *
      * @param channel        変換元のエンティティ
      * @param recordingCount 再生できる録画の件数
      * @return 変換後のレスポンス
      */
     public static MonitoredChannelResponse from(MonitoredChannel channel, long recordingCount) {
+        return from(channel, recordingCount, 0L);
+    }
+
+    /**
+     * エンティティと録画件数・購読者数からレスポンスを組み立てる。
+     *
+     * @param channel         変換元のエンティティ
+     * @param recordingCount  再生できる録画の件数
+     * @param subscriberCount このチャンネルを購読している利用者の数
+     * @return 変換後のレスポンス
+     */
+    public static MonitoredChannelResponse from(MonitoredChannel channel, long recordingCount, long subscriberCount) {
         return new MonitoredChannelResponse(
                 channel.getId(),
                 channel.getPlatform(),
@@ -90,6 +105,7 @@ public record MonitoredChannelResponse(
                 channel.getLastDetectionSuccessAt(),
                 channel.getCreatedAt(),
                 recordingCount,
+                subscriberCount,
                 StreamLinkUtils.channelUrl(
                         channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin())
         );
