@@ -31,6 +31,8 @@ import java.time.LocalDateTime;
  * @param subscribedAt        購読した時刻
  * @param recordEnabled       この購読者が自動録画を希望しているか
  * @param recordTitleKeywords この購読者の絞り込みキーワード。未設定なら {@code null}
+ * @param notifyEnabled       この購読者が配信開始を自分の Webhook へ通知してほしいか。
+ *                            録画の希望と同じく購読者ごとの設定で、他の購読者の通知には影響しない
  * @param channelUrl          チャンネルページの URL。Twitch でログイン名をまだ取得できていない場合は {@code null}
  * @param channelIconUrl      チャンネルのアイコン URL。まだ読み取れていない場合は {@code null}
  * @param recordingCount      再生できる録画の件数（状態が {@code COMPLETED} と {@code PARTIAL} のもの）。
@@ -51,6 +53,7 @@ public record SubscribedChannelResponse(
         LocalDateTime subscribedAt,
         boolean recordEnabled,
         String recordTitleKeywords,
+        boolean notifyEnabled,
         String channelUrl,
         String channelIconUrl,
         long recordingCount,
@@ -106,6 +109,7 @@ public record SubscribedChannelResponse(
                 subscription.getSubscribedAt(),
                 subscription.isRecordEnabled(),
                 subscription.getRecordTitleKeywords(),
+                subscription.isNotifyEnabled(),
                 StreamLinkUtils.channelUrl(
                         channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
                 channel.getChannelIconUrl(),
