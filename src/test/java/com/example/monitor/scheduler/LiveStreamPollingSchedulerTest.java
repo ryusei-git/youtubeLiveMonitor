@@ -810,6 +810,7 @@ class LiveStreamPollingSchedulerTest {
         @DisplayName("正常系：配信中になったら配信予定の記録を消す（予定が現実になった）")
         void testMethod42() {
             MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setUpcomingVideoId("upcoming1");
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx",
                     LiveStreamDetection.live("newVideo", "配信タイトル", null, "https://www.youtube.com/watch?v=newVideo"));
@@ -825,6 +826,7 @@ class LiveStreamPollingSchedulerTest {
         @DisplayName("正常系：配信していないと判定した場合も配信予定の記録を消す（予定が消えた）")
         void testMethod43() {
             MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setUpcomingVideoId("upcoming1");
             when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
             detects("UCxxxxxxxx", LiveStreamDetection.notLive());
 

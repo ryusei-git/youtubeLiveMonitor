@@ -295,7 +295,9 @@ public class LiveStreamPollingScheduler {
                     monitoredChannelRepository.updateUpcoming(channel.getId(), detection.videoId(),
                             detection.title(), detection.scheduledStartTime()),
                     "配信予定の記録", channel.getId());
-        } else {
+        } else if (channel.getUpcomingVideoId() != null || channel.getUpcomingTitle() != null
+                || channel.getUpcomingScheduledStartTime() != null) {
+            // もともと空なら書き直さない（H2 は同じ値でも行を書き直すため）
             DatabaseUpdateVerifier.verify(
                     monitoredChannelRepository.clearUpcoming(channel.getId()),
                     "配信予定のクリア", channel.getId());
