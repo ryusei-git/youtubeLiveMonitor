@@ -13,6 +13,7 @@ import java.sql.Blob;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
@@ -203,6 +204,7 @@ public class DatabaseTableService {
      * 指定テーブルの内容をページ単位で取得する。
      *
      * <p>バイナリの列は中身ではなく大きさの文字で返す（{@link #BINARY_AS_LENGTH_ROW_MAPPER}）。
+     * 画面がその列を編集させないよう、どの列がバイナリかも添える（{@link #findBinaryColumns}）。
      *
      * @param requestedTableName 取得したいテーブル名（大文字小文字は区別しない）
      * @param page               ページ番号（0 始まり）
@@ -225,6 +227,7 @@ public class DatabaseTableService {
                 columnNames,
                 columnLabels(tableName, columnNames),
                 primaryKeyColumn,
+                findBinaryColumns(tableName),
                 rows,
                 totalRowCount == null ? 0 : totalRowCount,
                 page,
@@ -275,11 +278,14 @@ public class DatabaseTableService {
      * 画面から不要なフィールドが一緒に送られてきても失敗させないためで、
      * 主キーを守るのは行の同一性を壊さないため。
      *
+     * <p>バイナリの列（{@link #findBinaryColumns}）への更新は無視せず断る。受け取るのは文字列なので、
+     * 書き込むと入力した文字の UTF-8 がそのまま BLOB に入り、サムネイルの画像などが壊れる（#207）。
+     *
      * @param requestedTableName 更新対象のテーブル名
      * @param primaryKeyValue    更新する行の主キー値（文字列。数値型の主キーには自動変換される）
      * @param requestedChanges   「カラム名 → 新しい値」の対応
      * @throws IllegalArgumentException テーブルが存在しない、更新できる項目が 1 つもない、
-     *                                  または該当する行がない場合
+     *                                  バイナリの列を含む、または該当する行がない場合
      * @throws IllegalStateException    対象テーブルに主キーがない場合
      */
     public void updateRow(String requestedTableName, String primaryKeyValue, Map<String, Object> requestedChanges) {
@@ -290,6 +296,12 @@ public class DatabaseTableService {
         Map<String, Object> applicableChanges = filterUpdatableColumns(tableName, primaryKeyColumn, requestedChanges);
         if (applicableChanges.isEmpty()) {
             throw new IllegalArgumentException("更新できる項目がありません");
+        }
+        List<String> binaryColumns = findBinaryColumns(tableName);
+        for (String columnName : applicableChanges.keySet()) {
+            if (binaryColumns.contains(columnName)) {
+                throw new IllegalArgumentException("バイナリの列は編集できません: " + columnName);
+            }
         }
 
         String setClause = applicableChanges.keySet().stream()
@@ -366,6 +378,31 @@ public class DatabaseTableService {
             throw new IllegalStateException("カラム一覧の取得に失敗しました: " + tableName, e);
         }
         return columnNames;
+    }
+
+    /**
+     * バイナリの列（セルに「（バイナリ n バイト）」の文字を出す列）の名前を返す。
+     *
+     * <p>{@link #BINARY_AS_LENGTH_ROW_MAPPER} と同じく値の型で見分けるので、表示が「（バイナリ n バイト）」になる列と
+     * 一致する（UUID の列は入らない）。{@link ResultSetMetaData#getColumnClassName(int)} は {@code getObject} が返す値の
+     * 型なので、値が NULL の行や行の無い表でも分かる（セルの値で見ると、NULL のセルには文字を書き込めてしまう）。
+     * {@code WHERE 1 = 0} で行は読まない。
+     *
+     * @param tableName 対象テーブル名（実在確認済みのもの）
+     * @return バイナリの列の名前
+     */
+    private List<String> findBinaryColumns(String tableName) {
+        return jdbcTemplate.query("SELECT * FROM " + tableName + " WHERE 1 = 0", resultSet -> {
+            ResultSetMetaData metaData = resultSet.getMetaData();
+            List<String> binaryColumns = new ArrayList<>();
+            for (int index = 1; index <= metaData.getColumnCount(); index++) {
+                String className = metaData.getColumnClassName(index);
+                if (Blob.class.getName().equals(className) || byte[].class.getName().equals(className)) {
+                    binaryColumns.add(metaData.getColumnName(index));
+                }
+            }
+            return binaryColumns;
+        });
     }
 
     /**

@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -282,6 +283,9 @@ class DatabaseTableServiceTest {
             when(databaseMetaData.getColumns(eq(null), eq("PUBLIC"), eq("CHANNELS"), eq("ID")))
                     .thenReturn(pkTypeResultSet);
 
+            when(jdbcTemplate.query(eq("SELECT * FROM CHANNELS WHERE 1 = 0"),
+                    org.mockito.ArgumentMatchers.<ResultSetExtractor<List<String>>>any()))
+                    .thenReturn(List.of());
             when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
 
             databaseTableService.updateRow("CHANNELS", "1", Map.of("CHANNEL_NAME", "新しい名前"));
@@ -352,6 +356,9 @@ class DatabaseTableServiceTest {
             when(databaseMetaData.getColumns(eq(null), eq("PUBLIC"), eq("CHANNELS"), eq("ID")))
                     .thenReturn(pkTypeResultSet);
 
+            when(jdbcTemplate.query(eq("SELECT * FROM CHANNELS WHERE 1 = 0"),
+                    org.mockito.ArgumentMatchers.<ResultSetExtractor<List<String>>>any()))
+                    .thenReturn(List.of());
             when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(0);
 
             assertThatThrownBy(() -> databaseTableService.updateRow("CHANNELS", "999", Map.of("CHANNEL_NAME", "x")))
