@@ -24,8 +24,10 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p><b>権限はリクエストで選べない。</b>この経路で作られるのは常に一般利用者で、
  * 管理者を増やすことはできない。
+ *
+ * <h2>{@code @Profile("!cli")} を付けている理由</h2>
+ * 依存する InvitationService が {@code !cli} のため、こちらにも付ける。
  */
-/** 依存する InvitationService が {@code !cli} のため、こちらにも付ける。 */
 @Profile("!cli")
 @RestController
 @RequestMapping("/api/registration")

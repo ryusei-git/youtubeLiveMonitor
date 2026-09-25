@@ -21,9 +21,11 @@ import java.util.List;
  *
  * <p>パスを {@code /api/admin/} 配下に置いているのは、{@code SecurityConfig} で
  * 管理者限定にしていることをパスからも読み取れるようにするため。
+ *
+ * <h2>{@code @Profile("!cli")} を付けている理由</h2>
+ * 依存する InvitationService が {@code !cli} のため、こちらにも付ける
+ * （付けないと Bean 解決に失敗して CLI が起動できない）。
  */
-/** 依存する InvitationService が {@code !cli} のため、こちらにも付ける
- * （付けないと Bean 解決に失敗して CLI が起動できない）。 */
 @Profile("!cli")
 @RestController
 @RequestMapping("/api/admin/invitations")
