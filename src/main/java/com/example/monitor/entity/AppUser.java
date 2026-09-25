@@ -1,5 +1,6 @@
 package com.example.monitor.entity;
 
+import com.example.monitor.util.DiscordWebhookUrl;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -76,6 +77,19 @@ public class AppUser {
 
     /** 最後にログインに成功した時刻。まだ一度もログインしていなければ {@code null}。 */
     private LocalDateTime lastLoginAt;
+
+    /**
+     * 配信開始の通知を送る Discord の Webhook の URL。登録していなければ {@code null}（送らない）。
+     *
+     * <p>通知を使いたい人だけが登録する（#149）。{@code NULL} を許す列なので、利用者が既にいる DB へ
+     * {@code ddl-auto: update} で足しても ALTER は失敗しない（NOT NULL の列を足すときの落とし穴に当たらない）。
+     *
+     * <p><b>秘密情報。</b>URL を知っていれば誰でもその Discord のチャンネルへ書き込めるため、
+     * API では登録済みかどうかしか返さず、ログにも監査ログにも出さない。
+     * 受け付けるのは Discord の Webhook の形だけ（{@link DiscordWebhookUrl}）。
+     */
+    @Column(length = DiscordWebhookUrl.MAX_LENGTH)
+    private String discordWebhookUrl;
 
     /** 作成時刻を自動設定する。JPA が INSERT 直前に呼び出す。 */
     @PrePersist

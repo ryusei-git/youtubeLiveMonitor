@@ -14,6 +14,7 @@ import com.example.monitor.service.RecordingReconciler;
 import com.example.monitor.service.RecordingIntentResolver;
 import com.example.monitor.service.RecordingIntentResolver.RecordingIntent;
 import com.example.monitor.service.StreamRecorder;
+import com.example.monitor.service.UserNotificationService;
 import com.example.monitor.util.ChannelLogContext;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -51,6 +54,8 @@ import java.util.stream.Collectors;
  *   <li>配信中であれば、録画が有効かつタイトルフィルター（{@link MonitoredChannel#matchesFilter}）
  *       に一致するチャンネルは {@link StreamRecorder} で録画を開始する
  *       （通知の成否とは無関係、こちらも動画IDが変わるたびに1回だけ）</li>
+ *   <li>配信中であれば、購読していて Webhook を登録している利用者へ、まだ送っていなければ
+ *       配信開始を送る（{@link UserNotificationService}。以降の全体向けの判定とは独立）</li>
  *   <li>配信中で、かつ前回通知した動画と異なれば「新しい配信」と判断する</li>
  *   <li><b>タイトルフィルターに一致しない配信はここで打ち切る</b>（通知しない）。
  *       詳細取得より前に判定するので、対象外の配信でクォータを消費しない</li>
@@ -103,6 +108,7 @@ public class LiveStreamPollingScheduler {
     private final RecordingIntentResolver recordingIntentResolver;
     private final RecordingReconciler recordingReconciler;
     private final com.example.monitor.service.OnlineVideoService onlineVideoService;
+    private final UserNotificationService userNotificationService;
 
     /**
      * 巡回が実行中かどうか。定期実行と手動実行が同時に走るのを防ぐために使う。
@@ -347,6 +353,13 @@ public class LiveStreamPollingScheduler {
         // 録画は通知の成否と無関係に、動画IDが変わるたびに1回だけ試みる
         maybeStartRecording(channel, detection);
 
+        Supplier<Optional<LiveStreamDetails>> details = fetchDetailsOnce(platform, channel, videoId);
+
+        // 利用者ごとの通知は、全体向けの「通知済み」・失敗回数・フィルターとは切り離して判定する
+        // （UserNotificationService 参照）。下の全体向けの打ち切り（return）より前に置くのはそのため。
+        // 例外は投げないので、全体向けの通知は必ずこの後に続く
+        userNotificationService.notifySubscribers(channel, videoId, details);
+
         if (Objects.equals(videoId, channel.getLastNotifiedVideoId())) {
             log.debug("配信中ですが通知済みのためスキップします: name={}, video={}",
                     channel.getChannelName(), videoId);
@@ -365,7 +378,7 @@ public class LiveStreamPollingScheduler {
 
         log.info("新しい配信を検知しました: name={}, video={}", channel.getChannelName(), videoId);
 
-        Optional<LiveStreamDetails> liveStream = platform.fetchDetails(channel.getYoutubeChannelId(), videoId);
+        Optional<LiveStreamDetails> liveStream = details.get();
         if (liveStream.isEmpty()) {
             // 詳細が取れないと通知本文を作れない。これも失敗として数え、際限なく試行しないようにする
             log.warn("配信の詳細情報を取得できなかったため、今回の通知を見送ります: video={}", videoId);
@@ -394,6 +407,30 @@ public class LiveStreamPollingScheduler {
             log.error("通知に{}回失敗したため、この配信への再送信を諦めます: name={}, video={}",
                     MAX_NOTIFICATION_ATTEMPTS, channel.getChannelName(), videoId);
         }
+    }
+
+    /**
+     * 配信の詳細を、最初に必要になったときに 1 回だけ取得する入れ物を作る。
+     *
+     * <p>詳細は利用者ごとの通知と全体向けの通知の両方が使う。YouTube では取得のたびにクォータを
+     * 1 消費するため、同じ巡回で 2 回取らない。<b>必要になるまで取らない</b>のは、どちらも送らない巡回
+     * （通知済み・フィルター対象外など）でクォータを使わないため（全体向けの「フィルターの判定は
+     * 詳細取得より前」の順序もこれで保たれる）。
+     *
+     * @param platform このチャンネルを担当するプラットフォーム実装
+     * @param channel  対象チャンネル
+     * @param videoId  配信の動画 ID
+     * @return 取り出すたびに同じ結果を返す入れ物
+     */
+    private static Supplier<Optional<LiveStreamDetails>> fetchDetailsOnce(
+            StreamPlatform platform, MonitoredChannel channel, String videoId) {
+        AtomicReference<Optional<LiveStreamDetails>> fetched = new AtomicReference<>();
+        return () -> {
+            if (fetched.get() == null) {
+                fetched.set(platform.fetchDetails(channel.getYoutubeChannelId(), videoId));
+            }
+            return fetched.get();
+        };
     }
 
     /**
