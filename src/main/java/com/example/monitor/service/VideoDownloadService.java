@@ -18,6 +18,7 @@ import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.ChannelLogContext;
+import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.RequestContext;
 import com.example.monitor.util.YtDlpFormatSelector;
@@ -107,6 +108,16 @@ public class VideoDownloadService {
     private String jsRuntime = "";
 
     /**
+     * ダウンロードを始めるのに必要な空き容量（GB）。自動録画（{@link StreamRecorder}）と同じ設定を使う。
+     * 録画と手動ダウンロードは同じボリュームに書くため、片方だけ確かめても満杯は防げない。
+     *
+     * <p>初期値を 0（確認しない）にしているのは、Spring を通さずに組み立てるテストが、
+     * 実行した機械の空き容量に左右されないようにするため（{@link StreamRecorder} と同じ）。
+     */
+    @Value("${monitor.recording.min-free-gb:20}")
+    private long minFreeGb = 0;
+
+    /**
      * ダウンロード中の動画 ID の予約。同じ動画を二重にダウンロードしないために使う。
      *
      * <p>DB の履歴（{@link RecordingRepository#existsByVideoId}）だけでは足りない。
@@ -135,11 +146,19 @@ public class VideoDownloadService {
      * @throws LiveStreamDownloadRejectedException 配信中・配信開始前の URL の場合
      * @throws VideoAlreadyDownloadedException    同じ動画の録画履歴が既にある、
      *                                            または既に処理中の場合
-     * @throws IllegalStateException              保存先を作れない、{@code yt-dlp} を起動できない場合
+     * @throws IllegalStateException              空き容量がしきい値を下回る、保存先を作れない、
+     *                                            {@code yt-dlp} を起動できない場合
      */
     public DownloadResponse startDownload(String rawUrl) {
         if (rawUrl == null || rawUrl.isBlank()) {
             throw new IllegalArgumentException("動画のURLを入力してください");
+        }
+        // 利用者にも開いた口なので、満杯にして録画と H2 まで巻き込まないよう最初に断る。
+        // 容量を読めなかったときは始める（「判定できなかった」を「満杯」と扱わない。StreamRecorder と同じ）
+        DiskSpaceUtils.Capacity disk = DiskSpaceUtils.read(Path.of(monitorProperties.recording().directory()));
+        if (minFreeGb > 0 && disk.error() == null && disk.usableBytes() != null
+                && disk.usableBytes() < minFreeGb * 1024L * 1024 * 1024) {
+            throw new IllegalStateException("空き容量が少ないため、ダウンロードを始められません");
         }
         String url = rawUrl.trim();
 
