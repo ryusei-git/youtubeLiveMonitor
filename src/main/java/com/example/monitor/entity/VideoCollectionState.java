@@ -6,7 +6,11 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import java.time.Instant;
 
-/** 初回収集の境界を永続化し、再起動直前に公開された動画も次回の取得で拾う。 */
+/**
+ * チャンネルごとの動画収集の状態（収集を始めた時刻・最後に確認・成功した時刻・失敗中か）。
+ *
+ * <p>初回収集の境界を永続化し、再起動直前に公開された動画も次回の取得で拾う。
+ */
 @Entity @Table(name = "video_collection_states")
 @Getter @Setter @NoArgsConstructor
 public class VideoCollectionState {

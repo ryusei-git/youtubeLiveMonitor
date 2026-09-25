@@ -3,7 +3,11 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDate;
 
-/** 再起動しても収集用の上限をリセットせず、通知に使うクォータを残す。 */
+/**
+ * 動画収集が 1 日に使った YouTube Data API の回数。
+ *
+ * <p>再起動しても収集用の上限をリセットせず、通知に使うクォータを残す。
+ */
 @Entity @Table(name = "video_collection_quota") @Getter @Setter @NoArgsConstructor
 public class VideoCollectionQuota {
     @Id private String id;

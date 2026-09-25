@@ -5,7 +5,11 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
 
-/** 一覧取得で画像本体まで読み込まないよう、表示用メタデータと分離する。 */
+/**
+ * 外部動画 1 件のサムネイル画像の本体。
+ *
+ * <p>一覧取得で画像本体まで読み込まないよう、表示用メタデータと分離する。
+ */
 @Entity @Table(name = "video_thumbnails")
 @Getter @Setter @NoArgsConstructor
 public class VideoThumbnail {
