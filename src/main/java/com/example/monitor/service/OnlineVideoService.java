@@ -16,7 +16,12 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Objects;
 
-/** 収集とライブ検知が同時に同じ動画を見つけても、URLを一件だけ保存する。 */
+/**
+ * 視聴できる動画・配信の一覧（{@code OnlineVideo}）を、収集と巡回の両方から記録し、画面向けの形に変える。
+ *
+ * <p>2 つの経路が同じ動画を同時に見つけても 1 件にまとめるため、登録を {@code synchronized} で直列にしている
+ * （収集とライブ検知が同時に同じ動画を見つけても、URLを一件だけ保存する）。
+ */
 @Service @RequiredArgsConstructor
 public class OnlineVideoService {
     /** 配信中で、アプリ起動後の巡回で観測できている。 */
@@ -30,11 +35,26 @@ public class OnlineVideoService {
     private final UptimeTracker uptimeTracker;
     private final VideoCollectionTracker tracker;
 
+    /**
+     * アプリの起動時刻を返す。
+     *
+     * <p>配信中の印は前回の起動中に付いたまま残っていることがあるため、この時刻より後に観測したものだけを
+     * 「確かめた配信中」として扱う（画面の状態と、一覧の配信中の絞り込みの両方で使う）。
+     *
+     * @return アプリの起動時刻
+     */
     public Instant startedAt() {
         return uptimeTracker.getStartedAt().atZone(ZoneId.systemDefault()).toInstant();
     }
 
-    /** リポジトリのコミットまでロックを持ち、別の収集経路との新規登録競合を防ぐ。 */
+    /**
+     * 収集で見つけた動画を記録する。
+     *
+     * <p>リポジトリのコミットまでロックを持ち、別の収集経路との新規登録競合を防ぐ。
+     *
+     * @param channel   動画のチャンネル
+     * @param candidate 外部サービスから取ってきた動画。未登録で収集開始の境界より前に公開されたものは記録しない
+     */
     public synchronized void capture(MonitoredChannel channel, OnlineVideoCandidate candidate) {
         var existing = repository.findById(candidate.key());
         if (existing.isEmpty() && candidate.publishedAt().isBefore(tracker.collectingSince(channel))) {
@@ -53,7 +73,14 @@ public class OnlineVideoService {
         repository.save(video);
     }
 
-    /** 通知フィルターや録画設定に関係なく、判定に成功した視聴先を残す。 */
+    /**
+     * 巡回の検知結果を記録する。
+     *
+     * <p>通知フィルターや録画設定に関係なく、判定に成功した視聴先を残す。
+     *
+     * @param channel   巡回したチャンネル
+     * @param detection 検知結果。判定に失敗していれば何もしない（配信中の印を外さない）
+     */
     public synchronized void observe(MonitoredChannel channel, LiveStreamDetection detection) {
         if (detection.isDetectionFailed()) {
             return;
@@ -100,6 +127,14 @@ public class OnlineVideoService {
         video.setThumbnailUrl(thumbnailUrl);
     }
 
+    /**
+     * 動画を画面へ返す形に変える。
+     *
+     * <p>エンティティを API に直接返さず、状態・再生できるか・視聴 URL をここで決めて、画面に判定を持たせない。
+     *
+     * @param video 動画。チャンネルを読み込めること
+     * @return 画面へ返す形
+     */
     public OnlineVideoResponse response(OnlineVideo video) {
         var channel = video.getChannel();
         String state = stateOf(video);
