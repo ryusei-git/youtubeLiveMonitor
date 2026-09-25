@@ -118,12 +118,12 @@ class SecurityConfigTest {
         }
 
         @Test
-        @DisplayName("正常系：USER権限でログインすると/my-channels.htmlへ遷移する（/index.htmlも/channels.htmlもADMIN専用のため）")
+        @DisplayName("正常系：USER権限でログインすると/myへ遷移する（/index.htmlも/channels.htmlもADMIN専用のため）")
         void testMethod02() throws Exception {
             mockMvc.perform(SecurityMockMvcRequestBuilders.formLogin("/api/auth/login")
                             .user(NORMAL_USERNAME).password(NORMAL_PASSWORD))
                     .andExpect(status().is3xxRedirection())
-                    .andExpect(header().string("Location", "/my-channels.html"));
+                    .andExpect(header().string("Location", "/my"));
         }
 
         @Test
@@ -207,7 +207,7 @@ class SecurityConfigTest {
         @Test
         @DisplayName("正常系：USER権限は自分の購読画面にはアクセスできる")
         void testMethod03() throws Exception {
-            mockMvc.perform(get("/my-channels.html")
+            mockMvc.perform(get("/my/channels")
                             .with(SecurityMockMvcRequestPostProcessors.user(NORMAL_USERNAME).roles("USER")))
                     .andExpect(status().isOk());
         }

@@ -22,7 +22,7 @@ class LoginReturnPathTest {
         @Test
         @DisplayName("正常系：利用者の画面は利用者でも管理者でもそのまま返す")
         void testMethod01() {
-            for (String page : List.of("/videos.html", "/my-channels.html", "/my-recordings.html", "/player.html")) {
+            for (String page : List.of("/videos.html", "/my-channels.html", "/my-recordings.html")) {
                 assertThat(LoginReturnPath.validate(page, false)).as("利用者：%s", page).isEqualTo(page);
                 assertThat(LoginReturnPath.validate(page, true)).as("管理者：%s", page).isEqualTo(page);
             }
@@ -33,6 +33,7 @@ class LoginReturnPathTest {
         void testMethod02() {
             assertThat(LoginReturnPath.validate("/tables.html", true)).isEqualTo("/tables.html");
             assertThat(LoginReturnPath.validate("/", true)).isEqualTo("/");
+            assertThat(LoginReturnPath.validate("/player.html", true)).isEqualTo("/player.html");
         }
 
         @Test
@@ -47,6 +48,7 @@ class LoginReturnPathTest {
         @DisplayName("異常系：利用者が管理者の画面を指定した場合はnullを返す")
         void testMethod04() {
             assertThat(LoginReturnPath.validate("/tables.html", false)).isNull();
+            assertThat(LoginReturnPath.validate("/player.html", false)).isNull();
         }
 
         @Test

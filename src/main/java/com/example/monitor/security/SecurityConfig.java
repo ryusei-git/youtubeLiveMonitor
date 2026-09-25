@@ -198,9 +198,6 @@ public class SecurityConfig {
                 .requestMatchers("/my-channels.html", "/my-recordings.html", "/api/my/**").authenticated()
                 // 利用者画面の 1 枚のページ（#146）。/my/** は MyShellController が /my.html へ forward する
                 .requestMatchers("/my.html", "/my", "/my/**").authenticated()
-                // 再生画面は利用者も使う。見られる録画は /api/my/recordings/{id} と
-                // 録画ファイルの権限確認（購読しているぶんだけ）で絞られるので、画面自体は開いてよい
-                .requestMatchers("/player.html").authenticated()
                 // プラットフォームの選択肢はユーザー画面の登録フォームでも使う
                 .requestMatchers("/api/platforms/**").authenticated()
                 // 管理者向けの画面と API。以前は anyRequest().authenticated() に落ちていたため、
@@ -209,7 +206,9 @@ public class SecurityConfig {
                 .requestMatchers("/users.html", "/api/admin/users/**").hasRole("ADMIN")
                 .requestMatchers("/channels.html", "/api/channels/**").hasRole("ADMIN")
                 .requestMatchers("/notifications.html", "/api/notifications/**").hasRole("ADMIN")
-                .requestMatchers("/recordings.html").hasRole("ADMIN")
+                // 再生画面は管理者だけ。画面が使う API（/api/recordings/**）が管理者専用で、利用者が開いても録画を読めない。
+                // 利用者は 1 枚のページの /my/watch/<ID> で再生する（#178。#147 で利用者にも開けていたのを戻した）
+                .requestMatchers("/recordings.html", "/player.html").hasRole("ADMIN")
                 .requestMatchers("/api/recordings/**", "/api/downloads/**").hasRole("ADMIN")
                 // 録画ファイルは「管理者は全部、一般利用者は購読しているチャンネルのぶんだけ」。
                 // 誰がどれを購読しているかを見ないと決まらないので、静的なルールでは表せない

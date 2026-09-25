@@ -6,13 +6,19 @@ window.addEventListener("popstate", () => { videoPage.restore(); videoPage.loadA
 startVisibleRefresh(() => videoPage.loadAll(false, false));
 videoPage.start();
 
-// 共有画面なので、サーバーが返す権限で共通メニューを選ぶ。
+// 管理者の動画一覧。一般利用者は 1 枚のページの動画・配信（/my/videos）へ移す（#178）。
+// サーバーで転送しないのは、同じ URL を管理者も使うため。絞り込みは /my/videos も同じ名前で URL から読むので引き継ぐ。
 (async () => {
     try {
         const viewer = await apiGet("/api/videos/viewer");
-        renderNavigationForViewer(viewer.admin);
+        if (!viewer.admin) {
+            location.replace("/my/videos" + location.search);
+            return;
+        }
+        renderNavigationForViewer(true);
     } catch {
-        // 判定できなかったときは、権限の少ない利用者用のメニューを出す。一覧本体のエラー表示を優先する。
+        // 判定できなかったときは移さず（管理者を利用者の画面へ送らないため）、権限の少ない利用者用のメニューを出す。
+        // 一覧本体のエラー表示を優先する。
         renderNavigationForViewer(false);
     }
 })();
