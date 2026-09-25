@@ -1,0 +1,50 @@
+# YouTube Live Monitor の systemd ユーザーユニット（#242）
+#
+# OS の再起動・JVM の異常終了（OOM を含む）の後に、人が気付いて手で起動するまで監視・通知・録画が
+# 止まっていたので、systemd に起こさせる。導入・戻し方は README.md「systemd で自動起動する」。
+# 起動・停止はこれまでどおり bin/service.sh で行う（このユニットがあれば systemctl --user を呼ぶ）。
+#
+# パスは %h/youtubeLiveMonitor（ホームの下のリポジトリ）を前提にしている。別の場所に置いたなら
+# WorkingDirectory と ExecStart を書き換える（bin/service.sh は WorkingDirectory が自分の場所と
+# 一致するときだけこのユニットを使う）。
+
+[Unit]
+Description=YouTube Live Monitor
+# network-online.target を待たない。ユーザーユニットからはシステム側のターゲットが見えず、待っても効かない。
+# 起動直後にネットワークがまだ無くても、巡回は次の周期でやり直すので困らない
+# 起動直後に落ち続ける（設定の誤り・壊れた jar）ときに、10 秒ごとに永久に起こし直さないための上限。
+# 5 分に 5 回落ちたら諦めて failed のまま残す（直したら bin/service.sh start か rollback で起動する）
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/youtubeLiveMonitor
+# bin/service.sh run は jar の用意・ファイル権限（umask 077、#241）・ログの退避をしてから exec で java に
+# 置き換わる。手動起動と同じ処理を通すため、java をここに直接書かない（UMask= を書かないのも同じ理由）
+ExecStart=%h/youtubeLiveMonitor/bin/service.sh run
+# yt-dlp は PATH から探す（StreamRecorder）。pip --user で入れた ~/.local/bin は、ログインしていない
+# ときの systemd --user の PATH に入っているとは限らないので明示する
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# 【KillMode=process は外さないこと】
+# 既定の control-group は、stop・restart のときにユニットの cgroup の全プロセスへ SIGTERM を送る。
+# 録画の yt-dlp（と結合の ffmpeg）は java の子なので同じ cgroup にいて、再起動のたびに録画が途中で
+# 切れる。#152・#153 でわざわざ「JVM を止めても yt-dlp は最後まで録る」ようにしたのが失われる
+# （docs/pitfalls.md「外部プロセスの出力を JVM へのパイプにすると、再起動で yt-dlp が止まる」）。
+# process は java（MainPID）にだけ送る。残った yt-dlp は起動し直した java の RecordingReconciler が
+# 完成ファイルの有無で記録を補正する（docs/pitfalls.md「録画中にアプリを再起動すると…」）。
+# mixed も使えない（SIGTERM は java だけでも、止まった後の SIGKILL が cgroup 全体に届く）。
+# 起動し直すときに systemd が「Found left-over process」と警告するのは、この残った yt-dlp のことで、異常ではない。
+KillMode=process
+# bin/service.sh の STOP_TIMEOUT と同じ。過ぎたら java にだけ SIGKILL を送る
+TimeoutStopSec=30
+# SIGTERM で止めた java は 143 で終わる。これを失敗と数えると stop のたびに failed が残る
+SuccessExitStatus=143
+# kill -9・OOM（-XX:+ExitOnOutOfMemoryError で落ちる）で起こし直す。stop で止めたときは起こさない
+Restart=on-failure
+RestartSec=10
+
+[Install]
+# enable すると、loginctl enable-linger と合わせて、ログインしなくても OS の起動時に立ち上がる
+WantedBy=default.target
