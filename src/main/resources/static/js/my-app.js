@@ -1011,6 +1011,106 @@ const myAccountSettingsView = {
     },
 };
 
+/** 端末に保存の仕事の見に行きを止める関数。見に行っていない間は null。 */
+/** @type {(() => void)|null} */
+let myDownloadStopPolling = null;
+
+/**
+ * 動画ダウンロード（#452。API は #450・#451）。URL を入れて、保存先をサービスか自分の端末から選ぶ。
+ *
+ * 端末に保存はサーバーが一時的に取得してから渡すため、受け付けた後は 5 秒ごとに仕事の状態を見に行く。
+ * 取得は数分かかることがあり、終わったと知らせる手段がほかに無いため。画面を離れたら見に行くのをやめる
+ * （離れた画面の表示を書き換えても見えず、通信だけが残る）。終わった・失敗した・見に行けなかったときもやめる
+ * （仕事の状態はメモリにしか無く、サーバーが再起動すると 404 が続くため）。
+ * @type {MyView}
+ */
+const myDownloadView = {
+    title: "動画ダウンロード",
+    nav: "/my/download",
+    render(root) {
+        root.innerHTML = `<h1>動画ダウンロード</h1>
+            <p class="pageDescription">YouTube・Twitch の動画の URL を入れて、保存先を選んでください。配信中・配信前の URL はダウンロードできません（配信は自動録画を使ってください）。</p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <form id="downloadForm">
+              <p><label>動画の URL<br><input type="url" id="downloadUrl" required size="60"></label></p>
+              <fieldset>
+                <legend>保存先</legend>
+                <label><input type="radio" name="destination" value="service" checked> サービスに保存（アーカイブに追加され、全員が見られます）</label><br>
+                <label><input type="radio" name="destination" value="device"> 自分の端末に保存（サービスには残りません。24 時間以内に受け取ってください）</label>
+              </fieldset>
+              <p><button type="submit">ダウンロードを始める</button></p>
+            </form>
+            <p id="downloadStatus" role="status"></p>`;
+        const form = formEl("downloadForm");
+        const url = inputEl("downloadUrl");
+        const status = el("downloadStatus");
+        const button = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
+
+        /** @param {string} jobId */
+        const poll = (jobId) => {
+            const load = async () => {
+                try {
+                    const job = await apiGet(`/api/my/downloads/device/${encodeURIComponent(jobId)}`);
+                    if (!status.isConnected) return;
+                    if (job.status === "READY") {
+                        myDownloadStopPolling?.();
+                        status.innerHTML = `受け取れます。<a href="/api/my/downloads/device/${escapeHtml(encodeURIComponent(jobId))}/file">端末に保存</a>`;
+                    } else if (job.status === "FAILED") {
+                        myDownloadStopPolling?.();
+                        status.textContent = "失敗しました";
+                    } else {
+                        status.textContent = "取得中…";
+                    }
+                } catch (e) {
+                    myDownloadStopPolling?.();
+                    if (status.isConnected) showError(errorMessage(e));
+                }
+            };
+            const timer = window.setInterval(load, 5_000);
+            myDownloadStopPolling = () => {
+                window.clearInterval(timer);
+                myDownloadStopPolling = null;
+            };
+        };
+
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const destination = /** @type {HTMLInputElement} */ (query("input[name=destination]:checked", form)).value;
+            button.disabled = true;
+            try {
+                if (destination === "service") {
+                    await apiPost("/api/my/downloads", { url: url.value });
+                    if (!form.isConnected) return;
+                    clearError();
+                    showToast("ダウンロードを始めました。終わるとアーカイブに出ます");
+                    status.innerHTML = 'ダウンロードを受け付けました。<a href="/my/archive">アーカイブを見る</a>';
+                    return;
+                }
+                const job = await apiPost("/api/my/downloads/device", { url: url.value });
+                if (!form.isConnected) return;
+                clearError();
+                // 前の仕事を見に行っていたら、新しい仕事に切り替える（サーバーが受け付けたのは新しい方だけ）
+                myDownloadStopPolling?.();
+                if (job.status === "READY" && job.fileUrl) {
+                    // 既にサービスにある録画。取り直さずに、その録画のファイルをそのまま保存させる
+                    status.innerHTML = `この動画はサービスに保存済みです。受け取れます。<a href="${escapeHtml(job.fileUrl)}" download>端末に保存</a>`;
+                    return;
+                }
+                status.textContent = "取得中…";
+                poll(job.jobId);
+            } catch (e) {
+                // 配信中の URL・同時に 2 件目（409）・空き容量不足（503）は、サーバーの文言をそのまま出す
+                if (form.isConnected) showError(errorMessage(e));
+            } finally {
+                button.disabled = false;
+            }
+        });
+    },
+    leave() {
+        myDownloadStopPolling?.();
+    },
+};
+
 /** @type {MyView} */
 const myNotFoundView = {
     title: "ページが見つかりません",
@@ -1032,6 +1132,7 @@ const myNotFoundView = {
 const myRoutes = [
     [/^\/my\/?$/, myTopView],
     [/^\/my\/videos\/?$/, myVideosView],
+    [/^\/my\/download\/?$/, myDownloadView],
     [/^\/my\/archive\/?$/, myArchiveView],
     [/^\/my\/watch\/(\d+)\/?$/, myWatchView],
     [/^\/my\/channels\/?$/, myChannelsView],
