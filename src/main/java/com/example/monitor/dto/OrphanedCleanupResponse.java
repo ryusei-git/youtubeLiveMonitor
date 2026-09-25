@@ -5,15 +5,15 @@ import java.util.List;
 /**
  * 孤立した録画ファイルを一括削除した結果。
  *
- * <p>対象は2種類（{@link com.example.monitor.service.RecordingFileService#deleteOrphanedRecordings()}
- * 参照）。{@code deletedFiles}・{@code freedBytes} はどちらの対象分も合算した値になる。
+ * <p>{@link com.example.monitor.service.OrphanedPreviewService#deleteConfirmed(String)} が返す。
+ * 削除はファイル単位で、削除候補の確認（プレビュー）のあとに状態が変わったファイルは消さずに見送る。
  *
- * @param deletedChannels 丸ごと削除した「削除済みチャンネル」のディレクトリ数
- * @param deletedFiles    削除したファイルの数（削除済みチャンネル分＋登録中チャンネルの孤立断片分）
+ * @param deletedChannels ファイルを 1 つ以上削除したディレクトリ（チャンネル ID）の数
+ * @param deletedFiles    削除したファイルの数
  * @param freedBytes      解放された容量（バイト）
- * @param skippedChannels 録画がまだ進行中のため削除を見送ったチャンネル ID の一覧。
- *                        チャンネルを削除しても {@code yt-dlp} は動き続けるため、
- *                        書き込み中のファイルを消さないよう対象から外したもの
+ * @param skippedChannels 削除を見送ったもの（ファイルの相対パスと理由）。録画中・確認後に状態が
+ *                        変わった・削除に失敗した、のいずれか。{@code yt-dlp} はチャンネルを削除しても
+ *                        動き続けるため、書き込み中のファイルを消さないよう対象から外す
  */
 public record OrphanedCleanupResponse(
         int deletedChannels,

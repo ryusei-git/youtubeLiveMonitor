@@ -397,13 +397,14 @@ Range リクエスト対応とパストラバーサル対策を最初から持�
 
 チャンネルを監視対象から削除しても、通知履歴・録画履歴は DB の連鎖削除で消えるが
 **録画ファイル本体はディスクに残る**（誤って消さないための設計）。これをまとめて片付けるのが
-`RecordingFileService.deleteOrphanedRecordings()`（`DELETE /api/recordings/orphaned`）。
+`OrphanedPreviewService`（`GET /api/recordings/orphaned/preview` で削除候補を確かめ、
+`DELETE /api/recordings/orphaned/confirmed` で確認したファイルだけを消す）。
 
-対象は「`recordings/` 配下のディレクトリ名が、登録中のどのチャンネル ID とも一致しないもの」。
-ただし **`ProcessLauncher.isRunningWithCommandLineContaining(チャンネルID)` で録画中の
-チャンネルは除外する**。チャンネルを削除しても yt-dlp は JVM とは独立に動き続けるため、
+対象は「録画履歴にどの動画 ID も残っていないファイル」。ただし
+**`ProcessLauncher.isRunningWithCommandLineContaining()` で、動画 ID とチャンネル ID の両方を見て
+録画中のものは除外する**。チャンネルを削除しても yt-dlp は JVM とは独立に動き続けるため、
 書き込み中のファイルを消すとプロセス側がエラーになったり中途半端なファイルが残る
-（yt-dlp のコマンドラインには出力先パスとしてチャンネル ID が含まれるので判定に使える）。
+（yt-dlp のコマンドラインには出力先パスとして動画 ID とチャンネル ID が含まれるので判定に使える）。
 
 ### エンティティを API に直接返さない
 

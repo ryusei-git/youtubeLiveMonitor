@@ -3,7 +3,6 @@ package com.example.monitor.service;
 import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.dto.DiskUsageResponse;
 import com.example.monitor.dto.DiskUsageResponse.ChannelDiskUsage;
-import com.example.monitor.dto.OrphanedCleanupResponse;
 import com.example.monitor.dto.RecordingResponse;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
@@ -18,7 +17,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,7 +44,6 @@ public class RecordingFileService {
     private final MonitorProperties monitorProperties;
     private final MonitoredChannelRepository monitoredChannelRepository;
     private final RecordingRepository recordingRepository;
-    private final ProcessLauncher processLauncher;
 
     /**
      * 録画ファイルを削除する。
@@ -108,8 +105,7 @@ public class RecordingFileService {
     /**
      * 複数のファイルを削除する。
      *
-     * <p>個々の削除に失敗しても中断せず、消せたものだけを数える
-     * （{@link #deleteDirectoryRecursively}と同じ考え方）。
+     * <p>個々の削除に失敗しても中断せず、消せたものだけを数える（一部が消せなくても、残りを消した方が利用者にとって有益なため）。
      *
      * @param files 削除対象のファイル
      * @return 削除できた件数
@@ -349,181 +345,6 @@ public class RecordingFileService {
     private static String directoryNameOf(String filePath) {
         int separatorIndex = filePath.indexOf('/');
         return separatorIndex < 0 ? "" : filePath.substring(0, separatorIndex);
-    }
-
-    /**
-     * 監視対象から削除済みのチャンネルの録画ファイルと、登録中チャンネルに残った
-     * 履歴の無い断片ファイルをまとめて削除する。
-     *
-     * <p>対象は2種類ある。
-     * <ul>
-     *   <li>削除済みチャンネルのディレクトリ丸ごと … チャンネルを削除すると通知履歴・録画履歴は
-     *       DB の連鎖削除で消えるが、録画ファイル本体はディスクに残る設計になっている
-     *       （消したくない場合があるため）。DB 上の履歴は既に消えているため、
-     *       ここはファイルシステムだけの操作になる。</li>
-     *   <li>登録中チャンネルのディレクトリ内の断片ファイル … 録画が失敗してマージ前に
-     *       中断されると {@code yt-dlp} の断片ファイルが残る。以前は
-     *       {@link #deleteFile(Recording)} が完成ファイル1つしか消さなかったため、
-     *       その履歴を削除しても断片ファイルだけが残り続けた（実際に発生した：計 5.8GB）。
-     *       {@link RecordingRepository#findVideoIdsByChannelYoutubeChannelId(String)} で
-     *       「そのチャンネルの履歴に存在する動画ID」を取得し、それに無い動画IDのファイルを
-     *       孤立とみなして削除する。</li>
-     * </ul>
-     *
-     * <p><b>「録画履歴が残っているファイルは消さない」が唯一の判断基準。</b>
-     * 登録中チャンネルかどうかだけで決めると、URL 指定でダウンロードした
-     * <b>チャンネルに紐づかない録画を丸ごと消してしまう</b>（置き場所が
-     * 「登録中のどのチャンネル ID とも一致しないディレクトリ」になるため、
-     * 削除済みチャンネルの置き土産と見分けがつかない）。そこで登録の有無に関わらず、
-     * 履歴のある動画のファイルは残し、履歴が 1 件も無いディレクトリだけを丸ごと削除する。
-     *
-     * <p><b>録画がまだ進行中のもの（チャンネル・動画のどちらも）は対象から外す。</b>
-     * {@code yt-dlp} はチャンネルを削除しても JVM とは独立に動き続けるため、
-     * 書き込み中のファイルを消すとプロセス側がエラーになったり中途半端なファイルが残る。
-     * 判定にはコマンドラインにチャンネル ID・動画ID（どちらも出力先パスに含まれる）が
-     * 現れるかを使う。
-     *
-     * @return 削除結果の集計
-     */
-    public OrphanedCleanupResponse deleteOrphanedRecordings() {
-        Path baseDirectory = Path.of(monitorProperties.recording().directory());
-        if (!Files.isDirectory(baseDirectory)) {
-            return new OrphanedCleanupResponse(0, 0, 0, List.of());
-        }
-
-        Set<String> registeredChannelIds = monitoredChannelRepository.findAll().stream()
-                .map(MonitoredChannel::getYoutubeChannelId)
-                .collect(Collectors.toSet());
-        Map<String, Set<String>> unlinkedVideoIds = unlinkedVideoIdsByDirectory();
-
-        int deletedChannels = 0;
-        int deletedFiles = 0;
-        long freedBytes = 0;
-        List<String> skippedChannels = new ArrayList<>();
-
-        try (Stream<Path> channelDirectories = Files.list(baseDirectory)) {
-            for (Path dir : channelDirectories.filter(Files::isDirectory).toList()) {
-                String channelId = dir.getFileName().toString();
-                boolean registered = registeredChannelIds.contains(channelId);
-
-                // 履歴のある動画は、チャンネルに紐づいていてもいなくても消してはいけない
-                Set<String> knownVideoIds = new HashSet<>(unlinkedVideoIds.getOrDefault(channelId, Set.of()));
-                if (registered) {
-                    knownVideoIds.addAll(recordingRepository.findVideoIdsByChannelYoutubeChannelId(channelId));
-                }
-
-                if (registered || !knownVideoIds.isEmpty()) {
-                    FragmentSweepResult swept = sweepOrphanedFragments(dir, channelId, knownVideoIds);
-                    deletedFiles += swept.filesRemoved();
-                    freedBytes += swept.bytesFreed();
-                    continue;
-                }
-                if (processLauncher.isRunningWithCommandLineContaining(channelId)) {
-                    log.info("録画が進行中のため削除を見送りました: channel={}", channelId);
-                    skippedChannels.add(channelId);
-                    continue;
-                }
-
-                long sizeBeforeDelete = sumFileSizes(dir);
-                int removed = deleteDirectoryRecursively(dir);
-                if (removed > 0 || !Files.exists(dir)) {
-                    deletedChannels++;
-                    deletedFiles += removed;
-                    freedBytes += sizeBeforeDelete;
-                    log.info("削除済みチャンネルの録画を削除しました: channel={}, files={}, bytes={}",
-                            channelId, removed, sizeBeforeDelete);
-                }
-            }
-        } catch (IOException e) {
-            log.error("録画ディレクトリの走査に失敗しました: {}", baseDirectory, e);
-        }
-
-        return new OrphanedCleanupResponse(deletedChannels, deletedFiles, freedBytes, skippedChannels);
-    }
-
-    /**
-     * 削除の集計値だけを持つ内部専用の結果。
-     *
-     * @param filesRemoved 削除できたファイルの数
-     * @param bytesFreed   解放できた容量（バイト）
-     */
-    private record FragmentSweepResult(int filesRemoved, long bytesFreed) {
-    }
-
-    /**
-     * ディレクトリ内で、録画履歴に存在しない動画IDのファイルを削除する。
-     *
-     * <p>動画IDごとにファイルをまとめ、履歴が一件も無く、かつ録画中でもないものだけを
-     * 孤立ファイルとして削除する。
-     *
-     * @param channelDirectory 対象のディレクトリ
-     * @param channelId        対象のディレクトリ名（チャンネル識別子）。ログに出す
-     * @param knownVideoIds    このディレクトリに履歴がある動画ID（削除してはいけないもの）
-     * @return 削除できたファイル数と解放できた容量
-     */
-    private FragmentSweepResult sweepOrphanedFragments(Path channelDirectory, String channelId,
-                                                       Set<String> knownVideoIds) {
-        int filesRemoved = 0;
-        long bytesFreed = 0;
-        try (Stream<Path> files = Files.list(channelDirectory)) {
-            Map<String, List<Path>> filesByVideoId = files.filter(Files::isRegularFile)
-                    .collect(Collectors.groupingBy(RecordingFileService::extractVideoId));
-
-            for (Map.Entry<String, List<Path>> entry : filesByVideoId.entrySet()) {
-                String videoId = entry.getKey();
-                if (knownVideoIds.contains(videoId)) {
-                    continue;
-                }
-                if (processLauncher.isRunningWithCommandLineContaining(videoId)) {
-                    log.info("録画が進行中のため断片ファイルの削除を見送りました: channel={}, video={}",
-                            channelId, videoId);
-                    continue;
-                }
-
-                long sizeBeforeDelete = entry.getValue().stream().mapToLong(this::sizeOrZero).sum();
-                int removed = deleteFiles(entry.getValue());
-                if (removed > 0) {
-                    filesRemoved += removed;
-                    bytesFreed += sizeBeforeDelete;
-                    log.info("録画履歴の無い断片ファイルを削除しました: channel={}, video={}, files={}, bytes={}",
-                            channelId, videoId, removed, sizeBeforeDelete);
-                }
-            }
-        } catch (IOException e) {
-            log.error("録画ディレクトリの走査に失敗しました: {}", channelDirectory, e);
-        }
-        return new FragmentSweepResult(filesRemoved, bytesFreed);
-    }
-
-    /**
-     * ディレクトリを中身ごと削除する。
-     *
-     * <p>ファイルを先に消してからディレクトリを消す必要があるため、深い方から順に削除する。
-     * 個々の削除に失敗しても中断せず、消せたものだけを数える（一部が消せなくても
-     * 残りの掃除は進めた方が利用者にとって有益なため）。
-     *
-     * @param directory 削除対象のディレクトリ
-     * @return 削除できたファイルの数（ディレクトリ自体は数えない）
-     */
-    private int deleteDirectoryRecursively(Path directory) {
-        int deletedFiles = 0;
-        try (Stream<Path> paths = Files.walk(directory)) {
-            // 深い方（ファイル）から削除しないとディレクトリが空にならず消せない
-            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
-                boolean isFile = Files.isRegularFile(path);
-                try {
-                    Files.delete(path);
-                    if (isFile) {
-                        deletedFiles++;
-                    }
-                } catch (IOException e) {
-                    log.warn("録画ファイルの削除に失敗しました: {}", path, e);
-                }
-            }
-        } catch (IOException e) {
-            log.error("削除対象の走査に失敗しました: {}", directory, e);
-        }
-        return deletedFiles;
     }
 
     /**
