@@ -24,6 +24,13 @@ let myDockRecording = null;
 /** 読み込んだ録画の視聴済みを送ったか。一時停止と再開のたびに送らないため。 */
 let myDockWatchedSent = false;
 
+/**
+ * 再生を始めて視聴済みを付け終えたときに呼ぶ処理。再生画面が、自分のボタンの表示を合わせるために入れる。
+ * 付けられなかったときは呼ばない（ボタンには保存された状態を出すため）。
+ * @type {((recordingId: number) => void)|null}
+ */
+let myDockOnWatched = null;
+
 /** @returns {HTMLVideoElement} ドックの動画要素 */
 function myDockVideo() {
     return /** @type {HTMLVideoElement} */ (el("dockVideo"));
@@ -109,7 +116,10 @@ function myDockInit() {
     video.addEventListener("play", () => {
         if (!myDockRecording || myDockWatchedSent) return;
         myDockWatchedSent = true;
-        apiPut(`/api/my/recordings/${myDockRecording.id}/watched`, { watched: true }).catch(() => {});
+        const id = myDockRecording.id;
+        apiPut(`/api/my/recordings/${id}/watched`, { watched: true })
+            .then(() => myDockOnWatched?.(id))
+            .catch(() => {});
     });
     buttonEl("dockClose").addEventListener("click", myDockClose);
     bindPictureInPictureButton(buttonEl("dockPip"), video);
@@ -196,7 +206,7 @@ const myTopView = {
 };
 
 /**
- * 視聴済み・お気に入りを切り替える（アーカイブのカードと表のボタン）。
+ * 視聴済み・お気に入りを切り替える（アーカイブのカードと表・再生画面のボタン）。
  * 管理画面（recordings.js の toggleMark）と同じく、先に表示を変えてから API を呼び、一覧は読み直さない
  * （絞り込み中に読み直すと、押した録画が消えて何が起きたか分からなくなるため）。違うのは API のパスだけ。
  *
@@ -361,7 +371,8 @@ const myArchiveView = {
 };
 
 /**
- * 再生画面。録画をドックに読み込み、下に詳細と同じチャンネルの録画を出す。
+ * 再生画面。録画をドックに読み込み、下に視聴済み・お気に入りのボタン、詳細と同じチャンネルの録画を出す。
+ * ボタンはアーカイブのカードと同じもの（common.js の recordingMarkButton）で、押したときの動きも同じ（myToggleMark）。
  * @type {MyView}
  */
 const myWatchView = {
@@ -371,6 +382,7 @@ const myWatchView = {
     async render(root, match) {
         root.innerHTML = `<p id="error" class="error" role="alert" style="display:none;"></p>
             <h1>読み込み中...</h1>
+            <p class="watchMarks"></p>
             <div class="table-scroll"><table><tbody></tbody></table></div>
             <h2>同じチャンネルの録画</h2>
             <div class="videoGrid"></div>`;
@@ -408,6 +420,16 @@ const myWatchView = {
         } else {
             showError("この録画は再生できるファイルが残っていません");
         }
+        // 入れ物は段落にする。.inline に入れると、狭い画面ではボタンが幅いっぱいに縦に積まれ（フォーム向けの決まり）、カードの印と見た目が変わる
+        const watchedButton = recordingMarkButton(rec, "watched", myToggleMark);
+        query(".watchMarks", root).append(watchedButton, recordingMarkButton(rec, "favorite", myToggleMark));
+        // 再生を始めて付いた視聴済みを、このボタンにも出す。rec も変えないと、次に押したときに外れず、視聴済みをもう一度送る。
+        // 前の再生画面が入れた処理はここで置き換わる（離れた画面のボタンを書き換えても見えないので、離れるときに外さない）
+        myDockOnWatched = (id) => {
+            if (id !== rec.id) return;
+            rec.watched = true;
+            renderRecordingMarkButton(watchedButton, "watched", true);
+        };
         query("tbody", root).innerHTML = [
             ["チャンネル", channelLink(rec.channelName, rec.channelUrl)],
             ["元の配信", videoLink(rec.videoId)],
@@ -424,6 +446,7 @@ const myWatchView = {
 
 /**
  * 同じチャンネルのほかの録画を並べる。1 本見終わった後に一覧へ戻らず次を選べるようにするため。
+ * カードにはアーカイブと同じ印のボタンを出す（見たかどうかを見て次を選び、その場で印も付けられるように）。
  *
  * @param {Recording} rec 再生画面の録画
  * @param {HTMLElement} grid 並べる先
@@ -438,7 +461,7 @@ async function myLoadRelated(rec, grid) {
             grid.innerHTML = '<p class="muted">他の録画はありません</p>';
             return;
         }
-        grid.replaceChildren(...others.map((r) => buildVideoCard(r, null, true, null, null, myWatchPath)));
+        grid.replaceChildren(...others.map((r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath)));
         bindDatetimeCells(grid);
     } catch (e) {
         if (grid.isConnected) showError(errorMessage(e));
