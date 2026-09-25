@@ -1,9 +1,16 @@
 package com.example.monitor.scheduler;
 
+import com.example.monitor.dto.OnlineVideoCandidate;
+import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.platform.twitch.TwitchApiClient;
 import com.example.monitor.repository.MonitoredChannelRepository;
-import com.example.monitor.service.*;
+import com.example.monitor.service.OnlineVideoService;
+import com.example.monitor.service.VideoCollectionTracker;
+import com.example.monitor.service.VideoContentKindService;
+import com.example.monitor.service.VideoThumbnailService;
+import com.example.monitor.service.YouTubeUploadsClient;
+import com.example.monitor.service.YouTubeVideoFeedClient;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +18,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import java.io.IOException;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** 通常動画の取得待ちでライブ検知・通知を遅らせないよう、独立したスレッドで収集する。 */
@@ -34,9 +45,13 @@ public class OnlineVideoCollector {
     public void schedule() {
         if (!schedulingEnabled || !running.compareAndSet(false, true)) return;
         worker = Thread.startVirtualThread(() -> {
-            try { collect(); }
-            catch (RuntimeException e) { log.error("動画収集の実行に失敗しました。次回再試行します", e); }
-            finally { running.set(false); }
+            try {
+                collect();
+            } catch (RuntimeException e) {
+                log.error("動画収集の実行に失敗しました。次回再試行します", e);
+            } finally {
+                running.set(false);
+            }
         });
     }
 
@@ -52,10 +67,14 @@ public class OnlineVideoCollector {
                 for (var candidate : candidates) videos.capture(channel, candidate);
                 tracker.checked(channel, true);
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); return;
+                Thread.currentThread().interrupt();
+                return;
             } catch (Exception e) {
-                try { tracker.checked(channel, false); }
-                catch (RuntimeException ignored) { log.warn("削除済み等の理由で取得状態を保存できません: channel={}", channel.getId()); }
+                try {
+                    tracker.checked(channel, false);
+                } catch (RuntimeException saveFailure) {
+                    log.warn("削除済み等の理由で取得状態を保存できません: channel={}", channel.getId(), saveFailure);
+                }
                 log.warn("投稿動画の取得失敗（ライブ監視は継続）: channel={}, reason={}", channel.getYoutubeChannelId(), e.getMessage());
             }
         }
@@ -64,22 +83,26 @@ public class OnlineVideoCollector {
         contentKinds.classifyPending();
     }
 
-    private java.util.List<com.example.monitor.dto.OnlineVideoCandidate> fetchYouTube(String channelId, java.time.Instant since)
-            throws java.io.IOException, InterruptedException {
-        try { return youtube.fetch(channelId); }
-        catch (java.io.IOException | IllegalArgumentException e) {
+    private List<OnlineVideoCandidate> fetchYouTube(String channelId, Instant since)
+            throws IOException, InterruptedException {
+        try {
+            return youtube.fetch(channelId);
+        } catch (IOException | IllegalArgumentException e) {
             // APIのエラーURLにはキーが含まれうるので、例外本文をログに出さない。
-            try { return youtubeUploads.fetch(channelId, since); }
-            catch (java.io.IOException failure) { throw new java.io.IOException("フィード・公式APIとも新着動画を取得できません（設定・クォータを確認してください）"); }
+            try {
+                return youtubeUploads.fetch(channelId, since);
+            } catch (IOException failure) {
+                throw new IOException("フィード・公式APIとも新着動画を取得できません（設定・クォータを確認してください）");
+            }
         }
     }
 
     /** ログイン名は改名されうるので、リンク用に毎回取り直す。失敗しても前の値を残し、収集は続ける。 */
-    private void refreshTwitchLogins(java.util.List<com.example.monitor.entity.MonitoredChannel> all) {
+    private void refreshTwitchLogins(List<MonitoredChannel> all) {
         var twitchChannels = all.stream().filter(c -> c.getPlatform() == Platform.TWITCH).toList();
         if (twitchChannels.isEmpty()) return;
         try {
-            var logins = new java.util.HashMap<String, String>();
+            var logins = new HashMap<String, String>();
             for (var user : twitch.findUsersByIds(twitchChannels.stream().map(c -> c.getYoutubeChannelId()).toList())) {
                 logins.put(user.id(), user.login());
             }

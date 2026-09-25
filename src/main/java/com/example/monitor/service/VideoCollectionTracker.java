@@ -1,8 +1,10 @@
 package com.example.monitor.service;
-import com.example.monitor.entity.*;
+import com.example.monitor.entity.MonitoredChannel;
+import com.example.monitor.entity.VideoCollectionState;
 import com.example.monitor.repository.VideoCollectionStateRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 
@@ -20,13 +22,14 @@ public class VideoCollectionTracker {
     public synchronized Instant querySince(MonitoredChannel channel) {
         var state = state(channel);
         Instant overlap = state.getSucceededAt() == null ? state.getCollectingSince()
-                : state.getSucceededAt().minus(java.time.Duration.ofDays(1));
+                : state.getSucceededAt().minus(Duration.ofDays(1));
         return overlap.isAfter(state.getCollectingSince()) ? overlap : state.getCollectingSince();
     }
 
     public synchronized void checked(MonitoredChannel channel, boolean success) {
         var state = state(channel);
-        state.setCheckedAt(Instant.now()); state.setFailed(!success);
+        state.setCheckedAt(Instant.now());
+        state.setFailed(!success);
         if (success) state.setSucceededAt(state.getCheckedAt());
         repository.save(state);
     }
@@ -39,7 +42,9 @@ public class VideoCollectionTracker {
 
     private VideoCollectionState state(MonitoredChannel channel) {
         return repository.findById(channel.getId()).orElseGet(() -> {
-            var state = new VideoCollectionState(); state.setId(channel.getId()); state.setChannel(channel);
+            var state = new VideoCollectionState();
+            state.setId(channel.getId());
+            state.setChannel(channel);
             Instant start = uptime.getStartedAt().atZone(ZoneId.systemDefault()).toInstant();
             if (channel.getCreatedAt() != null) {
                 Instant created = channel.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant();
