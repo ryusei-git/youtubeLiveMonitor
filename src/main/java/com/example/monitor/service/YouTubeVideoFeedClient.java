@@ -23,8 +23,8 @@ public class YouTubeVideoFeedClient {
      * チャンネルのフィードを取り、載っている動画を返す。
      *
      * <p>不正なチャンネル ID とフィードでない応答を {@link IllegalArgumentException} に、通信の失敗を
-     * {@link IOException} に分けているのは、呼び出し側（{@code OnlineVideoCollector}）がこの 2 種類だけを
-     * 捕まえて公式 API の予備経路へ切り替えるため。例外の種類を変えると予備経路が黙って動かなくなる。
+     * {@link IOException} に分けているのは、呼び出し側（{@code OnlineVideoCollector}）がこの 2 種類と
+     * 日付を読めない場合の {@link java.time.DateTimeException} だけを捕まえて公式 API の予備経路へ切り替えるため。例外の種類を変えると予備経路が黙って動かなくなる。
      *
      * @param channelId チャンネル ID（{@code UC} で始まる 24 文字）
      * @return フィードに載っている、そのチャンネル自身の動画。無ければ空リスト
@@ -32,7 +32,7 @@ public class YouTubeVideoFeedClient {
      *                                  （呼び出し側はこれを受けて公式 API の予備経路へ切り替える）
      * @throws IOException 通信に失敗した、または 200 以外・100 万文字を超える応答だった場合
      * @throws java.time.format.DateTimeParseException フィードの投稿日時（{@code published}）を読めなかった場合
-     *                                  （呼び出し側はこれを捕まえないので、予備経路には切り替わらない）
+     *                                  （日付を読めない場合も、呼び出し側は公式 API の予備経路へ切り替える）
      * @throws InterruptedException 待っている間に割り込まれた場合
      */
     public List<OnlineVideoCandidate> fetch(String channelId) throws IOException, InterruptedException {

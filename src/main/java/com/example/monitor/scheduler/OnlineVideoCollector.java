@@ -19,6 +19,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import java.io.IOException;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -98,7 +99,7 @@ public class OnlineVideoCollector {
             throws IOException, InterruptedException {
         try {
             return youtube.fetch(channelId);
-        } catch (IOException | IllegalArgumentException e) {
+        } catch (IOException | IllegalArgumentException | DateTimeException e) {
             // APIのエラーURLにはキーが含まれうるので、例外本文をログに出さない。
             try {
                 return youtubeUploads.fetch(channelId, since);
