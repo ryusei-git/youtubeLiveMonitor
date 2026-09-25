@@ -105,8 +105,10 @@ Twitch には「ログイン名」（`twitch.tv/foo` の `foo`）と「ユーザ
 
 URL の組み立て方はプラットフォームごとに根本的に違い、**配信の識別子だけからは
 導けないことがある**。YouTube は `watch?v={動画ID}` で完結するが、Twitch の視聴 URL は
-`twitch.tv/{ログイン名}` の形で、配信 ID からは作れない。ログイン名は検知時の API 応答には
-含まれているが DB には保存していないため、**検知した者がその場で URL も組み立てる**しかない。
+`twitch.tv/{ログイン名}` の形で、配信 ID からは作れない。ログイン名は検知時の API 応答に
+含まれている。DB にも `MonitoredChannel.channelLogin` があるが、これはチャンネルページへのリンク用に
+動画の収集のたびに取り直す値で、改名の直後は古いことがある。そのため視聴 URL は
+**検知した者がその場で、検知時の API 応答のログイン名から組み立てる**。
 
 そのため `StreamPlatform` に `watchUrl(videoId)` は置いていない（一度置いたが Twitch で
 成立せず削除した）。録画は `LiveStreamDetection.watchUrl()`、通知は
