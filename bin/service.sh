@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # YouTube Live Monitor サービス管理コマンド
-# 使い方: bin/service.sh {start|stop|restart|status}
+# 使い方: bin/service.sh {start|stop|restart|rollback|status}
 #
 # stop は「プロセスが完全に終了してポートが解放されるまで待つ」ことを保証する。
 # これをせずに次の start を試みると、JVMのシャットダウン処理（Tomcat/Hikari等の
@@ -14,6 +14,8 @@ PID_DIR="run"
 PID_FILE="$PID_DIR/app.pid"
 LOG_DIR="logs"
 LOG_FILE="$LOG_DIR/service.log"
+RUN_JAR="$PID_DIR/youtubeLiveMonitor.jar"
+PREV_JAR="$PID_DIR/youtubeLiveMonitor.prev.jar"
 PORT="${SERVER_PORT:-8080}"
 START_TIMEOUT=30
 STOP_TIMEOUT=30
@@ -64,12 +66,25 @@ cmd_start() {
     fi
 
     local jar
+    jar="$(find_jar)" || return 1
+    install_jar "$jar"
+    launch_jar
+}
+
+# 見つからないときのエラー文は標準エラーへ出す。restart は jar の有無だけを確かめるために
+# 標準出力を捨てて呼ぶので、標準出力に出すと理由が表示されないまま終わってしまう。
+find_jar() {
+    local jar
     jar="$(ls build/libs/*.jar 2>/dev/null | head -1)"
     if [[ -z "$jar" ]]; then
-        echo "エラー: build/libs/*.jar が見つかりません。先に ./gradlew build を実行してください。"
+        echo "エラー: build/libs/*.jar が見つかりません。先に ./gradlew build を実行してください。" >&2
         return 1
     fi
+    echo "$jar"
+}
 
+install_jar() {
+    local jar="$1"
     # build/libs の jar を直接動かさず、コピーを動かす。
     #
     # 実行中の JVM は jar から必要になった時点でクラスを読む。build/libs の jar を動かしていると、
@@ -77,10 +92,19 @@ cmd_start() {
     # たびに、止める途中で GracefulShutdownCallback や H2 の終了処理のクラスを読めず（NoClassDefFoundError）、
     # 正常終了の待ちを使い切って kill -9 になっていた（2026-09-25、docs/pitfalls.md）。
     # コピーなら build は触れない。restart は stop → start なので、上書きは必ず前のプロセスが止まった後になる。
-    # 名前に youtubeLiveMonitor を残すのは、上の案内の pgrep -fla youtubeLiveMonitor で見つかるようにするため。
-    local run_jar="$PID_DIR/youtubeLiveMonitor.jar"
-    cp "$jar" "$run_jar"
+    # 名前に youtubeLiveMonitor を残すのは、cmd_start の案内の pgrep -fla youtubeLiveMonitor で見つかるようにするため。
+    #
+    # 上書きする前に、動かしていた版を prev.jar へ退避する（rollback で戻す先）。新しい版が起動しないときに
+    # 前の版へ戻せないと、直すまでサービスが止まったままになる。中身が同じときに退避しないのは、
+    # 同じビルドのまま 2 回 restart したときに prev.jar が今の版で上書きされ、戻す先が失われるため。
+    if [[ -f "$RUN_JAR" ]] && ! cmp -s "$jar" "$RUN_JAR"; then
+        mv "$RUN_JAR" "$PREV_JAR"
+    fi
+    echo "$jar を $RUN_JAR にコピーします"
+    cp "$jar" "$RUN_JAR"
+}
 
+launch_jar() {
     # ヒープの上限。指定しないと物理メモリの 1/4（この端末で 3.98GB）まで広がる。
     # 実測（2026-09-25、起動 31 分後）は使用 271MB・確保 692MB で、1GB は使用量のおよそ 4 倍の余裕がある。
     # G1PeriodicGCInterval（5 分）は、しばらく GC が無いときにも回して、使っていない確保分を OS へ返させるため
@@ -91,14 +115,14 @@ cmd_start() {
     # 端末を載せ替えたときに変えられるよう、JAVA_OPTS があればそちらを使う。
     local java_opts="${JAVA_OPTS:--Xmx1g -XX:G1PeriodicGCInterval=300000 -XX:TrimNativeHeapInterval=300000}"
 
-    echo "起動しています... ($jar を $run_jar にコピーして起動)"
+    echo "起動しています... ($RUN_JAR)"
     rotate_log
     # MALLOC_ARENA_MAX=2 は、glibc の malloc のアリーナ（スレッドが取り合わないよう分けた確保領域）の数を絞るため。
     # 既定の上限は 8 × コア数（この端末で 64）で、本番では 64MB 境界の匿名領域（アリーナ）が 66 個・252MB
     # あった（#184）。java の起動にだけ付ける（JAVA_OPTS を指定しても付く）。
     # 子プロセスの yt-dlp・ffmpeg にも引き継がれるが、アリーナが減るだけで困ることは無い。
     # 複数のオプションを空白で区切って渡せるよう、java_opts はクォートせずに展開する
-    MALLOC_ARENA_MAX=2 nohup java $java_opts -jar "$run_jar" > "$LOG_FILE" 2>&1 &
+    MALLOC_ARENA_MAX=2 nohup java $java_opts -jar "$RUN_JAR" > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
 
     for _ in $(seq 1 "$START_TIMEOUT"); do
@@ -145,6 +169,19 @@ cmd_stop() {
     echo "強制終了しました"
 }
 
+# 前の版へ戻す。install_jar を通さないのは、build/libs の jar（戻したい新しい版）で上書きしないため。
+# 戻した後は prev.jar が無くなるので、続けて rollback しても 2 つ前の版には戻らない。
+cmd_rollback() {
+    if [[ ! -f "$PREV_JAR" ]]; then
+        echo "戻す版がありません（$PREV_JAR が無い）"
+        return 1
+    fi
+    cmd_stop
+    mv "$PREV_JAR" "$RUN_JAR"
+    echo "前の版に戻しました"
+    launch_jar
+}
+
 cmd_status() {
     if is_running; then
         echo "起動中 (PID: $(cat "$PID_FILE"), ポート: $PORT)"
@@ -159,10 +196,12 @@ cmd_status() {
 case "${1:-}" in
     start)   cmd_start ;;
     stop)    cmd_stop ;;
-    restart) cmd_stop; cmd_start ;;
+    # jar が無いまま止めると、start が失敗してサービスが落ちたままになる。止める前に確かめる
+    restart) find_jar >/dev/null && { cmd_stop; cmd_start; } ;;
+    rollback) cmd_rollback ;;
     status)  cmd_status ;;
     *)
-        echo "使い方: $0 {start|stop|restart|status}"
+        echo "使い方: $0 {start|stop|restart|rollback|status}"
         exit 1
         ;;
 esac
