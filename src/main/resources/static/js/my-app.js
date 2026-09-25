@@ -151,6 +151,19 @@ function myWatchPath(rec) {
     return `/my/watch/${rec.id}`;
 }
 
+/**
+ * 配信・動画のカード（common.js の buildOnlineVideoCard）を並べた入れ物で、埋め込みの再生を開いたらミニプレーヤーの録画を止める。
+ * 再生はモーダルのダイアログで開くので、開いている間はダイアログの外（ミニプレーヤー）を押せず、録画と音が重なるため。
+ * カードのボタンがダイアログを開いた後に届くので、開けなかったとき（埋め込めない URL）は止めない
+ *
+ * @param {Element} container カードを並べた入れ物。画面を描くたびに作り直すもの（main#view に付けると、離れた後も残る）
+ */
+function myPauseDockOnVideoDialog(container) {
+    container.addEventListener("click", () => {
+        if (document.querySelector("dialog[open]")) myDockVideo().pause();
+    });
+}
+
 /** トップの自動更新を止める関数。トップを出していない間は null。 */
 /** @type {(() => void)|null} */
 let myTopStopRefresh = null;
@@ -175,11 +188,7 @@ const myTopView = {
             </section>`;
         const live = query(".livePanel .videoGrid", root);
         const upcoming = query(".upcomingPanel > div", root);
-        // 配信はダイアログで開く。開いている間はダイアログの外（ミニプレーヤー）を押せず、録画と音が重なるため止める。
-        // カードのボタンがダイアログを開いた後に届くので、開けなかったとき（埋め込めない URL）は止めない
-        live.addEventListener("click", () => {
-            if (document.querySelector("dialog[open]")) myDockVideo().pause();
-        });
+        myPauseDockOnVideoDialog(live);
         const load = async () => {
             try {
                 const [page, streams] = await Promise.all([
@@ -202,6 +211,54 @@ const myTopView = {
     leave() {
         myTopStopRefresh?.();
         myTopStopRefresh = null;
+    },
+};
+
+/** 動画・配信の自動更新を止める関数。動画・配信を出していない間は null。 */
+/** @type {(() => void)|null} */
+let myVideosStopRefresh = null;
+
+/**
+ * 動画・配信。購読しているチャンネルの YouTube・Twitch 上の配信中・配信予定、配信済み、投稿済み（録画ではない）。
+ * 中身と動きは管理者の動画一覧（videos.html）と同じもの（common.js の bindOnlineVideoSections）で、API が購読で絞る。
+ *
+ * 絞り込みは URL（/my/videos?keyword=...&channelId=...）に残す。アーカイブと同じく「戻る」「進む」はルーターが拾って
+ * 画面ごと描き直し、描き直した画面が URL から条件を戻す（ルーターは history.state を使わないので pushState でよい）。
+ * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直し、離れたら止める（トップと同じ）。
+ * @type {MyView}
+ */
+const myVideosView = {
+    title: "動画・配信",
+    nav: "/my/videos",
+    render(root) {
+        const sectionHtml = [["now", "配信中・配信予定"], ["streams", "配信済み"], ["uploads", "投稿済み"]].map(([name, label]) => `
+            <section class="videoSection" aria-labelledby="${name}Heading">
+              <div class="videoSectionHead">
+                <h2 id="${name}Heading">${label} <span class="muted" id="${name}Summary"></span></h2>
+                <div class="videoPager"><button type="button" id="${name}Prev" aria-label="${label}の前のページ">前へ</button><span id="${name}Page" class="muted"></span><button type="button" id="${name}Next" aria-label="${label}の次のページ">次へ</button></div>
+              </div>
+              <div id="${name}Grid" class="videoGrid"></div>
+            </section>`).join("");
+        root.innerHTML = `<div class="pageHead"><h1>動画・配信</h1><button type="button" id="refreshVideosBtn">表示を更新</button></div>
+            <p class="pageDescription">購読しているチャンネルの新着動画と配信を、この画面で再生できます。</p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <p id="collectionNotice" class="muted" role="status">取得状況を確認しています…</p>
+            <p id="videoRefreshStatus" class="muted" role="status">表示を読み込み中…</p>
+            <form id="videoFilterForm" class="inline">
+              <label>検索 <input id="videoKeyword" type="search" placeholder="タイトル・チャンネル名" maxlength="200"></label>
+              <label>チャンネル <select id="videoChannel"><option value="">すべて</option></select></label>
+              <button type="submit">検索</button>
+            </form>
+            ${sectionHtml}
+            <p class="muted">新着動画は約10分ごとに取得します。収集を開始してから公開された動画と、監視中に見つかった配信を保存します。この一覧の収集では動画本体を保存しません（自動録画の設定は別です）。</p>`;
+        root.querySelectorAll(".videoGrid").forEach(myPauseDockOnVideoDialog);
+        const videos = bindOnlineVideoSections();
+        videos.start();
+        myVideosStopRefresh = startVisibleRefresh(() => videos.loadAll(false, false));
+    },
+    leave() {
+        myVideosStopRefresh?.();
+        myVideosStopRefresh = null;
     },
 };
 
@@ -833,6 +890,7 @@ const myNotFoundView = {
  */
 const myRoutes = [
     [/^\/my\/?$/, myTopView],
+    [/^\/my\/videos\/?$/, myVideosView],
     [/^\/my\/archive\/?$/, myArchiveView],
     [/^\/my\/watch\/(\d+)\/?$/, myWatchView],
     [/^\/my\/channels\/?$/, myChannelsView],

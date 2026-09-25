@@ -1673,9 +1673,10 @@ const studioPages = {
     "my-channels.html": "M4 4h16v16H4z M8 9h8 M8 14h5",
     "my-recordings.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
-    // 利用者の 1 枚のページ（my.html）のトップ（/my）・アーカイブ（/my/archive）・マイチャンネル（/my/channels）・
-    // 通知（/my/settings/notifications。管理者の通知履歴と同じベル）
+    // 利用者の 1 枚のページ（my.html）のトップ（/my）・動画・配信（/my/videos）・アーカイブ（/my/archive）・
+    // マイチャンネル（/my/channels）・通知（/my/settings/notifications。管理者の通知履歴と同じベル）
     "my": "M3 11l9-8 9 8 M5 9v12h14V9 M10 21v-6h4v6",
+    "videos": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "archive": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "channels": "M4 4h16v16H4z M8 9h8 M8 14h5",
     "notifications": "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
@@ -1975,4 +1976,168 @@ function formatInstant(value) {
     return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("ja-JP", {
         year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
     });
+}
+
+/* ============================================================
+   動画・配信（管理者の動画一覧と利用者の /my/videos）
+   ============================================================ */
+
+/**
+ * 段ごとにページ送りを独立させるため、ページ・総ページ数・リクエスト番号を段ごとに持つ。
+ * @typedef {{name: string, page: number, totalPages: number, request: number, empty: string}} VideoSection
+ */
+
+/**
+ * {@link bindOnlineVideoSections} の戻り値。
+ *
+ * @typedef {object} OnlineVideoSections
+ * @property {() => Promise<void>} start 開いたときに呼ぶ。チャンネルの選択肢を読んでから URL の条件を戻し、3 段を読む
+ *           （先に戻すと、URL のチャンネルが選択肢に無い値として捨てられる）
+ * @property {() => void} restore URL の条件を入力欄へ戻す。「戻る」「進む」を自分で拾う画面が呼ぶ
+ * @property {(resetPage: boolean, showAlert?: boolean) => Promise<void>} loadAll 3 段を読み直す。resetPage は各段を
+ *           先頭に戻すか（絞り込みを変えたとき。自動更新では今のページを保つ）、showAlert は失敗をエラー帯に出すか
+ */
+
+/**
+ * 動画・配信の画面の、絞り込み・3 段（配信中・配信予定／配信済み／投稿済み）と段ごとのページ送り・取得状況の案内・
+ * 表示の更新ボタンを結びつける。
+ *
+ * <p>管理者の動画一覧（videos.html）と利用者の /my/videos（my-app.js）で同じものを出すため、片方だけ直して
+ * 動きがずれないよう 1 か所にまとめた。要素は videos.html と同じ ID で探す（利用者の画面も同じ ID で描く）。
+ *
+ * <p>「戻る」「進む」（popstate）と 1 分ごとの自動更新はここでは付けない。利用者の画面ではルーターが「戻る」「進む」を
+ * 拾って画面ごと描き直し、自動更新は画面を離れるときに止める必要があるため、どちらも画面ごとに付ける。
+ *
+ * <p>利用者の画面は、読み込みを待つ間に別の画面へ移れる。待った後は、描いた要素がまだページにあるときだけ
+ * 結果を反映し、エラー帯と URL にも触らない。どちらも移った先の画面のもので、URL を整えると、移った先の条件
+ * （アーカイブの keyword・channelId・page）を消してしまう。
+ *
+ * @returns {OnlineVideoSections} 開いたとき・「戻る」「進む」・自動更新で呼ぶ操作
+ */
+function bindOnlineVideoSections() {
+    /** @type {VideoSection[]} */
+    const sections = [
+        {name: "now", page: 0, totalPages: 0, request: 0, empty: "配信中・配信予定の動画はありません"},
+        {name: "streams", page: 0, totalPages: 0, request: 0, empty: "配信済みの動画はありません"},
+        {name: "uploads", page: 0, totalPages: 0, request: 0, empty: "投稿済みの動画はありません"},
+    ];
+    /** @type {Date|null} */
+    let lastUpdatedAt = null;
+    const form = formEl("videoFilterForm");
+    const keyword = inputEl("videoKeyword");
+    const channel = selectEl("videoChannel");
+
+    // 段ごとのページは URL に残さない。3 段分を持たせると戻る操作の単位が分かりにくくなるため、絞り込み条件だけを残す。
+    function syncUrl(replace = false) {
+        const url = new URL(location.href);
+        for (const key of ["keyword", "channelId", "liveOnly", "page"]) url.searchParams.delete(key);
+        if (keyword.value.trim()) url.searchParams.set("keyword", keyword.value.trim());
+        if (channel.value) url.searchParams.set("channelId", channel.value);
+        if (url.href !== location.href) history[replace ? "replaceState" : "pushState"](null, "", url);
+    }
+
+    function restore() {
+        const params = new URLSearchParams(location.search);
+        keyword.value = (params.get("keyword") || "").trim().slice(0, 200);
+        const channelId = params.get("channelId") || "";
+        channel.value = Array.from(channel.options).some(option => option.value === channelId) ? channelId : "";
+        syncUrl(true);
+    }
+
+    /** 自動更新では通知帯の読み上げを繰り返さず、利用者が操作した失敗だけ明示する。
+     * @param {VideoSection} section
+     * @param {boolean} showAlert
+     * @returns {Promise<boolean|undefined>} 新しい読み込みに追い越された・画面を離れた後に届いたときは undefined
+     */
+    async function loadSection(section, showAlert = true) {
+        const request = ++section.request;
+        const grid = el(section.name + "Grid");
+        setBusy(grid, true);
+        const params = new URLSearchParams({section: section.name, page: String(section.page), size: "12",
+            keyword: keyword.value.trim()});
+        if (channel.value) params.set("channelId", channel.value);
+        try {
+            const data = await apiGet("/api/videos?" + params);
+            if (request !== section.request || !grid.isConnected) return;
+            if (section.page > 0 && section.page >= data.totalPages) {
+                section.page = Math.max(0, data.totalPages - 1);
+                return loadSection(section, showAlert);
+            }
+            section.totalPages = data.totalPages;
+            grid.replaceChildren(...data.content.map(buildOnlineVideoCard));
+            if (!data.content.length) grid.innerHTML = emptyState(section.empty, "新着動画の取得後に表示されます。絞り込み条件も確認してください。");
+            el(section.name + "Summary").textContent = `${data.totalElements}件`;
+            el(section.name + "Page").textContent = data.totalPages ? `${data.number + 1} / ${data.totalPages}` : "0 / 0";
+            buttonEl(section.name + "Prev").disabled = data.first || data.empty;
+            buttonEl(section.name + "Next").disabled = data.last || data.empty;
+            return true;
+        } catch (error) {
+            if (!grid.isConnected) return;
+            if (request === section.request && showAlert) showError(errorMessage(error));
+            return false;
+        } finally { if (request === section.request) setBusy(grid, false); }
+    }
+
+    /** 3 段をまとめて読み直し、表示更新の時刻は全段が揃って成功したときだけ進める。
+     * @param {boolean} resetPage
+     * @param {boolean} showAlert
+     */
+    async function loadAll(resetPage, showAlert = true) {
+        if (resetPage) for (const section of sections) section.page = 0;
+        if (showAlert) clearError();
+        const results = await Promise.all(sections.map(section => loadSection(section, showAlert)));
+        // 新しい読み直しに追い越された段は undefined を返す。その回の結果で表示時刻を決めない。
+        if (results.includes(undefined)) return;
+        const failed = results.includes(false);
+        if (!failed) lastUpdatedAt = new Date();
+        renderRefreshStatus(el("videoRefreshStatus"), lastUpdatedAt, failed);
+    }
+
+    async function loadChannels() {
+        const notice = el("collectionNotice");
+        try {
+            const channels = await apiGet("/api/videos/channels");
+            const previous = channel.value;
+            channel.replaceChildren(new Option("すべて", ""));
+            for (const item of channels) channel.add(new Option(item.name, String(item.id)));
+            channel.value = previous;
+            const failed = channels.filter(/** @param {any} c */ c => c.error);
+            const waiting = channels.filter(/** @param {any} c */ c => !c.checkedAt);
+            notice.textContent = !channels.length ? "チャンネルを登録・購読すると新着動画を取得します。" : failed.length
+                ? `新着動画を取得できないチャンネル：${failed.map(/** @param {any} c */ c => c.name).join("、")}。自動再試行します。`
+                : waiting.length ? "新着動画の初回取得を待っています。配信中の動画は監視で確認できたものから表示します。"
+                : `前回の新着動画取得：${formatInstant(channels.map(/** @param {any} c */ c => c.checkedAt).sort()[0])}。約10分間隔で確認します。`;
+        } catch (error) { notice.textContent = "動画の取得状況を確認できません。表示を更新して再試行してください。"; }
+    }
+
+    form.addEventListener("submit", event => {
+        event.preventDefault();
+        syncUrl();
+        loadAll(true);
+    });
+    for (const section of sections) {
+        buttonEl(section.name + "Prev").addEventListener("click", () => {
+            if (section.page > 0) { section.page--; clearError(); loadSection(section); }
+        });
+        buttonEl(section.name + "Next").addEventListener("click", () => {
+            if (section.page + 1 < section.totalPages) { section.page++; clearError(); loadSection(section); }
+        });
+    }
+    buttonEl("refreshVideosBtn").addEventListener("click", async () => {
+        await loadChannels();
+        if (!form.isConnected) return;
+        syncUrl(true);
+        await loadAll(true);
+    });
+
+    return {
+        async start() {
+            await loadChannels();
+            if (!form.isConnected) return;
+            restore();
+            await loadAll(true);
+        },
+        restore,
+        loadAll,
+    };
 }
