@@ -107,6 +107,20 @@ public class Recording {
     private Integer durationSeconds;
 
     /**
+     * このサービスの画面で再生された回数（全員の合計）。YouTube 上の再生数ではない。
+     *
+     * <p>画面で再生を始めたときに 1 回数える（一時停止からの再開やシークでは数えない）。
+     * 人ごとには分けず、同じ人がもう一度再生した分も数える。増やすときは
+     * {@link com.example.monitor.repository.RecordingRepository#incrementPlayCount(Long)} で
+     * DB 上の値に直接 1 を足す（読んでから書き戻すと、同時の再生を数え落とすため）。
+     *
+     * <p>既存行のある表に NOT NULL の列を足すので、ALTER が失敗しないよう DB 側の既定値を
+     * 明示している（{@code docs/pitfalls.md} 参照）。
+     */
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private int playCount;
+
+    /**
      * 一覧に出すサムネイル画像のパス（{@code monitor.recording.directory} からの相対パス）。
      * まだ生成していない、または生成に失敗した場合は {@code null}。
      *

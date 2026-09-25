@@ -25,6 +25,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -184,6 +185,22 @@ public class MyRecordingController {
     @PutMapping("/{id}/favorite")
     public RecordingMarkResponse setFavorite(@PathVariable Long id, @RequestBody RecordingFavoriteRequest request) {
         return recordingMarkService.setFavorite(id, request.favorite());
+    }
+
+    /**
+     * 再生回数（全員の合計）に 1 を足す。画面が再生を始めたときに 1 回だけ呼ぶ。
+     *
+     * <p>見られる範囲は {@link #setWatched} と同じ（この端末のすべての録画。#419）なので、
+     * 購読していないチャンネルの録画でも数える。管理者側（{@link RecordingMarkController}）と同じ。
+     *
+     * @param id 録画の主キー
+     * @return 本文なしの 204
+     * @throws com.example.monitor.exception.RecordingNotFoundException 無い場合（404）
+     */
+    @PostMapping("/{id}/play")
+    public ResponseEntity<Void> countPlay(@PathVariable Long id) {
+        recordingHistoryService.countPlay(id);
+        return ResponseEntity.noContent().build();
     }
 
     /**
