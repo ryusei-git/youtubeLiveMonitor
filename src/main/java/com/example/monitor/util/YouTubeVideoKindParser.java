@@ -21,8 +21,14 @@ public final class YouTubeVideoKindParser {
     public record Result(String kind, Instant scheduledStartTime) {}
 
     /**
-     * 目印が一つも無いとき（ログイン画面・同意画面・構造変化など）は null を返す。
-     * 投稿動画として返さないのは、判定できなかった動画を投稿済みの段に誤って並べないため。
+     * 動画ページの HTML から、動画の種類と開始予定時刻を読み取る。
+     *
+     * <p>目印が無いときに投稿動画として返さないのは、判定できなかった動画を
+     * 投稿済みの段に誤って並べないため。
+     *
+     * @param html 動画ページの HTML
+     * @return 判定結果。{@code html} が null のとき、または目印が一つも無いとき
+     *         （ログイン画面・同意画面・構造変化など）は null
      */
     public static Result parse(String html) {
         if (html == null) return null;
