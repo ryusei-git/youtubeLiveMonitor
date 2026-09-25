@@ -14,13 +14,24 @@ import java.time.Instant;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 
-/** サムネイルだけを保存する。画像の障害で動画URLの収集まで失敗させない。 */
+/**
+ * 収集した動画のサムネイル画像を取って DB に保存する。
+ *
+ * <p>サムネイルだけを保存する。画像の障害で動画URLの収集まで失敗させない。
+ */
 @Service @RequiredArgsConstructor @Slf4j
 public class VideoThumbnailService {
     private final OnlineVideoRepository videos;
     private final VideoThumbnailRepository thumbnails;
     private final HttpClient httpClient;
 
+    /**
+     * サムネイルの無い動画の画像を取って保存する。
+     *
+     * <p>1 回 100 件までにしているのは、動画が溜まっていても収集の 1 回を大きく延ばさないため。
+     * 対象は再試行の上限と次の再試行時刻（{@link ThumbnailRetryPolicy}）を満たすものだけで、
+     * 失敗は例外にせず記録して次の動画へ進む。
+     */
     public void captureMissing() {
         for (var video : videos.eligibleWithoutThumbnail(
                 Instant.now(), ThumbnailRetryPolicy.MAX_ATTEMPTS, PageRequest.of(0, 100))) {

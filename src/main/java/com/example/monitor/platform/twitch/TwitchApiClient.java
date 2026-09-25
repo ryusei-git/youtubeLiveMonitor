@@ -64,7 +64,20 @@ public class TwitchApiClient {
     private final MonitorProperties monitorProperties;
     private final TwitchTokenProvider twitchTokenProvider;
 
-    /** 配信IDとVOD IDは別物なので、APIが返す関連付けと視聴URLを保存する。 */
+    /**
+     * ユーザーの最近の VOD（配信のアーカイブ）を新しい順に返す。
+     *
+     * <p>配信IDとVOD IDは別物なので、APIが返す関連付けと視聴URLを保存する。
+     *
+     * <p>失敗は例外で知らせる。空のリストを返すのは VOD が無いときだけ。
+     *
+     * @param userId 数値の Twitch ユーザー ID
+     * @return 最近の VOD（最大 100 件）
+     * @throws IllegalArgumentException ユーザー ID が数値でない場合
+     * @throws IllegalStateException 設定が未完了、HTTP 200 以外の応答（401 はトークンを取り直して 1 回だけ再試行する）、
+     *                               通信の失敗・中断、または応答を解釈できなかった場合
+     * @throws java.time.format.DateTimeParseException VOD の {@code published_at} を読めなかった場合
+     */
     public java.util.List<com.example.monitor.dto.OnlineVideoCandidate> fetchRecentVideos(String userId) {
         if (!userId.matches("[0-9]+")) throw new IllegalArgumentException("TwitchユーザーIDが不正です");
         var body = get("https://api.twitch.tv/helix/videos?user_id=" + userId + "&first=100&sort=time");
