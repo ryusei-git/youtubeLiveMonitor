@@ -327,20 +327,6 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
                              @Param("thumbnailPath") String thumbnailPath);
 
     /**
-     * 指定チャンネルで録画履歴に記録されている動画IDの一覧を取得する。
-     *
-     * <p>{@link com.example.monitor.service.RecordingFileService#deleteOrphanedRecordings()} が、
-     * 登録中チャンネルのディレクトリ内に残った「どの履歴にも紐づかない断片ファイル」を
-     * 見分けるために使う。状態を問わず（{@code COMPLETED}/{@code RECORDING}/{@code FAILED}
-     * のいずれも）返す。履歴が残っている動画IDのファイルは、状態に関わらず消してはいけないため。
-     *
-     * @param youtubeChannelId 対象チャンネルの YouTube チャンネル ID
-     * @return 履歴が存在する動画IDの一覧
-     */
-    @Query("SELECT r.videoId FROM Recording r WHERE r.channel.youtubeChannelId = :youtubeChannelId")
-    List<String> findVideoIdsByChannelYoutubeChannelId(@Param("youtubeChannelId") String youtubeChannelId);
-
-    /**
      * 録画履歴に記録されている動画IDを、状態・チャンネルを問わずすべて取得する。
      *
      * <p>{@link com.example.monitor.service.OrphanedPreviewService#preview()} が、履歴のある動画の
@@ -358,10 +344,9 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * <p>URL 指定のダウンロード（{@link com.example.monitor.service.VideoDownloadService}）で
      * 取り込んだ、監視対象に登録されていないチャンネルの動画がこれにあたる。
      *
-     * <p><b>{@link com.example.monitor.service.RecordingFileService#deleteOrphanedRecordings()}
-     * がこれらのファイルを誤って消さないために要る。</b>あちらは「登録中のどのチャンネル ID とも
-     * 一致しないディレクトリ」を削除対象にするため、チャンネルに紐づかない録画の置き場所は
-     * そのままでは丸ごと削除の対象に見えてしまう。
+     * <p>{@link com.example.monitor.service.RecordingFileService#calculateUsage()} が、
+     * 「登録中のどのチャンネル ID とも一致しないディレクトリ」のうち、チャンネルに紐づかない録画の
+     * 置き場所を削除済みチャンネルと見分けて表示名を付けるために使う。
      *
      * @return チャンネルに紐づいていない録画履歴の一覧
      */

@@ -7,7 +7,6 @@ import com.example.monitor.config.MonitorProperties.RecordingProperties;
 import com.example.monitor.config.MonitorProperties.YouTubeProperties;
 import com.example.monitor.dto.DiskUsageResponse;
 import com.example.monitor.dto.DiskUsageResponse.ChannelDiskUsage;
-import com.example.monitor.dto.OrphanedCleanupResponse;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.repository.MonitoredChannelRepository;
@@ -39,9 +38,6 @@ class RecordingFileServiceTest {
     @Mock
     private RecordingRepository recordingRepository;
 
-    @Mock
-    private ProcessLauncher processLauncher;
-
     private RecordingFileService newService(Path recordingDirectory) {
         MonitorProperties properties = new MonitorProperties(
                 new YouTubeProperties("", 120),
@@ -49,7 +45,7 @@ class RecordingFileServiceTest {
                 new DiscordProperties(""),
                 new RecordingProperties(recordingDirectory.toString(), 0),
                 new MonitorProperties.AdminProperties("admin", ""));
-        return new RecordingFileService(properties, monitoredChannelRepository, recordingRepository, processLauncher);
+        return new RecordingFileService(properties, monitoredChannelRepository, recordingRepository);
     }
 
     @Nested
@@ -322,192 +318,6 @@ class RecordingFileServiceTest {
                     .containsExactly(
                             org.assertj.core.groups.Tuple.tuple("UCregistered", true),
                             org.assertj.core.groups.Tuple.tuple("UCorphan", false));
-        }
-    }
-
-    @Nested
-    @DisplayName("deleteOrphanedRecordings()")
-    class DeleteOrphanedRecordings {
-
-        @Test
-        @DisplayName("正常系：登録されていないチャンネルのファイルだけを削除する")
-        void testMethod01(@TempDir Path tempDir) throws IOException {
-            Files.createDirectories(tempDir.resolve("UCregistered"));
-            Files.write(tempDir.resolve("UCregistered/keep.mp4"), new byte[100]);
-            Files.createDirectories(tempDir.resolve("UCorphan"));
-            Files.write(tempDir.resolve("UCorphan/remove.mp4"), new byte[30]);
-            when(monitoredChannelRepository.findAll())
-                    .thenReturn(List.of(new MonitoredChannel("UCregistered", "登録中チャンネル")));
-            when(recordingRepository.findVideoIdsByChannelYoutubeChannelId("UCregistered"))
-                    .thenReturn(List.of("keep"));
-            when(processLauncher.isRunningWithCommandLineContaining("UCorphan")).thenReturn(false);
-
-            OrphanedCleanupResponse result = newService(tempDir).deleteOrphanedRecordings();
-
-            assertThat(result.deletedChannels()).isEqualTo(1);
-            assertThat(result.deletedFiles()).isEqualTo(1);
-            assertThat(result.freedBytes()).isEqualTo(30L);
-            // 登録中のチャンネルには手を付けない
-            assertThat(Files.exists(tempDir.resolve("UCregistered/keep.mp4"))).isTrue();
-            assertThat(Files.exists(tempDir.resolve("UCorphan"))).isFalse();
-        }
-
-        @Test
-        @DisplayName("正常系：録画が進行中のチャンネルは削除せず見送る")
-        void testMethod02(@TempDir Path tempDir) throws IOException {
-            // チャンネルを削除しても yt-dlp は動き続けるため、書き込み中のファイルを消してはいけない
-            Files.createDirectories(tempDir.resolve("UCrecording"));
-            Files.write(tempDir.resolve("UCrecording/inprogress.mp4"), new byte[50]);
-            when(monitoredChannelRepository.findAll()).thenReturn(List.of());
-            when(processLauncher.isRunningWithCommandLineContaining("UCrecording")).thenReturn(true);
-
-            OrphanedCleanupResponse result = newService(tempDir).deleteOrphanedRecordings();
-
-            assertThat(result.deletedChannels()).isZero();
-            assertThat(result.skippedChannels()).containsExactly("UCrecording");
-            assertThat(Files.exists(tempDir.resolve("UCrecording/inprogress.mp4"))).isTrue();
-        }
-
-        @Test
-        @DisplayName("正常系：サブディレクトリを含めて削除できる")
-        void testMethod03(@TempDir Path tempDir) throws IOException {
-            Files.createDirectories(tempDir.resolve("UCorphan/nested"));
-            Files.write(tempDir.resolve("UCorphan/a.mp4"), new byte[10]);
-            Files.write(tempDir.resolve("UCorphan/nested/b.mp4"), new byte[20]);
-            when(monitoredChannelRepository.findAll()).thenReturn(List.of());
-            when(processLauncher.isRunningWithCommandLineContaining("UCorphan")).thenReturn(false);
-
-            OrphanedCleanupResponse result = newService(tempDir).deleteOrphanedRecordings();
-
-            assertThat(result.deletedFiles()).isEqualTo(2);
-            assertThat(result.freedBytes()).isEqualTo(30L);
-            assertThat(Files.exists(tempDir.resolve("UCorphan"))).isFalse();
-        }
-
-        @Test
-        @DisplayName("正常系：削除対象が無い場合は何も削除しない")
-        void testMethod04(@TempDir Path tempDir) throws IOException {
-            Files.createDirectories(tempDir.resolve("UCregistered"));
-            Files.write(tempDir.resolve("UCregistered/keep.mp4"), new byte[10]);
-            when(monitoredChannelRepository.findAll())
-                    .thenReturn(List.of(new MonitoredChannel("UCregistered", "登録中チャンネル")));
-            when(recordingRepository.findVideoIdsByChannelYoutubeChannelId("UCregistered"))
-                    .thenReturn(List.of("keep"));
-
-            OrphanedCleanupResponse result = newService(tempDir).deleteOrphanedRecordings();
-
-            assertThat(result.deletedChannels()).isZero();
-            assertThat(result.deletedFiles()).isZero();
-            assertThat(result.freedBytes()).isZero();
-            assertThat(Files.exists(tempDir.resolve("UCregistered/keep.mp4"))).isTrue();
-        }
-
-        @Test
-        @DisplayName("正常系：登録中チャンネルでも録画履歴に無い動画の断片ファイルは削除する")
-        void testMethod06(@TempDir Path tempDir) throws IOException {
-            // 履歴が削除された後も断片ファイルだけ残るケース（実際に発生した）
-            Files.createDirectories(tempDir.resolve("UCregistered"));
-            Files.write(tempDir.resolve("UCregistered/video001.mp4"), new byte[100]);
-            Files.write(tempDir.resolve("UCregistered/orphan.f137.mp4"), new byte[50]);
-            when(monitoredChannelRepository.findAll())
-                    .thenReturn(List.of(new MonitoredChannel("UCregistered", "登録中チャンネル")));
-            when(recordingRepository.findVideoIdsByChannelYoutubeChannelId("UCregistered"))
-                    .thenReturn(List.of("video001"));
-            when(processLauncher.isRunningWithCommandLineContaining("orphan")).thenReturn(false);
-
-            OrphanedCleanupResponse result = newService(tempDir).deleteOrphanedRecordings();
-
-            assertThat(result.deletedChannels()).isZero();
-            assertThat(result.deletedFiles()).isEqualTo(1);
-            assertThat(result.freedBytes()).isEqualTo(50L);
-            assertThat(Files.exists(tempDir.resolve("UCregistered/video001.mp4"))).isTrue();
-            assertThat(Files.exists(tempDir.resolve("UCregistered/orphan.f137.mp4"))).isFalse();
-        }
-
-        @Test
-        @DisplayName("正常系：登録中チャンネルでも録画進行中の断片ファイルは削除を見送る")
-        void testMethod07(@TempDir Path tempDir) throws IOException {
-            Files.createDirectories(tempDir.resolve("UCregistered"));
-            Files.write(tempDir.resolve("UCregistered/live.f299.mp4"), new byte[10]);
-            when(monitoredChannelRepository.findAll())
-                    .thenReturn(List.of(new MonitoredChannel("UCregistered", "登録中チャンネル")));
-            when(recordingRepository.findVideoIdsByChannelYoutubeChannelId("UCregistered"))
-                    .thenReturn(List.of());
-            when(processLauncher.isRunningWithCommandLineContaining("live")).thenReturn(true);
-
-            OrphanedCleanupResponse result = newService(tempDir).deleteOrphanedRecordings();
-
-            assertThat(result.deletedFiles()).isZero();
-            assertThat(Files.exists(tempDir.resolve("UCregistered/live.f299.mp4"))).isTrue();
-        }
-
-        @Test
-        @DisplayName("正常系：録画ディレクトリ自体が存在しない場合も例外にならない")
-        void testMethod05(@TempDir Path tempDir) {
-            OrphanedCleanupResponse result =
-                    newService(tempDir.resolve("does-not-exist")).deleteOrphanedRecordings();
-
-            assertThat(result.deletedChannels()).isZero();
-            assertThat(result.skippedChannels()).isEmpty();
-        }
-
-        @Test
-        @DisplayName("正常系：チャンネルに紐づかない録画（URL指定のダウンロード）は削除しない")
-        void testMethod08(@TempDir Path tempDir) throws IOException {
-            // 置き場所は「登録中のどのチャンネルIDとも一致しないディレクトリ」になるため、
-            // 履歴を見ずに掃除すると削除済みチャンネルの置き土産と見分けが付かず消えてしまう
-            Files.createDirectories(tempDir.resolve("downloads"));
-            Files.write(tempDir.resolve("downloads/aqz-KE-bpKQ.mp4"), new byte[100]);
-            when(monitoredChannelRepository.findAll()).thenReturn(List.of());
-            when(recordingRepository.findByChannelIsNull()).thenReturn(List.of(
-                    Recording.builder().videoId("aqz-KE-bpKQ")
-                            .filePath("downloads/aqz-KE-bpKQ.mp4").build()));
-
-            OrphanedCleanupResponse result = newService(tempDir).deleteOrphanedRecordings();
-
-            assertThat(result.deletedChannels()).isZero();
-            assertThat(result.deletedFiles()).isZero();
-            assertThat(Files.exists(tempDir.resolve("downloads/aqz-KE-bpKQ.mp4"))).isTrue();
-        }
-
-        @Test
-        @DisplayName("正常系：ダウンロード用ディレクトリでも履歴の無いファイルは削除する")
-        void testMethod09(@TempDir Path tempDir) throws IOException {
-            Files.createDirectories(tempDir.resolve("downloads"));
-            Files.write(tempDir.resolve("downloads/aqz-KE-bpKQ.mp4"), new byte[100]);
-            Files.write(tempDir.resolve("downloads/orphan.f137.mp4"), new byte[50]);
-            when(monitoredChannelRepository.findAll()).thenReturn(List.of());
-            when(recordingRepository.findByChannelIsNull()).thenReturn(List.of(
-                    Recording.builder().videoId("aqz-KE-bpKQ")
-                            .filePath("downloads/aqz-KE-bpKQ.mp4").build()));
-            when(processLauncher.isRunningWithCommandLineContaining("orphan")).thenReturn(false);
-
-            OrphanedCleanupResponse result = newService(tempDir).deleteOrphanedRecordings();
-
-            assertThat(result.deletedFiles()).isEqualTo(1);
-            assertThat(Files.exists(tempDir.resolve("downloads/aqz-KE-bpKQ.mp4"))).isTrue();
-            assertThat(Files.exists(tempDir.resolve("downloads/orphan.f137.mp4"))).isFalse();
-        }
-
-        @Test
-        @DisplayName("正常系：登録中チャンネルに置かれた紐づかない録画も削除しない")
-        void testMethod10(@TempDir Path tempDir) throws IOException {
-            // ダウンロード後にそのチャンネルを監視登録した場合、録画履歴は紐づかないまま
-            // 登録中チャンネルのディレクトリに残る。チャンネル経由の履歴だけを見ると消してしまう
-            Files.createDirectories(tempDir.resolve("UCregistered"));
-            Files.write(tempDir.resolve("UCregistered/downloaded.mp4"), new byte[100]);
-            when(monitoredChannelRepository.findAll())
-                    .thenReturn(List.of(new MonitoredChannel("UCregistered", "登録中チャンネル")));
-            when(recordingRepository.findVideoIdsByChannelYoutubeChannelId("UCregistered"))
-                    .thenReturn(List.of());
-            when(recordingRepository.findByChannelIsNull()).thenReturn(List.of(
-                    Recording.builder().videoId("downloaded")
-                            .filePath("UCregistered/downloaded.mp4").build()));
-
-            OrphanedCleanupResponse result = newService(tempDir).deleteOrphanedRecordings();
-
-            assertThat(result.deletedFiles()).isZero();
-            assertThat(Files.exists(tempDir.resolve("UCregistered/downloaded.mp4"))).isTrue();
         }
     }
 }
