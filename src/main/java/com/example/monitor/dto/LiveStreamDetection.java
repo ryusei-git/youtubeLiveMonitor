@@ -32,7 +32,7 @@ import java.time.LocalDateTime;
  *                 相当する項目が無いため常に {@code null}
  * @param watchUrl 配信の視聴 URL。録画時に {@code yt-dlp} へ渡す URL でもある。
  *                 {@link DetectionStatus#LIVE}・{@link DetectionStatus#UPCOMING} 以外では {@code null}
- * @param scheduledStartTime 配信開始予定時刻。待機所で取得できなかった場合は {@code null}
+ * @param scheduledStartTime 配信開始予定時刻。{@code UPCOMING}（待機所）のときだけ入り、それ以外の状態と、待機所で時刻を読み取れなかった場合は {@code null}
  * @param channelIconUrl チャンネルのアイコン URL。YouTube の検知だけが入れる。
  *                       読み取れなかった場合は {@code null}
  */
