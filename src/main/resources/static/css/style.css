@@ -320,6 +320,37 @@ td input {
     margin-bottom: 0.9rem;
 }
 
+/* アーカイブの検索で、キーワード以外の条件を畳む入れ物（common.js の bindRecordingSearch が開閉を決める）。
+   スマホ幅では畳んで録画のカードを 1 画面目に見せ、PC 幅では summary を隠し、details と中の .inline を
+   display: contents にして中の項目をフォームの直接の子と同じ並びにする（今までの 1 行の見た目のまま）。 */
+.filterMore > summary {
+    cursor: pointer;
+    /* 指で押しやすい高さを確保する */
+    padding: 0.5rem 0;
+    font-size: 0.83rem;
+    font-weight: 650;
+}
+
+.filterMore > summary small {
+    margin-left: 0.6rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
+.filterMore > .inline {
+    margin-bottom: 0;
+}
+
+@media (min-width: 761px) {
+    .filterMore > summary { display: none; }
+    /* details の中身はブラウザ内部の入れ物（::details-content）に入るため、それも contents にしないと
+       中の項目がフォームの並びに加わらない（Chrome で確かめた） */
+    .filterMore, .filterMore::details-content, .filterMore > .inline { display: contents; }
+    /* 「検索」はキーワードの隣に移したが、PC 幅では今までどおり条件の後ろ・「条件をクリア」の前に並べる */
+    #filterForm > button[type="submit"] { order: 1; }
+    .filterMore button[type="reset"] { order: 2; }
+}
+
 .inline label {
     display: inline-flex;
     align-items: center;

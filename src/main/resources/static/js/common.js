@@ -785,6 +785,23 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
     const prevButton = /** @type {HTMLButtonElement} */ (query(".prevBtn", pager));
     const nextButton = /** @type {HTMLButtonElement} */ (query(".nextBtn", pager));
     const pageNumbers = query(".pageNumbers", pager);
+    /**
+     * キーワード以外の条件の折りたたみ（スマホ幅だけ畳む）。アーカイブを開く目的は録画を選ぶことなので、
+     * 条件の項目で最初の 1 画面を埋めず、録画のカードを見せるため。
+     */
+    const more = /** @type {HTMLDetailsElement|null} */ (form.querySelector("details.filterMore"));
+    const moreSummary = more?.querySelector("summary") ?? null;
+    const moreCount = more?.querySelector(".filterCount") ?? null;
+    if (more && moreSummary) {
+        // PC 幅では summary を隠して常に開く（今までと同じ見た目）。URL に条件が付いているときも開き、
+        // 何で絞り込んでいるかを見せる
+        more.open = window.matchMedia("(min-width: 761px)").matches
+            || countConditions(new URLSearchParams(location.search)) > 0;
+        // summary は読み上げでも開閉の状態が伝わるよう、aria-expanded を開閉に合わせる
+        const syncExpanded = () => moreSummary.setAttribute("aria-expanded", String(more.open));
+        more.addEventListener("toggle", syncExpanded);
+        syncExpanded();
+    }
 
     /**
      * @param {HTMLInputElement|HTMLSelectElement} field 条件の入力欄
@@ -818,6 +835,21 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
         if (page > 0) url.searchParams.set("page", String(page + 1));
         if (view === "list") url.searchParams.set("view", "list");
         if (url.href !== location.href) writeUrl(url, replace);
+        // 畳んだ「絞り込み・並び順」に、効いている条件の数を添える。畳んだままだと、絞り込みが残っていて
+        // 録画が少なく見えているのか、そもそも少ないのかが分からないため。入力途中の値ではなく、
+        // URL に書き出した（＝今の一覧に効いている）条件を数える
+        if (moreCount) {
+            const count = countConditions(url.searchParams);
+            moreCount.textContent = count > 0 ? `${count}件の条件を指定中` : "";
+        }
+    }
+
+    /**
+     * @param {URLSearchParams} params URL のクエリ
+     * @returns {number} キーワード以外で指定されている条件の数（キーワードは畳んでも見えているので数えない）
+     */
+    function countConditions(params) {
+        return Array.from(fields).filter(f => f.name !== "keyword" && params.get(f.name)).length;
     }
 
     /**
