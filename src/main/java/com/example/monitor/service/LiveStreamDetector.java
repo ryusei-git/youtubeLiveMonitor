@@ -2,6 +2,7 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.LiveStreamDetection;
 import com.example.monitor.util.EpochTimeConverter;
+import com.example.monitor.util.HttpResponseBodies;
 import com.example.monitor.util.YouTubeWatchUrl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -134,10 +135,11 @@ public class LiveStreamDetector {
                     .uri(URI.create(livePageUrl))
                     .timeout(REQUEST_TIMEOUT)
                     .header("User-Agent", BROWSER_USER_AGENT)
+                    .header("Accept-Encoding", "gzip")
                     .GET()
                     .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
             if (response.statusCode() != 200) {
                 log.warn("配信状態の取得で予期しないステータスを受信しました: status={}, channel={}",
@@ -145,7 +147,7 @@ public class LiveStreamDetector {
                 return LiveStreamDetection.failed();
             }
 
-            return extractDetection(response.body(), youtubeChannelId);
+            return extractDetection(HttpResponseBodies.decodeUtf8(response), youtubeChannelId);
 
         } catch (Exception e) {
             log.warn("配信状態の取得に失敗しました: channel={}, reason={}", youtubeChannelId, e.getMessage());

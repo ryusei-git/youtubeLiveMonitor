@@ -10,10 +10,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
@@ -35,10 +38,11 @@ class LiveStreamDetectorTest {
     private LiveStreamDetector liveStreamDetector;
 
     private void stubResponse(int statusCode, String body) throws IOException, InterruptedException {
-        HttpResponse<String> response = mock(HttpResponse.class);
+        HttpResponse<byte[]> response = mock(HttpResponse.class);
         when(response.statusCode()).thenReturn(statusCode);
-        // ステータスコードが200以外のテストでは body() が呼ばれないため lenient にする
-        lenient().when(response.body()).thenReturn(body);
+        // ステータスコードが200以外のテストでは body()・headers() が呼ばれないため lenient にする
+        lenient().when(response.body()).thenReturn(body.getBytes(StandardCharsets.UTF_8));
+        lenient().when(response.headers()).thenReturn(HttpHeaders.of(Map.of(), (a, b) -> true));
         when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
     }
 
