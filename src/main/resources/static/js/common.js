@@ -1815,6 +1815,12 @@ function renderNavigationForViewer(admin) {
     /** @type {HTMLElement[]} */
     const items = toLinks(admin ? adminNavigation : userNavigation);
     if (admin) {
+        // 管理者のメニューの見出し。CSS の疑似要素にすると利用者の /my のメニューにも出てしまうため、
+        // 管理者のときだけ要素で入れる（要素なら読み上げやコピーでも本文として扱われる）
+        const workspaceLabel = document.createElement("div");
+        workspaceLabel.className = "navWorkspaceLabel";
+        workspaceLabel.textContent = "ワークスペース";
+        items.unshift(workspaceLabel);
         for (const [title, entries] of adminSections) {
             const groupLabel = document.createElement("div");
             groupLabel.className = "navGroupLabel";
