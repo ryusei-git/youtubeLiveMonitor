@@ -1086,6 +1086,9 @@ button:disabled:hover {
     box-shadow: 0 2px 10px rgba(16, 29, 51, 0.25);
     animation: toastIn 0.18s ease-out;
     max-width: min(24rem, 80vw);
+    /* 親の .toastStack は背後の操作を妨げないよう pointer-events: none のまま。
+       トースト自体だけはマウスを受け、乗せている間は消さない（showToast）ために戻す */
+    pointer-events: auto;
 }
 
 .toast.is-danger {
