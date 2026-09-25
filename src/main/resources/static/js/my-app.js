@@ -818,10 +818,10 @@ const myChannelsView = {
  * @type {MyView}
  */
 const myNotificationSettingsView = {
-    title: "通知",
+    title: "通知の設定",
     nav: "/my/settings/notifications",
     render(root) {
-        root.innerHTML = `<h1>通知</h1>
+        root.innerHTML = `<h1>通知の設定</h1>
             <p class="pageDescription">購読しているチャンネルの配信が始まると、登録した Discord の Webhook へ知らせます（マイチャンネルで通知をオンにしているチャンネルが対象）。通知が要らなければ登録しなくてかまいません。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <h2>Discord の Webhook</h2>
