@@ -812,11 +812,7 @@ const myNotificationSettingsView = {
             <p class="pageDescription">購読しているチャンネルの配信が始まると、登録した Discord の Webhook へ知らせます（マイチャンネルで通知をオンにしているチャンネルが対象）。通知が要らなければ登録しなくてかまいません。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <h2>Discord の Webhook</h2>
-            <div class="inline">
-              <span>状態: <strong id="webhookState">読み込み中...</strong></span>
-              <button type="button" id="webhookTestBtn" disabled>テスト送信</button>
-              <button type="button" id="webhookRemoveBtn" class="removeBtn" disabled>解除</button>
-            </div>
+            <p>状態: <strong id="webhookState">読み込み中...</strong></p>
             <p class="muted" id="webhookHistory"></p>
             <p class="error" role="alert" id="webhookWarning" hidden></p>
             <form id="webhookForm" class="inline">
@@ -824,10 +820,13 @@ const myNotificationSettingsView = {
               <button type="submit" id="webhookSaveBtn">保存</button>
             </form>
             <p class="muted">
-              <code>https://discord.com/api/webhooks/</code> で始まる URL を受け付けます（続きは「数字/英数字」だけ。英数字には <code>_</code>・<code>-</code> も含みます）。<br>
-              Discord でコピーした URL をそのまま貼り付けてください。<code>?thread_id=</code> などを付け足した URL は受け付けません。<br>
+              Discord で「ウェブフック URL をコピー」した URL を、そのまま貼り付けてください（https://discord.com/api/webhooks/ で始まります）。<br>
               保存した URL は、この画面にも表示しません。
             </p>
+            <div class="inline" id="webhookActions" style="display:none;">
+              <button type="button" id="webhookTestBtn" disabled>テスト送信</button>
+              <button type="button" id="webhookRemoveBtn" class="removeBtn" disabled>解除</button>
+            </div>
             <h2>Webhook の作り方</h2>
             <p class="muted">
               Discord で、通知を受け取りたいサーバーの「サーバー設定」→「連携サービス」→「ウェブフック」を開き、「新しいウェブフック」を作ります。<br>
@@ -841,6 +840,7 @@ const myNotificationSettingsView = {
         const input = inputEl("webhookUrl");
         const history = el("webhookHistory");
         const warning = el("webhookWarning");
+        const actions = el("webhookActions");
         /**
          * 設定の状態（GET・PUT・DELETE の応答）。Webhook の URL は含まない。
          * failing（最近の通知が届いていないか）はサーバーが判定する。条件を画面ごとにずらさないため。
@@ -849,7 +849,10 @@ const myNotificationSettingsView = {
         /** 設定の状態。読み込めるまでは null */
         /** @type {NotificationSettings|null} */
         let settings = null;
-        /** 表示を settings に合わせる。テスト送信・解除は登録した Webhook への操作なので、登録しているときだけ押せる */
+        /**
+         * 表示を configured に合わせる。テスト送信・解除は登録した Webhook への操作なので、登録しているときだけ出す
+         * （未設定のときに押せないボタンを先に見せると、最初にやる保存が下に押し出されるため）
+         */
         const showState = () => {
             if (settings !== null) {
                 state.textContent = settings.configured ? "設定済み" : "未設定";
@@ -858,6 +861,8 @@ const myNotificationSettingsView = {
                 warning.hidden = !settings.failing;
             }
             testBtn.disabled = removeBtn.disabled = settings?.configured !== true;
+            // hidden 属性は .inline の display: flex に負けて効かないので、エラー帯と同じく style で隠す
+            actions.style.display = settings?.configured === true ? "" : "none";
         };
         /**
          * ボタンの操作を行い、失敗はエラー帯に出す。通信の間は押したボタンを止める（続けて押して二重に送らないため）。
