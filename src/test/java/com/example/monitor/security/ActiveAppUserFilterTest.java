@@ -36,7 +36,7 @@ class ActiveAppUserFilterTest {
         @DisplayName("異常系：同名の別IDが有効でも削除されたIDのセッションはAPIで401になる")
         void testMethod01() throws Exception {
             authenticate(10L, "same-name");
-            when(repository.existsByIdAndEnabledTrue(10L)).thenReturn(false);
+            when(repository.isSessionValid(10L, null)).thenReturn(false);
             MockHttpServletRequest request = request("/api/videos");
             MockHttpSession session = new MockHttpSession();
             request.setSession(session);
@@ -55,7 +55,7 @@ class ActiveAppUserFilterTest {
         @DisplayName("異常系：無効化された利用者の画面要求はログイン画面へ戻す")
         void testMethod02() throws Exception {
             authenticate(11L, "disabled");
-            when(repository.existsByIdAndEnabledTrue(11L)).thenReturn(false);
+            when(repository.isSessionValid(11L, null)).thenReturn(false);
             MockHttpServletResponse response = new MockHttpServletResponse();
 
             filter.doFilter(request("/my-channels.html"), response, countingChain(new AtomicInteger()));
@@ -68,7 +68,7 @@ class ActiveAppUserFilterTest {
         @DisplayName("正常系：同じIDの有効な利用者は後続処理へ進める")
         void testMethod03() throws Exception {
             authenticate(12L, "active");
-            when(repository.existsByIdAndEnabledTrue(12L)).thenReturn(true);
+            when(repository.isSessionValid(12L, null)).thenReturn(true);
             AtomicInteger calls = new AtomicInteger();
 
             filter.doFilter(request("/api/videos"), new MockHttpServletResponse(), countingChain(calls));

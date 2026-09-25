@@ -8,6 +8,7 @@ import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.Invitation;
 import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.InvitationRepository;
+import com.example.monitor.util.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import lombok.extern.slf4j.Slf4j;
@@ -54,9 +55,6 @@ public class InvitationService {
      * かつ Base64 にしても URL に収まる程度に収まる（43 文字）。
      */
     private static final int TOKEN_BYTES = 32;
-
-    /** パスワードの最低文字数。 */
-    private static final int MIN_PASSWORD_LENGTH = 8;
 
     /** 利用者名の最低文字数。 */
     private static final int MIN_USERNAME_LENGTH = 3;
@@ -178,7 +176,7 @@ public class InvitationService {
 
         String name = username == null ? "" : username.trim();
         validateUsername(name);
-        validatePassword(password);
+        PasswordPolicy.validate(password);
 
         if (appUserRepository.findByUsername(name).isPresent()) {
             throw new IllegalArgumentException("この利用者名は既に使われています。別の名前にしてください。");
@@ -225,18 +223,6 @@ public class InvitationService {
         if (username.length() < MIN_USERNAME_LENGTH || username.length() > MAX_USERNAME_LENGTH) {
             throw new IllegalArgumentException(
                     "利用者名は" + MIN_USERNAME_LENGTH + "〜" + MAX_USERNAME_LENGTH + "文字にしてください");
-        }
-    }
-
-    /**
-     * パスワードが要件を満たすか調べる。
-     *
-     * @param password パスワード
-     * @throws IllegalArgumentException 要件を満たさない場合
-     */
-    private void validatePassword(String password) {
-        if (password == null || password.length() < MIN_PASSWORD_LENGTH) {
-            throw new IllegalArgumentException("パスワードは" + MIN_PASSWORD_LENGTH + "文字以上にしてください");
         }
     }
 
