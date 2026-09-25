@@ -445,6 +445,232 @@ async function myLoadRelated(rec, grid) {
     }
 }
 
+/**
+ * 購読しているチャンネル 1 件（GET /api/my/channels の要素）。画面で使う項目だけを書く。
+ *
+ * @typedef {object} MySubscribedChannel
+ * @property {number} id チャンネルの主キー。録画の希望の変更・解除・アーカイブの絞り込みに使う
+ * @property {string} platformLabel プラットフォームの表示名
+ * @property {string} channelName チャンネル名
+ * @property {boolean} currentlyLive 最後に確かめた時点で配信中か
+ * @property {string|null} lastCheckedAt 最後に確かめた時刻。一度も確かめていなければ null
+ * @property {boolean} detectionFailing 配信状態を判定できていない状態が続いているか
+ * @property {string} subscribedAt 購読した時刻
+ * @property {boolean} recordEnabled 自分が自動録画を希望しているか
+ * @property {string|null} recordTitleKeywords 自分の絞り込みキーワード。未設定なら null
+ * @property {string|null} channelUrl チャンネルページの URL。組み立てられなければ null
+ * @property {string|null} channelIconUrl アイコンの URL。まだ読み取れていなければ null
+ * @property {number} recordingCount 再生できる録画の件数
+ */
+
+/**
+ * 購読しているチャンネルの状態の表示。旧画面（my-channels.js の subscribedStateLabel）と同じ中身で、
+ * 旧画面は消す予定（#179）のため common.js へは移さない。
+ * 「配信していない」と「判定できなかった」は必ず分ける。まとめると、検知が壊れていても平常運転に見える。
+ *
+ * @param {MySubscribedChannel} ch 購読しているチャンネル
+ * @returns {string} セルへ差し込む HTML
+ */
+function myChannelStateLabel(ch) {
+    if (ch.detectionFailing) {
+        return statusLamp("failed", "確認できません",
+            "配信状態を判定できていません。しばらくしても直らない場合は管理者に連絡してください。");
+    }
+    if (!ch.lastCheckedAt) return statusLamp("unknown", "未確認", "まだ一度も確認していません");
+    return ch.currentlyLive
+        ? statusLamp("live", "配信中", "最終確認時点で配信中です")
+        : statusLamp("idle", "配信していません");
+}
+
+/**
+ * マイチャンネルの表の 1 行。録画の希望・キーワードは押した行だけを書き換え、一覧は読み直さない
+ * （apiPut は応答を読まないので、応答の録画数 0 で表が上書きされることもない）。
+ *
+ * @param {MySubscribedChannel} ch 購読しているチャンネル
+ * @param {() => void} reload 一覧を読み直す。解除の後に呼ぶ
+ * @returns {HTMLTableRowElement} 行
+ */
+function myChannelRow(ch, reload) {
+    const tr = document.createElement("tr");
+    // アイコンは名前のセルに並べる（配信予定の表と同じ）。名前の並べ替えはセルの文字で比べる（アイコンは文字を持たない）。
+    // 配信元は管理画面の表と同じく、プラットフォーム名をチャンネルページへのリンクにする（プラットフォームと
+    // リンクで列を分けると表が横に長くなり、よく使う画面の幅でも解除のボタンが横にはみ出すため）。
+    // 購読した日は日付だけを出し、時刻は title に回す（時刻まで出すと表が横に長くなり、よく使う幅で解除がはみ出す）。
+    // 並べ替えは秒までの値で比べる（数字の並びを数として比べるため、秒未満の桁数が行ごとに違うと正しく並ばない）
+    const subscribed = escapeHtml(formatDateTimeSimple(ch.subscribedAt));
+    tr.innerHTML = `<td><span class="channelWithIcon">${channelIcon(ch.channelIconUrl)}<a href="/my/archive?channelId=${ch.id}">${escapeHtml(ch.channelName)}</a></span></td>
+        <td>${externalLink(ch.platformLabel, ch.channelUrl)}</td>
+        <td>${myChannelStateLabel(ch)}</td>
+        <td data-sort-value="${ch.recordingCount}">${ch.recordingCount}件</td>
+        <td data-sort-value="${subscribed}" title="${subscribed}">${subscribed.slice(0, 10)}</td>
+        <td><button type="button" class="recordBtn">${ch.recordEnabled ? "録画する" : "録画しない"}</button></td>
+        <td class="titleFilterCell">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
+        <td><button type="button" class="unsubscribeBtn">解除</button></td>`;
+
+    const recordBtn = /** @type {HTMLButtonElement} */ (query(".recordBtn", tr));
+    recordBtn.addEventListener("click", async () => {
+        const next = !ch.recordEnabled;
+        recordBtn.disabled = true;
+        try {
+            // 変えるのは自分の希望だけ。キーワードは今の値をそのまま送る
+            await apiPut(`/api/my/channels/${ch.id}/record`, { enabled: next, titleKeywords: ch.recordTitleKeywords || "" });
+            ch.recordEnabled = next;
+            recordBtn.textContent = next ? "録画する" : "録画しない";
+            if (recordBtn.isConnected) clearError();
+            showToast(next ? "この配信者の録画を始めます" : "この配信者の録画をやめます");
+        } catch (e) {
+            if (recordBtn.isConnected) showError(errorMessage(e));
+        } finally {
+            recordBtn.disabled = false;
+        }
+    });
+
+    const filterCell = /** @type {HTMLTableCellElement} */ (query(".titleFilterCell", tr));
+    // 保存先は自分の購読で、ほかの人の設定には影響しない。保存できたら行の値も変える
+    // （変えないと、続けて録画の希望を切り替えたときに古いキーワードで上書きする）
+    filterCell.addEventListener("click", () => editTitleFilterCell(filterCell, ch.recordTitleKeywords || "",
+        async (value) => {
+            await apiPut(`/api/my/channels/${ch.id}/record`, { enabled: ch.recordEnabled, titleKeywords: value });
+            ch.recordTitleKeywords = value;
+        }));
+
+    query(".unsubscribeBtn", tr).addEventListener("click", async () => {
+        // 「解除」が何をするのかを明示する（旧画面と同じ文言）。管理画面の「削除」と取り違えられると困る
+        if (!confirm(`${ch.channelName} の購読を解除しますか？\n解除されるのはあなたの購読だけで、チャンネルの監視そのものは続きます。`)) return;
+        try {
+            await apiDelete(`/api/my/channels/${ch.id}`);
+            if (tr.isConnected) clearError();
+            showToast(`${ch.channelName} の購読を解除しました`, "danger");
+            reload();
+        } catch (e) {
+            if (tr.isConnected) showError(errorMessage(e));
+        }
+    });
+    return tr;
+}
+
+/**
+ * マイチャンネル。購読しているチャンネルの表と、購読の追加・解除・録画の希望・キーワード（旧画面 my-channels.html の操作）。
+ *
+ * 並べ替えは全件を持っている表の中だけで行い（common.js の makeTableSortable）、選んだ列と向きを URL の sort に残す。
+ * 残すのは replaceState にする。見出しを押すたびに履歴を積むと、「戻る」で並べ替えを 1 つずつ戻ることになり、
+ * そのたびにルーターが画面ごと読み直すため。
+ *
+ * 購読の追加の応答は録画数が 0 で返る（件数を数えない作り）。既に録画のあるチャンネルが 0 件に化けないよう、
+ * 追加の後は応答を表に使わず一覧を読み直す。
+ * @type {MyView}
+ */
+const myChannelsView = {
+    title: "マイチャンネル",
+    nav: "/my/channels",
+    render(root, match, params) {
+        root.innerHTML = `<h1>マイチャンネル</h1>
+            <p class="pageDescription">購読しているチャンネルと、自分の録画の希望。</p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <h2>チャンネルを追加 <span class="hint" title="チャンネルページのURLをそのまま貼り付けできます（YouTube: https://www.youtube.com/@foo、Twitch: https://www.twitch.tv/foo）。">ⓘ</span></h2>
+            <p class="muted">配信が始まると、この一覧の状態が「配信中」に変わります。</p>
+            <form id="addForm" class="inline">
+              <select id="addPlatform" aria-label="配信プラットフォーム"></select>
+              <input type="text" id="addChannelId" placeholder="URL / @ハンドル / チャンネルID" required aria-label="チャンネルURL・ハンドル・ID">
+              <input type="text" id="addChannelName" placeholder="表示名（省略可）" aria-label="表示名">
+              <button type="submit">追加</button>
+            </form>
+            <h2>購読しているチャンネル</h2>
+            <p class="muted">
+              録画を「する」にすると、条件に合う配信が自動で保存されます。保存された録画は<a href="/my/archive">アーカイブ</a>から見られます。<br>
+              設定はあなた専用です。ただし<strong>同じチャンネルを他の人も録画している場合、
+              あなたが「しない」にしても録画自体は続きます</strong>（保存先が共通のため）。
+            </p>
+            <div class="table-scroll">
+              <table>
+                <thead><tr>
+                  <th data-sort="text" data-key="name">チャンネル名</th><th>配信元</th><th>状態</th>
+                  <th data-sort="number" data-key="recordings">録画数</th><th data-sort="text" data-key="subscribed">購読した日</th>
+                  <th>録画の希望</th><th>キーワード</th><th></th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="channelEmpty"></div>`;
+        const table = /** @type {HTMLTableElement} */ (query("table", root));
+        const tbody = query("tbody", table);
+        const empty = query(".channelEmpty", root);
+
+        makeTableSortable(table);
+        const sortHeaders = /** @type {HTMLTableCellElement[]} */ ([...table.querySelectorAll("thead th[data-key]")]);
+        // 並べ替えの状態は makeTableSortable と同じく表の data-sort-column・data-sort-direction に持つ。
+        // URL の sort（例: recordings-desc）が読めなければ、購読した日の新しい順（API の並びと同じ）にする
+        const [key, direction] = (params.get("sort") ?? "").split("-");
+        const fromUrl = sortHeaders.find((th) => th.dataset.key === key && (direction === "asc" || direction === "desc"));
+        const initial = fromUrl ?? sortHeaders.find((th) => th.dataset.key === "subscribed");
+        table.dataset.sortColumn = String(initial?.cellIndex);
+        table.dataset.sortDirection = fromUrl && direction === "asc" ? "ascending" : "descending";
+        query("thead", table).addEventListener("click", (event) => {
+            // 見出しのボタン（makeTableSortable が作る）の処理が先に済み、data-sort-* は押した後の状態になっている
+            if (!(event.target instanceof Element && event.target.closest(".sortButton"))) return;
+            const th = sortHeaders.find((h) => String(h.cellIndex) === table.dataset.sortColumn);
+            const url = new URL(location.href);
+            url.searchParams.set("sort", `${th?.dataset.key}-${table.dataset.sortDirection === "descending" ? "desc" : "asc"}`);
+            history.replaceState(null, "", url);
+        });
+
+        /** 読み込みの番号。追加・解除を続けたとき、遅れて届いた古い一覧で上書きしないため。 */
+        let request = 0;
+        const load = async () => {
+            const current = ++request;
+            setBusy(table, true);
+            try {
+                /** @type {MySubscribedChannel[]} */
+                const channels = await apiGet("/api/my/channels");
+                if (current !== request || !table.isConnected) return;
+                tbody.replaceChildren(...channels.map((ch) => myChannelRow(ch, load)));
+                // 読み直すたびに行を作り直すので、選ばれている並び順をここで掛け直す
+                applyTableSort(table);
+                // 0 件と読み込みの失敗は利用者にとって別の意味なので、はっきり分けて伝える
+                query(".table-scroll", root).hidden = channels.length === 0;
+                empty.innerHTML = channels.length === 0
+                    ? emptyState("まだチャンネルを追加していません", "上の入力欄にチャンネルのURLを貼ると、配信の開始を見張ります")
+                    : "";
+            } catch (e) {
+                if (current === request && table.isConnected) showError(errorMessage(e));
+            } finally {
+                if (current === request) setBusy(table, false);
+            }
+        };
+
+        const form = formEl("addForm");
+        const platform = selectEl("addPlatform");
+        const channelInput = inputEl("addChannelId");
+        const channelName = inputEl("addChannelName");
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            const submit = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
+            submit.disabled = true;
+            try {
+                const added = await apiPost("/api/my/channels", {
+                    platform: platform.value, channelInput: channelInput.value.trim(), channelName: channelName.value.trim() });
+                if (!form.isConnected) return;
+                clearError();
+                showToast(`${added.channelName} を追加しました`);
+                channelInput.value = "";
+                channelName.value = "";
+                load();
+            } catch (e) {
+                if (form.isConnected) showError(errorMessage(e));
+            } finally {
+                submit.disabled = false;
+            }
+        });
+
+        // 選択肢はサーバーが返したものだけを使う（決め打ちすると、対応するプラットフォームが増えるたびに画面の修正が要る）
+        apiGet("/api/platforms")
+            .then((/** @type {Array<{name: string, label: string}>} */ options) =>
+                platform.replaceChildren(...options.map((p) => new Option(p.label, p.name))))
+            .catch((e) => { if (platform.isConnected) showError(errorMessage(e)); });
+        load();
+    },
+};
+
 /** @type {MyView} */
 const myNotFoundView = {
     title: "ページが見つかりません",
@@ -460,13 +686,14 @@ const myNotFoundView = {
 
 /**
  * ルートの表。上から順にパスと照らし、最初に合った画面を出す。
- * 最後の行は、どれにも合わない /my 配下（第 2 陣で足す /my/channels など）。
+ * 最後の行は、どれにも合わない /my 配下（まだ作っていない /my/settings/notifications など）。
  * @type {Array<[RegExp, MyView]>}
  */
 const myRoutes = [
     [/^\/my\/?$/, myTopView],
     [/^\/my\/archive\/?$/, myArchiveView],
     [/^\/my\/watch\/(\d+)\/?$/, myWatchView],
+    [/^\/my\/channels\/?$/, myChannelsView],
     [/^/, myNotFoundView],
 ];
 

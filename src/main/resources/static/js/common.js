@@ -1656,9 +1656,10 @@ const studioPages = {
     "my-channels.html": "M4 4h16v16H4z M8 9h8 M8 14h5",
     "my-recordings.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
-    // 利用者の 1 枚のページ（my.html）のトップ（/my）とアーカイブ（/my/archive）
+    // 利用者の 1 枚のページ（my.html）のトップ（/my）・アーカイブ（/my/archive）・マイチャンネル（/my/channels）
     "my": "M3 11l9-8 9 8 M5 9v12h14V9 M10 21v-6h4v6",
     "archive": "M4 5h16v14H4z M10 9l5 3-5 3z",
+    "channels": "M4 4h16v16H4z M8 9h8 M8 14h5",
 };
 
 /**
@@ -1871,6 +1872,19 @@ function splitScheduledStart(iso) {
 }
 
 /**
+ * チャンネル名の左に並べる丸いアイコンの HTML（.channelWithIcon の中に置く）。配信予定の表と利用者のマイチャンネルで
+ * 同じ出し方にするため、ここに置いている。隣にチャンネル名があるため alt は空にし、読み上げで名前が 2 回読まれないようにする。
+ *
+ * @param {string|null|undefined} url アイコンの URL。まだ読み取れていなければ null
+ * @returns {string} 差し込む HTML。URL が無ければ空文字
+ */
+function channelIcon(url) {
+    return url
+        ? `<img class="channelIcon" src="${escapeHtml(url)}" alt="" width="24" height="24" loading="lazy" referrerpolicy="no-referrer">`
+        : "";
+}
+
+/**
  * 配信予定を開始時刻の近さで読み取れる一覧にする。
  *
  * <p>配信中の一覧と分けることで、待機所を配信開始と誤解せず、利用者が次の予定を把握できる。
@@ -1888,16 +1902,12 @@ function renderUpcomingStreams(streams, box = el("upcomingStreams"),
     }
     const rows = streams.map(s => {
         const start = splitScheduledStart(s.scheduledStartTime);
-        // 隣にチャンネル名があるため alt は空にし、読み上げで名前が 2 回読まれないようにする
-        const icon = s.channelIconUrl
-            ? `<img class="channelIcon" src="${escapeHtml(s.channelIconUrl)}" alt="" width="24" height="24" loading="lazy" referrerpolicy="no-referrer">`
-            : "";
         return `
         <tr>
             <td>${escapeHtml(start.date)}</td>
             <td>${escapeHtml(start.weekday)}</td>
             <td>${escapeHtml(start.time)}</td>
-            <td><span class="channelWithIcon">${icon}${externalLink(s.channelName, s.channelUrl)}</span></td>
+            <td><span class="channelWithIcon">${channelIcon(s.channelIconUrl)}${externalLink(s.channelName, s.channelUrl)}</span></td>
             <td>${escapeHtml(s.genre || "未設定")}</td>
             <td>${externalLink(s.title ?? "（タイトル不明）", s.watchUrl)}</td>
         </tr>`;
