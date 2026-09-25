@@ -183,7 +183,8 @@ const myTopView = {
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <section class="livePanel"><h2>配信中</h2><div class="videoGrid"></div></section>
             <section class="upcomingPanel">
-                <h2>配信予定 <span class="hint" title="YouTube の待機所（配信開始前の予約枠）から読み取った、7 日以内の開始予定です。Twitch は対象外です。">ⓘ</span></h2>
+                <h2>配信予定</h2>
+                <p class="muted">YouTube の待機所（配信開始前の予約枠）から読み取った、7 日以内の開始予定です。Twitch は対象外です。</p>
                 <div></div>
             </section>`;
         const live = query(".livePanel .videoGrid", root);
@@ -694,8 +695,8 @@ const myChannelsView = {
         root.innerHTML = `<h1>マイチャンネル</h1>
             <p class="pageDescription">購読しているチャンネルと、自分の録画の希望。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
-            <h2>チャンネルを追加 <span class="hint" title="チャンネルページのURLをそのまま貼り付けできます（YouTube: https://www.youtube.com/@foo、Twitch: https://www.twitch.tv/foo）。">ⓘ</span></h2>
-            <p class="muted">配信が始まると、この一覧の状態が「配信中」に変わります。</p>
+            <h2>チャンネルを追加</h2>
+            <p class="muted">チャンネルページの URL をそのまま貼り付けられます（例: https://www.youtube.com/@foo、https://www.twitch.tv/foo）。配信が始まると、この一覧の状態が「配信中」に変わります。</p>
             <form id="addForm" class="inline">
               <select id="addPlatform" aria-label="配信プラットフォーム"></select>
               <input type="text" id="addChannelId" placeholder="URL / @ハンドル / チャンネルID" required aria-label="チャンネルURL・ハンドル・ID">
