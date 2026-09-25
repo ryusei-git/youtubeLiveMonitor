@@ -254,11 +254,17 @@ public class LiveStreamPollingScheduler {
      * しておくことで、まとめて問い合わせるプラットフォームと 1 件ずつ問い合わせるプラットフォームの
      * どちらでも同じ後処理を通せる。
      *
+     * <p>このメソッドには処理の順番だけを残し、中身は段階ごとの private メソッドに分けている。
+     * 「通知が来ない」を調べるときに、まずここで<b>どの段階で抜けたか</b>を見て、
+     * 該当するメソッドだけを読めば済むようにするため（1 メソッドに全部あると、
+     * 途中の 7 つの {@code return} を上から順に追う必要があった）。
+     *
      * <p><b>DB の更新に {@code save(entity)} を使ってはならない。</b>
      * このメソッドが扱っているエンティティは巡回開始時に読み込んだもので、
      * その後に管理用 API 経由でチャンネル名などが変更されている可能性がある。
      * {@code save} は全カラムを書き戻すため、その変更を古い値で消してしまう
-     * （実際に発生した不具合）。更新には対象カラムを限定した専用メソッドを使う。
+     * （実際に発生した不具合）。更新には対象カラムを限定した専用メソッドを使う
+     * （分けた private メソッドもすべて同じ方針に従う）。
      *
      * @param platform  このチャンネルを担当するプラットフォーム実装（詳細取得に使う）
      * @param channel   調査対象のチャンネル
@@ -275,11 +281,44 @@ public class LiveStreamPollingScheduler {
             return;
         }
 
-        // updateObservedLiveState が currentLiveVideoId を上書きしてしまうため、その前に控える。
-        // 「前の配信」と「今の配信」を見分ける材料はこれしかない
+        // updateObservedLiveState（recordObservation の中）が currentLiveVideoId を上書きしてしまうため、
+        // その前に控える。「前の配信」と「今の配信」を見分ける材料はこれしかない
         String previousLiveVideoId = channel.getCurrentLiveVideoId();
 
-        // 判定できた場合のみ観測結果を記録する（通知の成否とは無関係に毎回）
+        recordObservation(channel, detection);
+
+        if (!detection.isLive()) {
+            return;
+        }
+
+        String videoId = detection.videoId();
+        int notificationFailureCount = failureCountForThisStream(channel, videoId, previousLiveVideoId);
+
+        // 録画は通知の成否と無関係に、動画IDが変わるたびに1回だけ試みる
+        maybeStartRecording(channel, detection);
+
+        Supplier<Optional<LiveStreamDetails>> details = fetchDetailsOnce(platform, channel, videoId);
+
+        // 利用者ごとの通知は、全体向けの「通知済み」・失敗回数・フィルターとは切り離して判定する
+        // （UserNotificationService 参照）。全体向けの打ち切り（notifyChannelWide の中の return）より
+        // 前に置くのはそのため。例外は投げないので、全体向けの通知は必ずこの後に続く
+        userNotificationService.notifySubscribers(channel, videoId, details);
+
+        notifyChannelWide(channel, detection, details, notificationFailureCount);
+    }
+
+    /**
+     * 判定できた検知結果を、通知の成否とは無関係に毎回 DB へ記録する。
+     *
+     * <p>配信状態・配信予定（待機所）・アイコン・配信終了時の失敗回数のリセットをまとめているのは、
+     * どれも「今回の観測で分かった事実をそのまま残す」処理で、通知や録画の判断を含まないため。
+     * 判定失敗（{@code DETECTION_FAILED}）の結果はここへ渡さない。呼び出し側で先に抜けるので、
+     * 「判定できなかった」ことを「配信していない」として記録してしまうことはない。
+     *
+     * @param channel   調査対象のチャンネル（巡回開始時に読み込んだもの。書き換えない）
+     * @param detection 判定できた検知結果
+     */
+    private void recordObservation(MonitoredChannel channel, LiveStreamDetection detection) {
         DatabaseUpdateVerifier.verify(
                 monitoredChannelRepository.updateObservedLiveState(
                         channel.getId(), detection.isLive(),
@@ -319,25 +358,34 @@ public class LiveStreamPollingScheduler {
                         monitoredChannelRepository.resetNotificationFailureCount(channel.getId()),
                         "通知失敗回数のリセット", channel.getId());
             }
-            return;
         }
+    }
 
-        String videoId = detection.videoId();
-
-        // 失敗回数は「この配信に対して何回失敗したか」なので、配信が変われば数え直す。
-        // NOT_LIVE を挟まずに次の配信へ切り替わる経路（巡回間隔内での枠の差し替え、
-        // アプリ停止中の切り替え）があり、そこを通ると前の配信の失敗回数がそのまま適用され、
-        // 新しい配信への通知が一度も試されないまま終わる（実際に起こりうる指摘）。
-        //
-        // ローカル変数に持つのは、DB を 0 に戻しても読み込み済みのエンティティは
-        // 古い値のままで、このサイクルの上限判定が「上限到達」のままになるため。
-        // エンティティ側を書き換えないのは、巡回ループが扱うエンティティを変更しないという
-        // このクラスの方針（save(entity) を呼ばない理由と同じ）に合わせている。
-        // 前の配信が「分からない」ときは戻さない。分からないものを「別の配信だ」と断定すると、
-        // 上限を設けた意味（直らない失敗を試行し続けない）が消えるため
-        // （「配信していない」と「判定できなかった」を区別するのと同じ考え方）。
-        // 失敗回数が 1 以上なら、その配信を検知したときに currentLiveVideoId も
-        // 記録されているはずなので、実運用でこの条件が効く場面は無い。
+    /**
+     * 今の配信に対する通知の失敗回数を返す。前の配信と別の配信なら 0 に数え直す。
+     *
+     * <p>失敗回数は「この配信に対して何回失敗したか」なので、配信が変われば数え直す。
+     * NOT_LIVE を挟まずに次の配信へ切り替わる経路（巡回間隔内での枠の差し替え、
+     * アプリ停止中の切り替え）があり、そこを通ると前の配信の失敗回数がそのまま適用され、
+     * 新しい配信への通知が一度も試されないまま終わる（実際に起こりうる指摘）。
+     *
+     * <p><b>DB を戻すだけでなく回数を返り値で渡す</b>のは、DB を 0 に戻しても読み込み済みの
+     * エンティティは古い値のままで、このサイクルの上限判定が「上限到達」のままになるため。
+     * エンティティ側を書き換えないのは、巡回ループが扱うエンティティを変更しないという
+     * このクラスの方針（{@code save(entity)} を呼ばない理由と同じ）に合わせている。
+     *
+     * <p>前の配信が「分からない」（{@code previousLiveVideoId} が null）ときは戻さない。
+     * 分からないものを「別の配信だ」と断定すると、上限を設けた意味（直らない失敗を試行し続けない）が
+     * 消えるため（「配信していない」と「判定できなかった」を区別するのと同じ考え方）。
+     * 失敗回数が 1 以上なら、その配信を検知したときに currentLiveVideoId も
+     * 記録されているはずなので、実運用でこの条件が効く場面は無い。
+     *
+     * @param channel             調査対象のチャンネル（巡回開始時に読み込んだもの。書き換えない）
+     * @param videoId             今の配信の動画 ID
+     * @param previousLiveVideoId 観測を記録する前に控えた、前回の配信の動画 ID（不明なら null）
+     * @return このサイクルの上限判定に使う失敗回数
+     */
+    private int failureCountForThisStream(MonitoredChannel channel, String videoId, String previousLiveVideoId) {
         int notificationFailureCount = channel.getNotificationFailureCount();
         if (notificationFailureCount > 0 && previousLiveVideoId != null
                 && !Objects.equals(videoId, previousLiveVideoId)) {
@@ -349,16 +397,29 @@ public class LiveStreamPollingScheduler {
                     "通知失敗回数のリセット（別の配信を検知）", channel.getId());
             notificationFailureCount = 0;
         }
+        return notificationFailureCount;
+    }
 
-        // 録画は通知の成否と無関係に、動画IDが変わるたびに1回だけ試みる
-        maybeStartRecording(channel, detection);
-
-        Supplier<Optional<LiveStreamDetails>> details = fetchDetailsOnce(platform, channel, videoId);
-
-        // 利用者ごとの通知は、全体向けの「通知済み」・失敗回数・フィルターとは切り離して判定する
-        // （UserNotificationService 参照）。下の全体向けの打ち切り（return）より前に置くのはそのため。
-        // 例外は投げないので、全体向けの通知は必ずこの後に続く
-        userNotificationService.notifySubscribers(channel, videoId, details);
+    /**
+     * 全体向け（管理者の Webhook）に配信開始を通知し、成否に応じて通知済み・失敗回数を記録する。
+     *
+     * <p>通知しない理由（通知済み・タイトルフィルター・失敗回数の上限）の判定をここに集めているのは、
+     * 「全体向けの通知が来ない」を調べるときにこのメソッドだけを読めば済むようにするため。
+     * 判定の順番にも意味がある。<b>詳細の取得は、送らないと決まる判定をすべて通った後</b>にする
+     * （YouTube では詳細の取得がクォータを消費するため）。
+     *
+     * <p>送信に失敗しても通知済みにはしない。次の巡回で再送信されるが、失敗回数が
+     * {@code MAX_NOTIFICATION_ATTEMPTS} に達したら諦める（直らない失敗を試行し続けないため）。
+     * 詳細が取れず本文を作れなかった場合も失敗として数える。
+     *
+     * @param channel                  調査対象のチャンネル（巡回開始時に読み込んだもの。書き換えない）
+     * @param detection                配信中と判定された検知結果
+     * @param details                  配信の詳細（最初に必要になったときに 1 回だけ取得する）
+     * @param notificationFailureCount {@code failureCountForThisStream} が返した、この配信への失敗回数
+     */
+    private void notifyChannelWide(MonitoredChannel channel, LiveStreamDetection detection,
+            Supplier<Optional<LiveStreamDetails>> details, int notificationFailureCount) {
+        String videoId = detection.videoId();
 
         if (Objects.equals(videoId, channel.getLastNotifiedVideoId())) {
             log.debug("配信中ですが通知済みのためスキップします: name={}, video={}",
