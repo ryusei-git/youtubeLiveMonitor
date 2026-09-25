@@ -35,6 +35,8 @@ import java.time.LocalDateTime;
  * @param channelIconUrl      チャンネルのアイコン URL。まだ読み取れていない場合は {@code null}
  * @param recordingCount      再生できる録画の件数（状態が {@code COMPLETED} と {@code PARTIAL} のもの）。
  *                            管理者の一覧と数え方をそろえ、画面ごとに件数が食い違わないようにしている
+ * @param recordingNow        このチャンネルの配信を今録画しているか（状態が {@code RECORDING} の録画があるか）。
+ *                            利用者が「まだアーカイブに上がっていない」と「録られていない」を見分けるために返す
  */
 public record SubscribedChannelResponse(
         Long id,
@@ -51,11 +53,12 @@ public record SubscribedChannelResponse(
         String recordTitleKeywords,
         String channelUrl,
         String channelIconUrl,
-        long recordingCount
+        long recordingCount,
+        boolean recordingNow
 ) {
 
     /**
-     * 購読とその対象チャンネルから応答を組み立てる。録画件数は 0 とする。
+     * 購読とその対象チャンネルから応答を組み立てる。録画件数は 0、録画中ではないものとする。
      *
      * <p>購読の追加・設定変更の応答で使う。件数のためだけに録画を数える問い合わせを
      * 走らせないよう、件数が要る一覧（{@code GET /api/my/channels}）だけが
@@ -76,6 +79,19 @@ public record SubscribedChannelResponse(
      * @return 応答
      */
     public static SubscribedChannelResponse from(UserSubscription subscription, long recordingCount) {
+        return from(subscription, recordingCount, false);
+    }
+
+    /**
+     * 購読とその対象チャンネル、録画件数、録画中かから応答を組み立てる。
+     *
+     * @param subscription   購読 1 件
+     * @param recordingCount 再生できる録画の件数
+     * @param recordingNow   このチャンネルの配信を今録画しているか
+     * @return 応答
+     */
+    public static SubscribedChannelResponse from(
+            UserSubscription subscription, long recordingCount, boolean recordingNow) {
         MonitoredChannel channel = subscription.getChannel();
         return new SubscribedChannelResponse(
                 channel.getId(),
@@ -93,6 +109,7 @@ public record SubscribedChannelResponse(
                 StreamLinkUtils.channelUrl(
                         channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
                 channel.getChannelIconUrl(),
-                recordingCount);
+                recordingCount,
+                recordingNow);
     }
 }
