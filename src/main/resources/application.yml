@@ -1,3 +1,19 @@
+# 外からは tailscale serve の HTTPS だけを通す（#308）。全インターフェースで待ち受けると、
+# LAN やグローバル IPv6 からパスワードとセッションの Cookie が平文で流れる。
+# LAN から直接開きたいときは .env に SERVER_ADDRESS=0.0.0.0 を書く（手順は README「外から使う」）。
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  # プロキシ経由だと接続元が全員 127.0.0.1 になり、ログイン試行の IP ごとの制限（LoginAttemptLimiter）が
+  # 全員で 1 つの枠を共有し、監査ログの IP も区別できなくなる。X-Forwarded-For・X-Forwarded-Proto を
+  # Tomcat に読ませ、getRemoteAddr() を本来の接続元、ログイン後のリダイレクトを https にする。
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      # ヘッダーを信じるのはループバック（同じ端末の tailscale serve）から来た要求だけにする。
+      # 既定の信頼範囲には Tailscale の 100.64.0.0/10 や LAN のアドレスが含まれ、tailnet や LAN から
+      # 直接つないだ人が X-Forwarded-For を偽装してログイン試行の制限をすり抜けられるため。
+      internal-proxies: '127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0:0:0:0:0:0:0:1|::1'
+
 spring:
   application:
     name: youtube-live-monitor

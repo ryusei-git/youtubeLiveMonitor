@@ -426,6 +426,56 @@ java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel list
 画面を更新したのに古い内容が表示される、という状態になりません。
 録画ファイル（`/recordings/**`）はこの設定の対象外で、キャッシュがそのまま効きます。
 
+### 外から使う（tailscale serve）
+
+アプリは `127.0.0.1:8080` だけで待ち受けます（`application.yml` の `server.address`）。
+全インターフェースで待ち受けると、LAN やグローバル IPv6 からログインのパスワードと
+セッションの Cookie が平文の HTTP で流れるためです。ほかの端末からは、同じ tailnet の中で
+`tailscale serve` の HTTPS を通して開きます。
+
+```bash
+# 443 の HTTPS で受けて 127.0.0.1:8080 へ渡す（--bg で常駐し、端末の再起動後も残る）
+tailscale serve --bg --https=443 http://127.0.0.1:8080
+tailscale serve status        # https://<端末名>.<tailnet>.ts.net/ が表示される
+# やめるとき
+tailscale serve --https=443 off
+```
+
+tailnet の端末（iPhone など）から `https://<端末名>.<tailnet>.ts.net/` を開きます。
+初回は tailnet の管理画面で MagicDNS と HTTPS 証明書を有効にしておく必要があります
+（無効だと `tailscale serve` がその旨を表示します）。
+
+`tailscale serve` は `X-Forwarded-For`・`X-Forwarded-Proto: https` を付けて渡すので、アプリは
+これを読んで監査ログやログイン試行の制限に本来の接続元（100.x）を使い、ログイン後の遷移も
+https のままにします。**このヘッダーを信じるのはループバックから来た要求だけ**です
+（`server.tomcat.remoteip.internal-proxies`）。tailnet や LAN から直接つないだ人が
+`X-Forwarded-For` を偽装しても無視されます。
+
+待ち受けを絞ったうえで、次の 2 つも確かめておくと安心です。
+
+```bash
+ss -ltnp | grep 8080          # 127.0.0.1:8080（Java は [::ffff:127.0.0.1]:8080 と表示される）だけで、*:8080 が無いこと
+sudo ufw status verbose       # 受信は既定で拒否（deny (incoming)）、許可は tailscale0 と lo だけ
+#   設定する場合: sudo ufw default deny incoming && sudo ufw allow in on tailscale0 && sudo ufw allow in on lo && sudo ufw enable
+```
+
+ルーターの管理画面では、IPv6 の受信（外から端末へのパケットフィルター）が「遮断」に
+なっていることを確かめます。IPv6 はルーターの NAT の内側に隠れず、端末ごとのグローバル
+アドレスへ直接届くためです。
+
+#### LAN から直接見たい場合の戻し方
+
+`.env` に次の 1 行を書いて再起動すると、以前と同じく全インターフェース（IPv6 を含む）で待ち受けます
+（平文の HTTP に戻るので、信頼できる LAN の中だけで使ってください）。
+
+```bash
+echo "SERVER_ADDRESS=0.0.0.0" >> .env
+bin/service.sh restart
+```
+
+`bin/api.sh`・`bin/preview.sh`・`bin/health-watch.sh`・`bin/service.sh status` は
+`localhost` / `127.0.0.1` へつなぐので、どちらの設定でもそのまま動きます。
+
 ### 画面の見た目
 
 濃紺を基調にした業務システム向けの配色で、次の方針で統一しています。
