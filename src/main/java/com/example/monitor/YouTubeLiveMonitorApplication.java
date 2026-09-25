@@ -39,6 +39,17 @@ public class YouTubeLiveMonitorApplication {
      * @param args コマンドライン引数。空ならサービスモード、指定があれば CLI モード
      */
     public static void main(String[] args) {
+        // H2 の AUTO_SERVER は既定で全インターフェースに TCP を開き、接続先を data/monitor.lock.db に書く。
+        // 同じネットワークの誰かが直接つながると CREATE ALIAS で任意の Java を実行できるため、
+        // ループバックだけで待ち受ける（#312）。bin/service.sh の JAVA_OPTS に書くと、JAVA_OPTS を
+        // 上書きして起動したときに外れるのでここで設定する。CLI も同じ main を通るので、lock ファイルの
+        // 接続先（127.0.0.1）へ同じホストからつながる。H2 はこの値をクラス初期化時に一度だけ読むため、
+        // H2 のクラスが読み込まれる前（Spring を起動する前）に設定する必要がある。
+        // -Dh2.bindAddress を明示したときはそちらを優先する。
+        if (System.getProperty("h2.bindAddress") == null) {
+            System.setProperty("h2.bindAddress", "127.0.0.1");
+        }
+
         SpringApplicationBuilder builder = new SpringApplicationBuilder(YouTubeLiveMonitorApplication.class);
 
         if (args.length == 0) {
