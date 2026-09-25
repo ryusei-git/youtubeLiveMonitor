@@ -548,6 +548,23 @@ function recordingStatusLabel(status) {
 const PLAYABLE_RECORDING_STATUSES = ["COMPLETED", "PARTIAL"];
 
 /**
+ * 録画を端末に保存するときのファイル名（配信タイトル＋.mp4）。
+ *
+ * <p>サーバー上の名前（動画ID.mp4）のままだと、端末の「ファイル」アプリに並んだときに何の録画か分からないため、
+ * 配信タイトルを使う。ファイル名に使えない文字（Windows で使えない \ / : * ? " < > | と制御文字）は _ に置き換える。
+ * ブラウザに任せると、置き換え方がブラウザごとに違うため。長いタイトルは、端末によってはファイル名の長さの上限を
+ * 超えるため 100 文字で切る。
+ *
+ * @param {Recording} recording 録画
+ * @returns {string} ファイル名
+ */
+function recordingDownloadName(recording) {
+    const title = (recording.videoTitle ?? "").replace(/[\\/:*?"<>|\p{Cc}]/gu, "_").trim();
+    // 文字は符号位置で数える。UTF-16 の単位で切ると、絵文字が半分に割れて壊れた文字が残るため
+    return `${Array.from(title).slice(0, 100).join("") || recording.videoId}.mp4`;
+}
+
+/**
  * サムネイル枠の中身を組み立てる。
  * 完了していてサムネイルがある録画だけ画像を出し、それ以外は理由が分かる代替表示にする
  * （画像の生成は巡回のたびに後追いで行われるため、完了直後は未生成のことがある）。
