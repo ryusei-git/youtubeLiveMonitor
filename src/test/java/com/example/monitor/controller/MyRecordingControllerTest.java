@@ -11,9 +11,9 @@ import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.entity.RecordingMark;
 import com.example.monitor.exception.RecordingNotFoundException;
+import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.service.RecordingHistoryService;
 import com.example.monitor.service.RecordingMarkService;
-import com.example.monitor.service.UserSubscriptionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -43,13 +43,13 @@ import static org.mockito.Mockito.when;
 class MyRecordingControllerTest {
 
     @Mock
-    private UserSubscriptionService userSubscriptionService;
-
-    @Mock
     private RecordingHistoryService recordingHistoryService;
 
     @Mock
     private RecordingMarkService recordingMarkService;
+
+    @Mock
+    private MonitoredChannelRepository monitoredChannelRepository;
 
     @InjectMocks
     private MyRecordingController controller;
@@ -60,7 +60,7 @@ class MyRecordingControllerTest {
     /** 既定の並び順（開始時刻の新しい順 → 主キーの大きい順）。 */
     private static final Sort NEWEST = Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"));
 
-    /** 購読しているチャンネルの録画。 */
+    /** 録画。ログイン中の利用者は、このチャンネルを購読していない（購読を見る口が無い）。 */
     private static Recording recording(Long id) {
         MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
         channel.setId(7L);
@@ -76,13 +76,13 @@ class MyRecordingControllerTest {
     class ListMyRecordings {
 
         @Test
-        @DisplayName("正常系：購読に限った検索に、ログイン中の利用者と絞り込み条件・並び順・ページ指定をそのまま渡す")
+        @DisplayName("正常系：購読に限らない検索に、ログイン中の利用者と絞り込み条件・並び順・ページ指定をそのまま渡す")
         void testMethod01() {
             LocalDate from = LocalDate.of(2026, 9, 1);
             LocalDate to = LocalDate.of(2026, 9, 30);
             Sort oldest = Sort.by(Sort.Order.asc("startedAt"), Sort.Order.asc("id"));
             // 引数が 1 つでも違えばスタブが一致せず、テストが失敗する
-            when(recordingHistoryService.search("user", true, 7L, "ASMR", RecordingStatus.COMPLETED,
+            when(recordingHistoryService.search("user", false, 7L, "ASMR", RecordingStatus.COMPLETED,
                     from, to, "雑談", false, true, true, PageRequest.of(2, 50, oldest)))
                     .thenReturn(new PageImpl<>(List.of(recording(1L))));
 
@@ -121,7 +121,7 @@ class MyRecordingControllerTest {
         @DisplayName("正常系：200文字ちょうどの検索語は受け付ける")
         void testMethod03() {
             String keyword = "a".repeat(200);
-            when(recordingHistoryService.search("user", true, null, keyword, null, null, null, null, null,
+            when(recordingHistoryService.search("user", false, null, keyword, null, null, null, null, null,
                     false, false, PageRequest.of(0, 20, NEWEST)))
                     .thenReturn(new PageImpl<>(List.of()));
 
@@ -137,13 +137,13 @@ class MyRecordingControllerTest {
     class GetRecording {
 
         @Test
-        @DisplayName("正常系：購読している録画に、ログイン中の利用者の視聴済み・お気に入りを付けて返す")
+        @DisplayName("正常系：購読に関係なく、録画にログイン中の利用者の視聴済み・お気に入りを付けて返す")
         void testMethod01() {
             RecordingMark mark = new RecordingMark();
             mark.setWatchedAt(Instant.now());
             mark.setFavorite(true);
             Recording recording = recording(1L);
-            when(userSubscriptionService.findMyRecording(1L)).thenReturn(recording);
+            when(recordingHistoryService.findById(1L)).thenReturn(recording);
             when(recordingHistoryService.findMarks("user", List.of(1L))).thenReturn(Map.of(1L, mark));
 
             RecordingResponse result = controller.getRecording(1L, AUTH);
@@ -154,9 +154,9 @@ class MyRecordingControllerTest {
         }
 
         @Test
-        @DisplayName("異常系：購読していない録画はRecordingNotFoundException（404）が発生する")
+        @DisplayName("異常系：無い録画はRecordingNotFoundException（404）が発生する")
         void testMethod02() {
-            when(userSubscriptionService.findMyRecording(1L)).thenThrow(new RecordingNotFoundException(1L));
+            when(recordingHistoryService.findById(1L)).thenThrow(new RecordingNotFoundException(1L));
 
             assertThatThrownBy(() -> controller.getRecording(1L, AUTH))
                     .isInstanceOf(RecordingNotFoundException.class);
@@ -168,22 +168,12 @@ class MyRecordingControllerTest {
     class SetWatched {
 
         @Test
-        @DisplayName("正常系：購読している録画は視聴済みの指定をRecordingMarkServiceへ渡し、変更後の印を返す")
+        @DisplayName("正常系：視聴済みの指定をRecordingMarkServiceへ渡し、変更後の印を返す")
         void testMethod01() {
             RecordingMarkResponse marked = new RecordingMarkResponse(1L, true, false);
             when(recordingMarkService.setWatched(1L, true)).thenReturn(marked);
 
             assertThat(controller.setWatched(1L, new RecordingWatchedRequest(true))).isSameAs(marked);
-        }
-
-        @Test
-        @DisplayName("異常系：購読していない録画はRecordingNotFoundException（404）が発生し、印を変更しない")
-        void testMethod02() {
-            when(userSubscriptionService.findMyRecording(1L)).thenThrow(new RecordingNotFoundException(1L));
-
-            assertThatThrownBy(() -> controller.setWatched(1L, new RecordingWatchedRequest(true)))
-                    .isInstanceOf(RecordingNotFoundException.class);
-            verifyNoInteractions(recordingMarkService);
         }
     }
 
@@ -192,22 +182,12 @@ class MyRecordingControllerTest {
     class SetFavorite {
 
         @Test
-        @DisplayName("正常系：購読している録画はお気に入りの指定をRecordingMarkServiceへ渡し、変更後の印を返す")
+        @DisplayName("正常系：お気に入りの指定をRecordingMarkServiceへ渡し、変更後の印を返す")
         void testMethod01() {
             RecordingMarkResponse marked = new RecordingMarkResponse(1L, false, true);
             when(recordingMarkService.setFavorite(1L, true)).thenReturn(marked);
 
             assertThat(controller.setFavorite(1L, new RecordingFavoriteRequest(true))).isSameAs(marked);
-        }
-
-        @Test
-        @DisplayName("異常系：購読していない録画はRecordingNotFoundException（404）が発生し、印を変更しない")
-        void testMethod02() {
-            when(userSubscriptionService.findMyRecording(1L)).thenThrow(new RecordingNotFoundException(1L));
-
-            assertThatThrownBy(() -> controller.setFavorite(1L, new RecordingFavoriteRequest(true)))
-                    .isInstanceOf(RecordingNotFoundException.class);
-            verifyNoInteractions(recordingMarkService);
         }
     }
 
@@ -216,12 +196,12 @@ class MyRecordingControllerTest {
     class GetGenres {
 
         @Test
-        @DisplayName("正常系：ログイン中の利用者の購読に限ったジャンル別件数をそのまま返す")
+        @DisplayName("正常系：購読に限らない、再生できる録画のジャンル別件数をそのまま返す")
         void testMethod01() {
             List<RecordingGenreCountResponse> genres = List.of(new RecordingGenreCountResponse("ASMR", 3));
-            when(recordingHistoryService.countSubscribedByGenre("user")).thenReturn(genres);
+            when(recordingHistoryService.countPlayableByGenre()).thenReturn(genres);
 
-            assertThat(controller.getGenres(AUTH)).isSameAs(genres);
+            assertThat(controller.getGenres()).isSameAs(genres);
         }
     }
 }

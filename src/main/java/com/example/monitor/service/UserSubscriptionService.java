@@ -6,16 +6,11 @@ import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
-import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.UserSubscription;
 import com.example.monitor.exception.ChannelAlreadyRegisteredException;
-import com.example.monitor.exception.RecordingNotFoundException;
 import com.example.monitor.platform.Platform;
-import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
-import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.repository.UserSubscriptionRepository;
-import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -60,10 +55,8 @@ public class UserSubscriptionService {
     private static final int MAX_SUBSCRIPTIONS_PER_USER = 50;
 
     private final UserSubscriptionRepository userSubscriptionRepository;
-    private final AppUserRepository appUserRepository;
     private final CurrentAppUser currentAppUser;
     private final MonitoredChannelRepository monitoredChannelRepository;
-    private final RecordingRepository recordingRepository;
     private final MonitoredChannelService monitoredChannelService;
     private final AuditLogger auditLogger;
 
@@ -214,48 +207,6 @@ public class UserSubscriptionService {
                             "notify=" + enabled);
                     return SubscribedChannelResponse.from(saved);
                 });
-    }
-
-    /**
-     * ログイン中の利用者が購読しているチャンネルの録画を 1 件取得する。
-     *
-     * <p><b>購読していない録画は「存在しない」と同じ扱い（404）にする。</b>403 にすると、
-     * ID を順に試すだけで購読外の録画がどれだけあるかが分かってしまうため。
-     * チャンネルに紐づかない録画（管理者が URL を貼って取得したもの）も同じく見せない。
-     *
-     * <p>再生画面での 1 件取得と、視聴済み・お気に入りの印を付ける前の確認に使う。
-     *
-     * @param recordingId 録画の主キー
-     * @return 該当する録画
-     * @throws RecordingNotFoundException 録画が無いか、購読していないチャンネルの録画の場合
-     */
-    @Transactional(readOnly = true)
-    public Recording findMyRecording(Long recordingId) {
-        AppUser user = currentAppUser.require();
-        return recordingRepository.findById(recordingId)
-                .filter(recording -> recording.getChannel() != null
-                        && userSubscriptionRepository.existsByUserAndChannel(user, recording.getChannel()))
-                .orElseThrow(() -> new RecordingNotFoundException(recordingId));
-    }
-
-    /**
-     * ログイン中の利用者が、そのチャンネルの録画を見てよいかを返す。
-     *
-     * <p>録画ファイルの配信（{@code /recordings/**}）の可否判定に使う。
-     *
-     * @param youtubeChannelId プラットフォームが発行するチャンネル識別子
-     * @return 購読していれば {@code true}
-     */
-    @Transactional(readOnly = true)
-    public boolean canAccessChannelRecordings(String youtubeChannelId) {
-        String username = RequestContext.currentUsername();
-        if (username == null) {
-            return false;
-        }
-        return appUserRepository.findByUsername(username)
-                .flatMap(user -> monitoredChannelRepository.findByYoutubeChannelId(youtubeChannelId)
-                        .map(channel -> userSubscriptionRepository.existsByUserAndChannel(user, channel)))
-                .orElse(false);
     }
 
     /**

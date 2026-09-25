@@ -152,7 +152,7 @@ public class RecordingHistoryService {
     /**
      * 録画履歴を条件で絞り込んで取得する。購読の限定と再生可能の絞り込みも指定できる版。
      *
-     * <p>利用者の画面（{@code /api/my/recordings}）は購読しているチャンネルに限って検索する。
+     * <p>利用者の画面（{@code /api/my/recordings}）は再生できる録画に絞って検索する。
      * 管理者と同じクエリを通すことで、絞り込み条件の食い違いを作らない。
      *
      * <p><b>購読に限るとき、利用者が見つからなければ空にする。</b>{@code userId} が {@code null} だと
@@ -228,18 +228,15 @@ public class RecordingHistoryService {
     }
 
     /**
-     * 利用者が購読しているチャンネルの録画に限って、ジャンルごとの件数を数える。
+     * 再生できる録画に限って、ジャンルごとの件数を数える。利用者のアーカイブのジャンルの選択肢に使う。
      *
      * <p><b>再生できる録画（完了・途中まで）だけを数える。</b>利用者のアーカイブは再生できる録画だけを
      * 一覧に出すため、失敗・録画中まで数えると選択肢の件数が一覧の件数より多くなる（#228）。
      *
-     * @param username 購読の持ち主のログイン名
-     * @return ジャンルと件数の一覧。利用者が見つからなければ空
+     * @return ジャンルと件数の一覧
      */
-    public List<RecordingGenreCountResponse> countSubscribedByGenre(String username) {
-        Long userId = findUserId(username);
-        // null を渡すと全録画を数えてしまうため、利用者が特定できなければ何も返さない
-        return userId == null ? List.of() : recordingRepository.countByGenre(userId, true);
+    public List<RecordingGenreCountResponse> countPlayableByGenre() {
+        return recordingRepository.countByGenre(null, true);
     }
 
     /**
