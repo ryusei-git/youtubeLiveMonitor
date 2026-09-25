@@ -1639,6 +1639,56 @@ function externalLink(label, url) {
 }
 
 
+/**
+ * リンクをクリップボードへ写す。
+ *
+ * <p>クリップボード API は安全な文脈（HTTPS か localhost）でしか使えず、
+ * Tailscale 経由の http では失敗する。そのため<b>失敗しても入力欄の選択だけは残し</b>、
+ * 手動でコピーできるようにしている。
+ *
+ * @param {HTMLInputElement} field リンクを表示している入力欄
+ */
+async function copyLink(field) {
+    field.select();
+    try {
+        await navigator.clipboard.writeText(field.value);
+        showToast("リンクをコピーしました");
+    } catch {
+        showToast("コピーできなかったので選択しました。手動でコピーしてください");
+    }
+}
+
+/**
+ * リンクの表示欄（読み取り専用の入力欄＋コピーボタン）を作る。
+ *
+ * <p>ただの文字列として置くと、長い URL が表のセルを押し広げてしまう。
+ * 入力欄にすると幅を決められ、クリックで全選択もできる。
+ *
+ * @param {string} url 表示するリンク
+ * @param {string} label 入力欄の読み上げ名（招待リンク・再設定用のリンクなど）
+ * @returns {HTMLElement} 差し込む要素
+ */
+function linkField(url, label) {
+    const wrap = document.createElement("div");
+    wrap.className = "filterEdit";
+
+    const field = document.createElement("input");
+    field.type = "text";
+    field.readOnly = true;
+    field.value = url;
+    field.setAttribute("aria-label", label);
+    field.addEventListener("click", () => field.select());
+
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.className = "filterSave";
+    copy.textContent = "コピー";
+    copy.addEventListener("click", () => copyLink(field));
+
+    wrap.append(field, copy);
+    return wrap;
+}
+
 /** @type {Array<[string, string]>} 管理者画面の「ワークスペース」のメニュー。よく使う順に並べる。 */
 const adminNavigation = [
     ["/index.html", "ダッシュボード"], ["/videos.html", "動画一覧"],
