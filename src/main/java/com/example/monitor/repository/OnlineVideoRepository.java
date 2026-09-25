@@ -69,7 +69,7 @@ public interface OnlineVideoRepository extends JpaRepository<OnlineVideo, String
                                     @Param("username") String username);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true) @Transactional
-    @Query("update OnlineVideo v set v.live = false where v.channel.id = :channelId and v.id <> :currentId")
+    @Query("update OnlineVideo v set v.live = false where v.channel.id = :channelId and v.id <> :currentId and v.live = true")
     void endOtherStreams(@Param("channelId") Long channelId, @Param("currentId") String currentId);
 
     /** 未取得の新規動画を優先し、再試行は保存済みの時刻順に選ぶ。
