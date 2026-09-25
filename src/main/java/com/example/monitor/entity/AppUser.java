@@ -89,6 +89,20 @@ public class AppUser {
     private LocalDateTime passwordChangedAt;
 
     /**
+     * 管理者が発行したパスワードの再設定用の token（#324）。発行していない・使い終わったら {@code null}。
+     *
+     * <p>別のテーブルにせず利用者に 1 枠だけ持たせるのは、新しく発行すれば上書きで前の token が
+     * 使えなくなるため（漏れた古いリンクを取り消す手順が要らない）。使ったら消すので 1 回限りになる。
+     * <b>知っていればパスワードを決め直せる秘密</b>なので、API の応答（発行した直後を除く）・ログに出さない。
+     * {@code NULL} を許すのは、利用者が既にいる DB へ {@code ddl-auto: update} で足しても ALTER が失敗しないため。
+     */
+    @Column(unique = true, length = 64)
+    private String passwordResetToken;
+
+    /** {@link #passwordResetToken} の期限。これを過ぎた token は使えない。 */
+    private LocalDateTime passwordResetExpiresAt;
+
+    /**
      * 配信開始の通知を送る Discord の Webhook の URL。登録していなければ {@code null}（送らない）。
      *
      * <p>通知を使いたい人だけが登録する（#149）。{@code NULL} を許す列なので、利用者が既にいる DB へ

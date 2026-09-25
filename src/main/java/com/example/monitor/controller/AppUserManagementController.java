@@ -38,6 +38,18 @@ public class AppUserManagementController {
     }
 
     /**
+     * パスワードの再設定用の token を発行する。URL は画面が組み立てる。
+     * @param id 利用者ID
+     * @param authentication 操作者の認証情報
+     * @return token と期限
+     */
+    @PostMapping("/{id}/password-reset")
+    public AppUserManagementService.PasswordResetIssued issuePasswordReset(@PathVariable Long id,
+                                                                            Authentication authentication) {
+        return service.issuePasswordReset(id, authentication.getName());
+    }
+
+    /**
      * 操作者をリクエストの入力値に任せない。
      * @param id 利用者ID
      * @param authentication 操作者の認証情報

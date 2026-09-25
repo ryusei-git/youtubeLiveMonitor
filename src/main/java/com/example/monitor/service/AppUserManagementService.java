@@ -5,6 +5,7 @@ import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.repository.AppUserRepository;
+import com.example.monitor.util.SecureTokens;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
@@ -12,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /** 管理者の締め出しと権限昇格を防ぐため、一般利用者の無効化・削除だけを提供する。 */
@@ -19,6 +22,12 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 public class AppUserManagementService {
+    /**
+     * 再設定用のリンクの有効時間。招待（7 日）より短いのは、パスワードを決め直せる強い権限で、
+     * 管理者が本人に渡してすぐ使われる前提だから（チャットの履歴に残ったリンクが長く生きないように）。
+     */
+    private static final long PASSWORD_RESET_VALID_HOURS = 24;
+
     private final AppUserRepository repository;
     private final AuditLogger auditLogger;
 
@@ -45,6 +54,42 @@ public class AppUserManagementService {
         }
         log.info("利用者を無効化しました: id={}, actor={}", id, actor);
         recordActorAction(AuditAction.USER_DISABLE, actor, target);
+    }
+
+    /**
+     * パスワードを忘れた利用者を、削除せずに戻すためのリンクの token を発行する（#324）。
+     *
+     * <p>管理者にもパスワードが分からないまま本人が決め直せるよう、パスワードではなく token を渡す。
+     * 削除して招待し直すと、購読・視聴済み・Webhook が連鎖で消えるため。
+     * URL は組み立てない（招待と同じく、画面が {@code location.origin} から組み立てる）。
+     *
+     * @param id    対象ID
+     * @param actor 操作者の利用者名（認証情報由来）
+     * @return 発行した token と期限
+     */
+    @Transactional
+    public PasswordResetIssued issuePasswordReset(Long id, String actor) {
+        AppUser target = checkTarget(id, actor);
+        String token = SecureTokens.generate();
+        // 画面にそのまま出すので秒に切り詰める
+        LocalDateTime expiresAt = LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS)
+                .plusHours(PASSWORD_RESET_VALID_HOURS);
+        if (repository.updatePasswordResetToken(id, AppUser.Role.USER, token, expiresAt) != 1) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "利用者の状態が変わりました。再読み込みしてください");
+        }
+        // token は秘密なのでログにも監査ログにも出さない
+        log.info("パスワードの再設定用のリンクを発行しました: id={}, actor={}", id, actor);
+        recordActorAction(AuditAction.PASSWORD_RESET_ISSUE, actor, target);
+        return new PasswordResetIssued(token, expiresAt);
+    }
+
+    /**
+     * 発行した再設定用の token。エンティティを返さず、画面が要る 2 つだけを返す。
+     *
+     * @param token     再設定用のリンクに載せる秘密の文字列
+     * @param expiresAt 期限
+     */
+    public record PasswordResetIssued(String token, LocalDateTime expiresAt) {
     }
 
     /**

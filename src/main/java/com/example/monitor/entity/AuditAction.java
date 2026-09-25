@@ -30,6 +30,12 @@ public enum AuditAction {
     /** パスワードを変更した（成功・失敗とも記録する）。 */
     PASSWORD_CHANGE,
 
+    /** 管理者がパスワードの再設定用のリンクを発行した。 */
+    PASSWORD_RESET_ISSUE,
+
+    /** 再設定用のリンクからパスワードを決め直した（成功・失敗とも記録する）。 */
+    PASSWORD_RESET,
+
     /** 管理者が利用者を新規作成した。 */
     USER_CREATE,
 
