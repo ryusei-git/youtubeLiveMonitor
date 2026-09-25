@@ -99,6 +99,21 @@ public class MonitoredChannelService {
     }
 
     /**
+     * チャンネルごとの購読者名を返す。
+     *
+     * <p>人数だけでは誰の購読が消えるのか分からないため、管理者の一覧に購読者の名前を添える。
+     * 並び順はクエリの利用者名順を保つ（{@code groupingBy} の下流の {@code toList} は出現順を保つ）。
+     *
+     * @return チャンネルの主キーから購読者名の一覧への対応。購読されていないチャンネルは含まない
+     */
+    public Map<Long, List<String>> subscriberNamesByChannel() {
+        return userSubscriptionRepository.findSubscriberNamesByChannel()
+                .stream()
+                .collect(Collectors.groupingBy(row -> (Long) row[0],
+                        Collectors.mapping(row -> (String) row[1], Collectors.toList())));
+    }
+
+    /**
      * チャンネルを監視対象に登録する。
      *
      * <p>入力の形（URL・ハンドル・ログイン名・ID）はプラットフォームごとに違うため、

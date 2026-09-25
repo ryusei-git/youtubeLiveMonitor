@@ -86,6 +86,18 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
     List<Object[]> countByChannel();
 
     /**
+     * 全チャンネルの購読者名を、チャンネルの主キーと組にして返す。
+     *
+     * <p>管理者のチャンネル一覧に「誰が購読しているか」を添えるために使う。{@link #countByChannel()} と同じく、
+     * チャンネルごとに問い合わせると登録数に比例してクエリが増えるため、1 回でまとめて取る。
+     * 利用者名の順で並べるのは、画面で毎回同じ順に並ぶようにするため。
+     *
+     * @return 各要素が {@code [チャンネルの主キー(Long), 利用者名(String)]} の配列。購読が 1 件も無いチャンネルは含まない
+     */
+    @Query("SELECT s.channel.id, s.user.username FROM UserSubscription s ORDER BY s.user.username")
+    List<Object[]> findSubscriberNamesByChannel();
+
+    /**
      * 指定した利用者と指定したチャンネルの組み合わせの購読を削除する。
      *
      * <p><b>{@code user_subscriptions} テーブルの行を直接 DELETE するだけで、

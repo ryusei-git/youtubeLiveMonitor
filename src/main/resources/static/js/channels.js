@@ -93,7 +93,7 @@ async function loadChannels() {
                 <td>${channelStateLabel(ch)}</td>
                 <td data-sort-value="${ch.recordEnabled ? "1" : "0"}"><button class="recordBtn" data-id="${ch.id}" data-enabled="${ch.recordEnabled}">${ch.recordEnabled ? "自動録画：有効" : "自動録画：無効"}</button></td>
                 <td data-sort-value="${ch.recordingCount}">${ch.recordingCount}件</td>
-                <td data-sort-value="${ch.subscriberCount}">${ch.subscriberCount}人</td>
+                <td data-sort-value="${ch.subscriberCount}">${ch.subscriberNames.length > 0 ? ch.subscriberNames.map(escapeHtml).join("、") : "なし"}</td>
                 <td class="titleFilterCell" data-sort-value="${escapeHtml(ch.recordTitleKeywords || "")}">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
                 <td><button class="removeBtn">削除</button></td>
             `;
