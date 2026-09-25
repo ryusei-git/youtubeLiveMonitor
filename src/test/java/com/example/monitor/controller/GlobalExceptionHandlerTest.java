@@ -138,7 +138,7 @@ class GlobalExceptionHandlerTest {
             // 汎用の Exception ハンドラを足した際、これが 500 になり
             // 存在しない URL を叩かれるたびに ERROR ログが出ていた（実際に発生した）
             ResponseEntity<Map<String, String>> response = handler.handleNoResourceFound(
-                    new NoResourceFoundException(HttpMethod.GET, "/nonexistent-page.html"));
+                    new NoResourceFoundException(HttpMethod.GET, "/nonexistent-page.html", "/nonexistent-page.html"));
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         }

@@ -1,8 +1,9 @@
 package com.example.monitor.platform.twitch;
 
 import com.example.monitor.config.MonitorProperties;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -137,7 +138,7 @@ public class TwitchTokenProvider {
             log.info("Twitch のアクセストークンを取得しました: 有効期限={}", expiresAt);
             return new CachedToken(token, expiresAt);
 
-        } catch (IOException e) {
+        } catch (IOException | JacksonException e) {
             throw new IllegalStateException(
                     "Twitch のアクセストークン取得に失敗しました: " + e.getMessage());
         } catch (InterruptedException e) {

@@ -1,7 +1,7 @@
 plugins {
     id 'java'
     id 'jacoco'
-    id 'org.springframework.boot' version '3.5.16'
+    id 'org.springframework.boot' version '4.1.1'
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
@@ -14,11 +14,6 @@ java {
     }
 }
 
-// Spring Boot 3.5 の OSS サポートは 2026-06-30 で終わり、3.5.16 が管理する Tomcat（10.1.55）より後の
-// セキュリティ修正は Boot からは届かない。Apache は 10.1 系の修正を出し続けているので、外から届く
-// サービスとして Tomcat だけ 10.1 系の最新へ上書きする（#319）。4.x へ移ったら（#320）この行は消す
-ext['tomcat.version'] = '10.1.60'
-
 repositories {
     mavenCentral()
     maven { url = "https://jitpack.io" }
@@ -26,7 +21,7 @@ repositories {
 
 dependencies {
     // Spring Boot
-    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
@@ -59,7 +54,11 @@ dependencies {
     // configuration-processor と Lombok はコンパイル時に働くだけで（設定の説明の JSON・getter などを生成する）、
     // 生成後のクラスは参照しない。implementation だと実行用の jar（BOOT-INF/lib）に入って無駄なので入れない（#194）
     annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
-    implementation 'me.paulschwarz:spring-dotenv:4.0.0'
+    // spring-dotenv 4.0.0 は Boot 3 の org.springframework.boot.ConfigurableBootstrapContext を引数に取るメソッドで
+    // .env を読み込むが、Boot 4 でこの型が org.springframework.boot.bootstrap へ移ったため上書きにならず、
+    // エラーも出さずに .env を読まなくなる（#320 で確認。DB のパスワード・API キー・Webhook がすべて空になる）。
+    // Boot 4 用の springboot4-dotenv を使う。本番も .env を読むので README の例のような developmentOnly にはしない
+    implementation 'me.paulschwarz:springboot4-dotenv:5.1.0'
 
     // Utilities
     // compileOnly と annotationProcessor はテストのコンパイルに引き継がれないため、テスト側にも同じ指定をする
@@ -70,7 +69,9 @@ dependencies {
 
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

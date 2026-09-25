@@ -5,7 +5,7 @@ import com.example.monitor.config.MonitorProperties.DiscordProperties;
 import com.example.monitor.config.MonitorProperties.RecordingProperties;
 import com.example.monitor.config.MonitorProperties.TwitchProperties;
 import com.example.monitor.config.MonitorProperties.YouTubeProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
