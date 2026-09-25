@@ -1,5 +1,6 @@
 package com.example.monitor.controller;
 
+import com.example.monitor.dto.ChannelOptionResponse;
 import com.example.monitor.dto.PageResponse;
 import com.example.monitor.dto.RecordingFavoriteRequest;
 import com.example.monitor.dto.RecordingGenreCountResponse;
@@ -9,14 +10,15 @@ import com.example.monitor.dto.RecordingWatchedRequest;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.entity.RecordingMark;
+import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.service.RecordingHistoryService;
 import com.example.monitor.service.RecordingMarkService;
-import com.example.monitor.service.UserSubscriptionService;
 import com.example.monitor.util.PageRequestUtils;
 import com.example.monitor.util.RecordingSearchParams;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -38,12 +40,12 @@ import java.util.Map;
  * ログイン中の利用者が見られる録画を返す API。
  *
  * <p>管理者向けの {@code /api/recordings} とは<b>別の窓口</b>として分けている。
- * あちらは全チャンネルの録画を返し、削除もできる。こちらは
- * <b>自分が購読しているチャンネルの録画だけ</b>を返し、削除はできない。
+ * 見られる録画はどちらも<b>この端末にあるすべての録画</b>（購読していないチャンネルの録画や、
+ * チャンネルに紐づかない録画も含む）だが、こちらは削除ができない（録画は利用者どうしで共有しているため）。
  * 検索条件・入力チェック・応答の形は管理者側と揃えている（同じ画面部品を両方で使えるように）。
  *
- * <p>購読していない録画の 1 件取得・印の変更は 404 にする
- * （{@link UserSubscriptionService#findMyRecording(Long)} 参照）。
+ * <p>購読で絞らないのは、この端末に録画したものは利用者の誰もが全部見られるようにするため（#419）。
+ * 購読は、トップ・動画・配信・通知の範囲を決めるものとして残している。
  *
  * <p>対象の利用者はパスから指定できず、常にログイン中の本人になる
  * （{@link MyChannelController} と同じ考え方）。依存するサービスはどれもプロファイルを問わず
@@ -57,15 +59,15 @@ public class MyRecordingController {
     /** 1 ページの件数の上限。管理者側（{@code RecordingController.MAX_PAGE_SIZE}）と揃える。 */
     private static final int MAX_PAGE_SIZE = RecordingController.MAX_PAGE_SIZE;
 
-    private final UserSubscriptionService userSubscriptionService;
     private final RecordingHistoryService recordingHistoryService;
     private final RecordingMarkService recordingMarkService;
+    private final MonitoredChannelRepository monitoredChannelRepository;
 
     /**
-     * 自分が購読しているチャンネルの録画を条件で絞り込んで返す。
+     * 録画を条件で絞り込んで返す。購読していないチャンネルの録画も含む。
      * パラメータは管理者の {@code GET /api/recordings} と同じで、{@code playableOnly} だけが追加。
      *
-     * @param channelId    購読チャンネルの主キー。購読していないチャンネルを指定しても何も返らない
+     * @param channelId    監視チャンネルの主キー（選択肢は {@link #getChannels()}）
      * @param keyword      配信タイトル・チャンネル名に対する部分一致の検索キーワード（200 文字まで）
      * @param status       絞り込む録画状態
      * @param sort         並び順（{@code newest}（既定） / {@code oldest} / {@code longest} / {@code largest}）
@@ -107,7 +109,7 @@ public class MyRecordingController {
         Boolean watchedFilter = RecordingSearchParams.toWatchedFilter(watched);
         String username = authentication.getName();
 
-        Page<Recording> recordings = recordingHistoryService.search(username, true, channelId, keyword,
+        Page<Recording> recordings = recordingHistoryService.search(username, false, channelId, keyword,
                 status, from, to, genre, watchedFilter, favorite, playableOnly, pageRequest);
         // 印はページ分をまとめて 1 回で引く（行ごとに引くと件数ぶんクエリが飛ぶ）
         Map<Long, RecordingMark> marks = recordingHistoryService.findMarks(
@@ -116,30 +118,44 @@ public class MyRecordingController {
     }
 
     /**
-     * 購読しているチャンネルの録画に限って、ジャンルごとの件数を返す。一覧のジャンル選択の選択肢に使う。
+     * ジャンルごとの録画件数を返す。一覧のジャンル選択の選択肢に使う。
      *
      * <p>数えるのは再生できる録画（完了・途中まで）だけ。利用者のアーカイブは再生できる録画だけを出すので、
      * 失敗・録画中まで数えると、選択肢の件数と選んだ後の一覧の件数が食い違う（#228）。
      *
-     * @param authentication ログイン中の利用者
      * @return ジャンルと件数の一覧（ジャンルの無い録画は含まない）
      */
     @GetMapping("/genres")
-    public List<RecordingGenreCountResponse> getGenres(Authentication authentication) {
-        return recordingHistoryService.countSubscribedByGenre(authentication.getName());
+    public List<RecordingGenreCountResponse> getGenres() {
+        return recordingHistoryService.countPlayableByGenre();
     }
 
     /**
-     * 購読しているチャンネルの録画を 1 件取得する。再生画面が対象の情報を得るために使う。
+     * 監視しているチャンネルを名前順に返す。一覧のチャンネル選択の選択肢に使う。
+     *
+     * <p>購読しているチャンネル（{@code GET /api/my/channels}）ではなく全チャンネルを返す。
+     * 一覧は購読していないチャンネルの録画も出すので、購読だけだと一覧にある録画のチャンネルで絞り込めない。
+     *
+     * @return チャンネルの主キーと名前
+     */
+    @GetMapping("/channels")
+    public List<ChannelOptionResponse> getChannels() {
+        return monitoredChannelRepository.findAll(Sort.by("channelName")).stream()
+                .map(channel -> new ChannelOptionResponse(channel.getId(), channel.getChannelName()))
+                .toList();
+    }
+
+    /**
+     * 録画を 1 件取得する。再生画面が対象の情報を得るために使う。
      *
      * @param id             録画の主キー
      * @param authentication ログイン中の利用者。視聴済み・お気に入りはこの利用者の印を返す
      * @return 該当する録画
-     * @throws com.example.monitor.exception.RecordingNotFoundException 無い・購読していない場合（404）
+     * @throws com.example.monitor.exception.RecordingNotFoundException 無い場合（404）
      */
     @GetMapping("/{id}")
     public RecordingResponse getRecording(@PathVariable Long id, Authentication authentication) {
-        Recording recording = userSubscriptionService.findMyRecording(id);
+        Recording recording = recordingHistoryService.findById(id);
         RecordingMark mark = recordingHistoryService.findMarks(authentication.getName(), List.of(id)).get(id);
         return RecordingResponse.from(recording, mark);
     }
@@ -150,11 +166,10 @@ public class MyRecordingController {
      * @param id      録画の主キー
      * @param request 視聴済みにするか
      * @return 変更後の印
-     * @throws com.example.monitor.exception.RecordingNotFoundException 無い・購読していない場合（404）
+     * @throws com.example.monitor.exception.RecordingNotFoundException 無い場合（404）
      */
     @PutMapping("/{id}/watched")
     public RecordingMarkResponse setWatched(@PathVariable Long id, @RequestBody RecordingWatchedRequest request) {
-        userSubscriptionService.findMyRecording(id);
         return recordingMarkService.setWatched(id, request.watched());
     }
 
@@ -164,11 +179,10 @@ public class MyRecordingController {
      * @param id      録画の主キー
      * @param request お気に入りにするか
      * @return 変更後の印
-     * @throws com.example.monitor.exception.RecordingNotFoundException 無い・購読していない場合（404）
+     * @throws com.example.monitor.exception.RecordingNotFoundException 無い場合（404）
      */
     @PutMapping("/{id}/favorite")
     public RecordingMarkResponse setFavorite(@PathVariable Long id, @RequestBody RecordingFavoriteRequest request) {
-        userSubscriptionService.findMyRecording(id);
         return recordingMarkService.setFavorite(id, request.favorite());
     }
 

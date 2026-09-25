@@ -50,9 +50,6 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
  *       設計書の意図（管理者以外に生の DB アクセスを与えない）に沿って同じ扱いにした。
  *       H2 コンソールの画面はフレームを使うため、フレーム表示の許可
  *       （{@code frameOptions().sameOrigin()}）も合わせて設定している。</li>
- *   <li><b>録画ファイル（{@code /recordings/**}）は役割ではなく購読で判定する。</b>
- *       管理者は全部、一般利用者は購読しているチャンネルのぶんだけ見てよい。誰がどれを購読しているかを
- *       見ないと決まらず静的な規則では表せないため、{@link RecordingFileAuthorizationManager} に任せている。</li>
  *   <li><b>招待からの利用者登録とパスワードの再設定は未ログインでも開ける。</b>
  *       どちらもアカウントを使えない人が開く画面なので認証は掛けられない。代わりに管理者が発行した
  *       token（推測できない乱数・1 回限り・期限付き）が鍵になる。</li>
@@ -142,7 +139,6 @@ public class SecurityConfig {
      * @param http                              設定対象
      * @param successHandler                    ログイン成功時の処理（最終ログイン時刻の記録・遷移先の決定）
      * @param failureHandler                    ログイン失敗時の処理（アプリログと監査ログへの記録）
-     * @param recordingFileAuthorizationManager 録画ファイルを見てよいかを購読で判定する処理
      * @param appUserRepository                 無効化・削除・パスワード変更の後の古いセッションを毎回の要求で落とすための照合先
      * @param loginAttemptLimiter               ログイン試行の回数制限（パスワード照合より前で打ち切る）
      * @param authenticationHandler             未ログイン・権限不足・CSRF 不一致を、API には JSON で返す処理
@@ -154,7 +150,6 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http,
                                             AuthenticationSuccessHandler successHandler,
                                             AuthenticationFailureHandler failureHandler,
-                                            RecordingFileAuthorizationManager recordingFileAuthorizationManager,
                                             AppUserRepository appUserRepository,
                                             LoginAttemptLimiter loginAttemptLimiter,
                                             RequestAuthenticationHandler authenticationHandler,
@@ -238,9 +233,9 @@ public class SecurityConfig {
                 // 利用者は 1 枚のページの /my/watch/<ID> で再生する（#178。#147 で利用者にも開けていたのを戻した）
                 .requestMatchers("/recordings.html", "/player.html").hasRole("ADMIN")
                 .requestMatchers("/api/recordings/**", "/api/downloads/**").hasRole("ADMIN")
-                // 録画ファイルは「管理者は全部、一般利用者は購読しているチャンネルのぶんだけ」。
-                // 誰がどれを購読しているかを見ないと決まらないので、静的なルールでは表せない
-                .requestMatchers("/recordings/**").access(recordingFileAuthorizationManager)
+                // 録画ファイルはログインしていれば全部見てよい（#419）。利用者のアーカイブは購読していない
+                // チャンネルの録画も出すので、ファイルだけを購読で絞ると「一覧に出るのに再生できない」録画ができる
+                .requestMatchers("/recordings/**").authenticated()
                 .requestMatchers("/api/monitor/**", "/api/dashboard/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .formLogin(form -> form

@@ -221,6 +221,20 @@ class SecurityConfigTest {
                             .with(SecurityMockMvcRequestPostProcessors.user(NORMAL_USERNAME).roles("USER")))
                     .andExpect(status().isForbidden());
         }
+
+        @Test
+        @DisplayName("正常系：USER権限は購読していないチャンネル・チャンネルに紐づかない録画ファイルでも403にならない")
+        void testMethod05() throws Exception {
+            // 利用者のアーカイブは全録画を出すので、ファイルも購読に関係なく開ける（#419）。
+            // この利用者は何も購読していない。認可を通ればファイルが無いので 404、止められれば 403 になる
+            mockMvc.perform(get("/recordings/UCnotsubscribed/video001.mp4")
+                            .with(SecurityMockMvcRequestPostProcessors.user(NORMAL_USERNAME).roles("USER")))
+                    .andExpect(status().isNotFound());
+            // URL を貼って取得した録画の置き場（VideoDownloadService.UNLINKED_DIRECTORY）
+            mockMvc.perform(get("/recordings/downloads/video002.mp4")
+                            .with(SecurityMockMvcRequestPostProcessors.user(NORMAL_USERNAME).roles("USER")))
+                    .andExpect(status().isNotFound());
+        }
     }
     @Nested
     class OnlineVideos {

@@ -4,12 +4,8 @@ import com.example.monitor.dto.SubscribedChannelResponse;
 import com.example.monitor.dto.UpcomingStreamResponse;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.MonitoredChannel;
-import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.UserSubscription;
-import com.example.monitor.exception.RecordingNotFoundException;
-import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
-import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.repository.UserSubscriptionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,10 +19,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
@@ -39,16 +33,10 @@ class UserSubscriptionServiceTest {
     private UserSubscriptionRepository userSubscriptionRepository;
 
     @Mock
-    private AppUserRepository appUserRepository;
-
-    @Mock
     private CurrentAppUser currentAppUser;
 
     @Mock
     private MonitoredChannelRepository monitoredChannelRepository;
-
-    @Mock
-    private RecordingRepository recordingRepository;
 
     @Mock
     private MonitoredChannelService monitoredChannelService;
@@ -139,54 +127,6 @@ class UserSubscriptionServiceTest {
             assertThat(result)
                     .extracting(UpcomingStreamResponse::channelId, UpcomingStreamResponse::videoId)
                     .containsExactly(tuple(1L, "subscribedVideo"));
-        }
-    }
-
-    @Nested
-    @DisplayName("findMyRecording()")
-    class FindMyRecording {
-
-        @Test
-        @DisplayName("正常系：購読しているチャンネルの録画を返す")
-        void testMethod01() {
-            MonitoredChannel subscribed = channel(1L);
-            Recording recording = Recording.builder().id(100L).channel(subscribed).build();
-            when(recordingRepository.findById(100L)).thenReturn(Optional.of(recording));
-            when(userSubscriptionRepository.existsByUserAndChannel(viewer, subscribed)).thenReturn(true);
-
-            assertThat(userSubscriptionService.findMyRecording(100L)).isSameAs(recording);
-        }
-
-        @Test
-        @DisplayName("異常系：録画が無い場合はRecordingNotFoundExceptionを投げる")
-        void testMethod02() {
-            when(recordingRepository.findById(100L)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> userSubscriptionService.findMyRecording(100L))
-                    .isInstanceOf(RecordingNotFoundException.class);
-        }
-
-        @Test
-        @DisplayName("異常系：購読していないチャンネルの録画は、無い場合と同じRecordingNotFoundExceptionを投げる")
-        void testMethod03() {
-            // 権限不足として区別すると、ID を順に試すだけで購読外の録画がどれだけあるか分かってしまう
-            MonitoredChannel notSubscribed = channel(2L);
-            Recording recording = Recording.builder().id(100L).channel(notSubscribed).build();
-            when(recordingRepository.findById(100L)).thenReturn(Optional.of(recording));
-            when(userSubscriptionRepository.existsByUserAndChannel(viewer, notSubscribed)).thenReturn(false);
-
-            assertThatThrownBy(() -> userSubscriptionService.findMyRecording(100L))
-                    .isInstanceOf(RecordingNotFoundException.class);
-        }
-
-        @Test
-        @DisplayName("異常系：チャンネルに紐づかない録画（管理者がURLを貼って取得したもの）はRecordingNotFoundExceptionを投げる")
-        void testMethod04() {
-            Recording recording = Recording.builder().id(100L).channel(null).build();
-            when(recordingRepository.findById(100L)).thenReturn(Optional.of(recording));
-
-            assertThatThrownBy(() -> userSubscriptionService.findMyRecording(100L))
-                    .isInstanceOf(RecordingNotFoundException.class);
         }
     }
 }

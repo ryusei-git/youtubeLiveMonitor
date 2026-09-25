@@ -301,7 +301,7 @@ async function myToggleMark(recording, kind, button) {
 }
 
 /**
- * アーカイブの表の 1 行。列は管理画面の表と同じ並びで、削除だけが無い（録画は購読者どうしで共有しているため、
+ * アーカイブの表の 1 行。列は管理画面の表と同じ並びで、削除だけが無い（録画は利用者どうしで共有しているため、
  * 利用者には消させない）。題名はカードと同じく再生画面（/my/watch/ID）へのリンクにする。
  *
  * @param {Recording} r 録画 1 件
@@ -321,8 +321,9 @@ function myArchiveRow(r) {
 }
 
 /**
- * アーカイブ。管理画面のアーカイブと同じ検索一式（common.js の bindRecordingSearch）で、購読しているチャンネルの
- * 録画を探す。録画中・失敗の録画は開いても見られないので、API に playableOnly=true を常に付け、状態の絞り込みは置かない。
+ * アーカイブ。管理画面のアーカイブと同じ検索一式（common.js の bindRecordingSearch）で、この端末にあるすべての録画
+ * （購読していないチャンネルの録画も含む。#419）を探す。録画中・失敗の録画は開いても見られないので、API に playableOnly=true を
+ * 常に付け、状態の絞り込みは置かない。
  *
  * 条件は URL（/my/archive?...）に残す。「戻る」「進む」はルーターが拾って画面ごと描き直し、描き直した画面が
  * URL から条件を戻す。ルーターは history.state を使わないので、URL の書き方は管理画面と同じ（pushState）でよい。
@@ -333,7 +334,7 @@ const myArchiveView = {
     nav: "/my/archive",
     render(root) {
         root.innerHTML = `<h1>アーカイブ</h1>
-            <p class="pageDescription">購読しているチャンネルの録画。再生中にほかの画面へ移っても、画面下で再生を続けます。</p>
+            <p class="pageDescription">この端末に録画したすべての録画。再生中にほかの画面へ移っても、画面下で再生を続けます。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <form id="filterForm" class="inline">
               <input type="search" name="keyword" placeholder="タイトル・チャンネル名で検索" aria-label="タイトル・チャンネル名で検索">
@@ -432,7 +433,8 @@ const myArchiveView = {
         };
         // 選択肢が揃ってから URL の条件を戻す（先に戻すと、チャンネル・ジャンルが選択肢に無い値として捨てられる）
         Promise.all([
-            addOptions("channelId", "/api/my/channels", (ch) => new Option(ch.channelName, String(ch.id))),
+            // 購読しているチャンネルだけだと、一覧に出ている購読外の録画のチャンネルで絞り込めない
+            addOptions("channelId", "/api/my/recordings/channels", (ch) => new Option(ch.channelName, String(ch.id))),
             // 件数を添えるのは、選ぶ前にどれだけ当たるか分かるようにするため（管理画面と同じ）
             addOptions("genre", "/api/my/recordings/genres", (g) => new Option(`${g.genre}（${g.count}）`, g.genre)),
         ]).then(() => {
@@ -463,13 +465,13 @@ const myWatchView = {
         /** @type {Recording} */
         let rec;
         try {
-            // 見られない録画（購読していない・削除された）は 404 で返る。ほかの失敗と分けて伝えるため、
+            // 無い録画（削除された）は 404 で返る。ほかの失敗と分けて伝えるため、
             // 状態コードを見られるよう apiGet を使わない
             const res = await authenticatedFetch(`/api/my/recordings/${match[1]}`);
             if (res.status === 404) {
                 if (heading.isConnected) {
                     root.innerHTML = `<h1>この録画は見られません</h1>
-                        <p class="pageDescription">購読していないチャンネルの録画か、削除された録画です。</p>
+                        <p class="pageDescription">削除されたか、存在しない録画です。</p>
                         <p><a href="/my/archive">アーカイブへ戻る</a></p>`;
                 }
                 return;
@@ -533,6 +535,11 @@ const myWatchView = {
  * @param {HTMLElement} grid 並べる先
  */
 async function myLoadRelated(rec, grid) {
+    // URL を貼って取得した録画はチャンネルに紐づかず、channelId が無い（API も絞り込めない。管理者の player.js と同じ）
+    if (rec.channelId == null) {
+        grid.innerHTML = '<p class="muted">この録画はチャンネルに紐づいていないため、関連する録画はありません</p>';
+        return;
+    }
     try {
         const data = await apiGet(`/api/my/recordings?channelId=${rec.channelId}&playableOnly=true&size=12`);
         if (!grid.isConnected) return;
