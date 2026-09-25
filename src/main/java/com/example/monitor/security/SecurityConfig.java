@@ -1,6 +1,6 @@
 package com.example.monitor.security;
 
-import com.example.monitor.util.ApiRequestPath;
+import com.example.monitor.util.LoginReturnPath;
 
 import com.example.monitor.repository.AppUserRepository;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
@@ -32,7 +32,7 @@ import org.springframework.security.web.authentication.AuthenticationSuccessHand
  * <table>
  *   <caption>設計書 3.4 の表と実装の対応</caption>
  *   <tr><th>設計書の記載</th><th>実際のパス</th><th>権限</th></tr>
- *   <tr><td>/login, /css/**, /js/**</td><td>同左（+ /userLogin.html, /adminLogin.html, /error）</td><td>全員</td></tr>
+ *   <tr><td>/login, /css/**, /js/**</td><td>同左（+ /userLogin.html, /adminLogin.html, /error, /favicon.ico）</td><td>全員</td></tr>
  *   <tr><td>/api/auth/**</td><td>同左（ログイン処理・ログアウト）</td><td>全員</td></tr>
  *   <tr><td>/tables.html, /api/tables/**</td>
  *       <td>/tables.html, <b>/api/admin/tables/**</b></td><td>ADMIN</td></tr>
@@ -139,9 +139,13 @@ public class SecurityConfig {
                                             AuditLogoutHandler auditLogoutHandler)
             throws Exception {
         HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
-        // APIの要求本文や変更操作を、再ログイン後の復帰要求として保存しない。
+        // ログイン後に戻る先として正しい画面（GET）だけを保存する。保存は後の要求で上書きされるため、
+        // ログイン画面を開いたブラウザが取りに行く /favicon.ico まで保存すると、開こうとしていた画面ではなく
+        // そこへ戻してしまう（#222。既定の条件にあった favicon の除外が、条件を自前にしたときに消えていた）。
+        // 除外を足さずに画面へ絞るのは、ほかにブラウザが勝手に取りに行くものでも同じことが起きるため。
+        // パスは、戻る先（保存した要求の URL）と同じ復号前のもので照合する。
         requestCache.setRequestMatcher(request -> "GET".equals(request.getMethod())
-                && !ApiRequestPath.matches(request));
+                && LoginReturnPath.isPage(request.getRequestURI().substring(request.getContextPath().length())));
         http
             .requestCache(cache -> cache.requestCache(requestCache))
             .exceptionHandling(errors -> errors.authenticationEntryPoint(authenticationHandler)
@@ -175,6 +179,9 @@ public class SecurityConfig {
                 .contentSecurityPolicy(csp -> csp.policyDirectives(CONTENT_SECURITY_POLICY)))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/userLogin.html", "/adminLogin.html", "/login", "/css/**", "/js/**", "/error").permitAll()
+                // ブラウザがどの画面でも取りに行く。ログイン画面へ転送しても意味が無いので、
+                // 未ログインでもそのまま返す（ファイルは無いので 404）
+                .requestMatchers("/favicon.ico").permitAll()
                 // 招待リンクからの利用者登録。まだアカウントが無い時点で開くので認証は掛けられない。
                 // 代わりに招待の token が鍵になる（推測できない乱数・1回限り・期限付き）
                 .requestMatchers("/register.html", "/api/registration/**").permitAll()

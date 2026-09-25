@@ -30,6 +30,17 @@ public final class LoginReturnPath {
     }
 
     /**
+     * 未ログインで開かれたパスを、ログイン後に戻る先として保存してよいかを決めるために使う。
+     * 保存する時点ではまだ誰がログインするか分からないため、受け付ける範囲が広い管理者として照合する
+     * （利用者・管理者どちらの画面も通る）。
+     * @param path 開かれたパス
+     * @return 利用者・管理者どちらかの画面（{@code /my} 配下を含む）なら true
+     */
+    public static boolean isPage(String path) {
+        return validate(path, true) != null;
+    }
+
+    /**
      * パラメーターは利用者が自由に変更できるため、サーバーでも復帰可能な画面を照合する。
      * @param value 要求された復帰先
      * @param admin 管理者か
