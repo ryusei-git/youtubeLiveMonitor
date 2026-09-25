@@ -1,7 +1,6 @@
 package com.example.monitor.controller;
 
 import com.example.monitor.dto.DiskUsageResponse;
-import com.example.monitor.dto.OrphanedCleanupResponse;
 import com.example.monitor.dto.PageResponse;
 import com.example.monitor.dto.RecordingResponse;
 import com.example.monitor.entity.MonitoredChannel;
@@ -188,23 +187,6 @@ class RecordingControllerTest {
             DiskUsageResponse result = controller.getDiskUsage();
 
             assertThat(result).isSameAs(usage);
-        }
-    }
-
-    @Nested
-    @DisplayName("deleteOrphanedRecordings()")
-    class DeleteOrphanedRecordings {
-
-        @Test
-        @DisplayName("正常系：RecordingHistoryServiceが返す削除結果をそのまま返す")
-        void testMethod01() {
-            OrphanedCleanupResponse cleanup =
-                    new OrphanedCleanupResponse(2, 5, 1024L, List.of("UCskipped"));
-            when(recordingHistoryService.deleteOrphanedRecordings()).thenReturn(cleanup);
-
-            OrphanedCleanupResponse result = controller.deleteOrphanedRecordings();
-
-            assertThat(result).isSameAs(cleanup);
         }
     }
 }

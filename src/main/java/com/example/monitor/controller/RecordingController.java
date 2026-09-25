@@ -1,7 +1,6 @@
 package com.example.monitor.controller;
 
 import com.example.monitor.dto.DiskUsageResponse;
-import com.example.monitor.dto.OrphanedCleanupResponse;
 import com.example.monitor.dto.PageResponse;
 import com.example.monitor.dto.RecordingGenreCountResponse;
 import com.example.monitor.dto.RecordingResponse;
@@ -128,12 +127,17 @@ public class RecordingController {
     /**
      * 録画履歴と、それに紐づく録画ファイルを削除する。
      *
+     * <p>パスを数字だけに絞っているのは、廃止した {@code DELETE /api/recordings/orphaned}（#264）を
+     * 叩かれたときに {@code orphaned} が {@code id} として解釈され、型変換の失敗で 500（ERROR ログ）に
+     * ならないようにするため（実際に 500 になることを確かめた）。数字以外はこの削除に一致せず、
+     * 同じパスの {@link #getRecording} だけが残るので 405 になる。
+     *
      * @param id 削除対象の録画履歴の主キー
      * @return 本文なしの HTTP 204
      * @throws com.example.monitor.exception.RecordingNotFoundException   指定 ID が存在しない場合（404）
      * @throws com.example.monitor.exception.RecordingInProgressException 録画中の場合（409）
      */
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/{id:\\d+}")
     public ResponseEntity<Void> deleteRecording(@PathVariable Long id) {
         recordingHistoryService.deleteRecording(id);
         return ResponseEntity.noContent().build();
@@ -147,19 +151,5 @@ public class RecordingController {
     @GetMapping("/disk-usage")
     public DiskUsageResponse getDiskUsage() {
         return recordingHistoryService.calculateDiskUsage();
-    }
-
-    /**
-     * 監視対象から削除済みのチャンネルの録画ファイルをまとめて削除する。
-     *
-     * <p>チャンネルを削除しても録画ファイル本体はディスクに残る設計のため、
-     * それらをまとめて片付けるための操作。<b>ファイルは元に戻せない。</b>
-     * 録画がまだ進行中のチャンネルは対象から外れる（結果の {@code skippedChannels} に入る）。
-     *
-     * @return 削除したチャンネル数・ファイル数・解放された容量
-     */
-    @DeleteMapping("/orphaned")
-    public OrphanedCleanupResponse deleteOrphanedRecordings() {
-        return recordingHistoryService.deleteOrphanedRecordings();
     }
 }
