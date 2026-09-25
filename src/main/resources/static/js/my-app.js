@@ -371,7 +371,7 @@ const myArchiveView = {
 };
 
 /**
- * 再生画面。録画をドックに読み込み、下に視聴済み・お気に入りのボタン、詳細と同じチャンネルの録画を出す。
+ * 再生画面。録画をドックに読み込み、下に視聴済み・お気に入りのボタン、端末に保存のリンク、詳細と同じチャンネルの録画を出す。
  * ボタンはアーカイブのカードと同じもの（common.js の recordingMarkButton）で、押したときの動きも同じ（myToggleMark）。
  * @type {MyView}
  */
@@ -417,6 +417,12 @@ const myWatchView = {
         if (PLAYABLE_RECORDING_STATUSES.includes(rec.status)) {
             myDockLoad(rec);
             myDockShow("full");
+            // 端末のファイルとして保存させる。ブラウザの中（IndexedDB など）に貯める方式は、iPhone の Safari が
+            // しばらく使わないサイトのデータを消すことがあり、数 GB の録画を確実には残せないため採らない（#163）。
+            // 同じオリジンのファイルなので download 属性だけで保存になり、見てよいかの確認も再生と同じものが効く
+            query(".watchMarks", root).insertAdjacentHTML("afterend", `<p>
+                <a href="/recordings/${escapeHtml(encodeURI(rec.filePath))}" download="${escapeHtml(recordingDownloadName(rec))}">端末に保存（${formatFileSize(rec.fileSizeBytes)}）</a><br>
+                <span class="muted">iPhone では「ファイル」アプリの「ダウンロード」に保存されます。写真に入れるときは、ファイルを開いて共有→「ビデオを保存」。</span></p>`);
         } else {
             showError("この録画は再生できるファイルが残っていません");
         }
