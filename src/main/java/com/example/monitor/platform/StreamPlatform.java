@@ -135,6 +135,15 @@ public interface StreamPlatform {
     LiveStreamDetection detectLiveStream(String channelId);
 
     /**
+     * 同時に投げる問い合わせの上限。
+     *
+     * <p>無制限に並べると、短時間に大量のアクセスを送ることになり
+     * 相手側から遮断されうる。待ち時間を重ねるのが目的なので、
+     * この程度で十分に効く（直列 8.2 秒 → 実測で 2 秒未満）。
+     */
+    int MAX_CONCURRENT_DETECTIONS = 6;
+
+    /**
      * 複数チャンネルの配信状態をまとめて調べる。
      *
      * <p>既定では1件ずつ {@link #detectLiveStream(String)} を呼ぶ。
@@ -149,15 +158,6 @@ public interface StreamPlatform {
      * @param channelIds 正規化済みのチャンネル識別子
      * @return 識別子ごとの判定結果（引数の順序を保つ）
      */
-    /**
-     * 同時に投げる問い合わせの上限。
-     *
-     * <p>無制限に並べると、短時間に大量のアクセスを送ることになり
-     * 相手側から遮断されうる。待ち時間を重ねるのが目的なので、
-     * この程度で十分に効く（直列 8.2 秒 → 実測で 2 秒未満）。
-     */
-    int MAX_CONCURRENT_DETECTIONS = 6;
-
     default Map<String, LiveStreamDetection> detectLiveStreams(List<String> channelIds) {
         Map<String, LiveStreamDetection> results = new LinkedHashMap<>();
         if (channelIds.size() <= 1) {
