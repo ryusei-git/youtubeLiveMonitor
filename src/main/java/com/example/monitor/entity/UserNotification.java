@@ -73,6 +73,26 @@ public class UserNotification {
     private LocalDateTime notifiedAt;
 
     /**
+     * 最後に送信に失敗した時刻。失敗していなければ {@code null}。
+     *
+     * <p>失敗回数だけでは「今も届いていない」のか「昔 1 度失敗しただけ」なのか分からず、
+     * Discord 側で Webhook を消した利用者が毎回黙って失敗し続けても気付けないため、時刻を残す。
+     * Webhook を登録し直すと消す（前の Webhook の失敗を今の失敗と見せないため。
+     * {@code UserNotificationRepository#clearFailures} 参照）。
+     * NULL を許すので、既存の行がある DB でも ALTER が失敗しない（{@code docs/pitfalls.md} 参照）。
+     */
+    private LocalDateTime lastFailedAt;
+
+    /**
+     * 最後に送信に失敗した理由（200 文字で切ったもの）。失敗していなければ {@code null}。
+     *
+     * <p>WARN のログは古いものから消えるため、利用者から「届かない」と言われたときに理由を DB で引けるようにする。
+     * 長さを切るのは呼び出し側（例外のメッセージには Discord の応答本文が入り、長さが決まらないため）。
+     */
+    @Column(length = 200)
+    private String lastError;
+
+    /**
      * まだ送っていない組の行を作る。
      *
      * @param user    通知の相手
