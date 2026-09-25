@@ -76,6 +76,13 @@ class LiveStreamPollingSchedulerTest {
     @Mock
     private com.example.monitor.service.OnlineVideoService onlineVideoService;
 
+    /**
+     * 利用者ごとの通知。モックのままにして、全体向けの通知の各テストの前提（利用者向けの通知先が無い）を変えない。
+     * モックは詳細の入れ物を取り出さないため、詳細の取得回数の検証もこれまでどおり成り立つ。
+     */
+    @Mock
+    private com.example.monitor.service.UserNotificationService userNotificationService;
+
     @InjectMocks
     private LiveStreamPollingScheduler scheduler;
 

@@ -17,6 +17,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.net.http.HttpClient;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,6 +36,10 @@ class DiscordNotifierTest {
     @Mock
     private WebhookClient webhookClient;
 
+    /** 利用者ごとの Webhook への送信に使う。全体向けの送信を扱うここでは使われない。 */
+    @Mock
+    private HttpClient httpClient;
+
     private MonitorProperties monitorProperties(String webhookUrl) {
         return new MonitorProperties(new YouTubeProperties("", 120), new TwitchProperties("", ""), new DiscordProperties(webhookUrl),
                 new RecordingProperties("recordings", 1080), new MonitorProperties.AdminProperties("admin", ""));
@@ -48,7 +53,7 @@ class DiscordNotifierTest {
         @DisplayName("正常系：Webhook URLが設定されている場合はWebhookClientが生成される")
         void testMethod01() {
             DiscordNotifier notifier = new DiscordNotifier(
-                    monitorProperties("https://discord.com/api/webhooks/123456789012345678/dummy-token"));
+                    monitorProperties("https://discord.com/api/webhooks/123456789012345678/dummy-token"), httpClient);
 
             notifier.initializeWebhookClient();
 
@@ -59,7 +64,7 @@ class DiscordNotifierTest {
         @Test
         @DisplayName("正常系：Webhook URLが空文字の場合はWebhookClientがnullのままになる")
         void testMethod02() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(""));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(""), httpClient);
 
             notifier.initializeWebhookClient();
 
@@ -70,7 +75,7 @@ class DiscordNotifierTest {
         @Test
         @DisplayName("正常系：Webhook URLがnullの場合もWebhookClientがnullのままになる")
         void testMethod03() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(null));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(null), httpClient);
 
             notifier.initializeWebhookClient();
 
@@ -86,7 +91,7 @@ class DiscordNotifierTest {
         @Test
         @DisplayName("正常系：WebhookClientへタイトル・チャンネル名を含むembedを送信する")
         void testMethod01() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
             ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
             when(webhookClient.send(any(WebhookEmbed.class))).thenReturn(CompletableFuture.completedFuture(null));
 
@@ -113,7 +118,7 @@ class DiscordNotifierTest {
             // 以前は LiveStreamDetails 側で videoId から YouTube の URL を組み立てていたため、
             // Twitch の配信を通知すると存在しない YouTube の URL が貼られていた。
             // 渡された URL がそのまま使われることを固定する
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
             ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
             when(webhookClient.send(any(WebhookEmbed.class))).thenReturn(CompletableFuture.completedFuture(null));
 
@@ -134,7 +139,7 @@ class DiscordNotifierTest {
         @Test
         @DisplayName("正常系：サムネイルURLが設定されている場合はembedの画像として設定される")
         void testMethod02() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
             ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
             when(webhookClient.send(any(WebhookEmbed.class))).thenReturn(CompletableFuture.completedFuture(null));
 
@@ -155,7 +160,7 @@ class DiscordNotifierTest {
         @Test
         @DisplayName("正常系：サムネイルURLが無い場合はembedの画像が設定されない")
         void testMethod03() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
             ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
             when(webhookClient.send(any(WebhookEmbed.class))).thenReturn(CompletableFuture.completedFuture(null));
 
@@ -175,7 +180,7 @@ class DiscordNotifierTest {
         @Test
         @DisplayName("異常系：Webhook URLが未設定の場合はIllegalStateExceptionが発生する")
         void testMethod04() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(""));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(""), httpClient);
             LiveStreamDetails liveStream = LiveStreamDetails.builder()
                     .videoId("video001")
                     .title("配信タイトル")
@@ -195,7 +200,7 @@ class DiscordNotifierTest {
         @Test
         @DisplayName("正常系：WebhookClientが設定されている場合はcloseが呼ばれる")
         void testMethod01() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
             ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
 
             notifier.closeWebhookClient();
@@ -206,7 +211,7 @@ class DiscordNotifierTest {
         @Test
         @DisplayName("正常系：WebhookClientが未設定の場合は例外を発生させずに何もしない")
         void testMethod02() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(""));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(""), httpClient);
 
             assertThatCode(notifier::closeWebhookClient).doesNotThrowAnyException();
         }

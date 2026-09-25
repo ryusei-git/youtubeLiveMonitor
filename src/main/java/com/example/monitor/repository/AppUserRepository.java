@@ -2,6 +2,7 @@ package com.example.monitor.repository;
 
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AppUser.Role;
+import com.example.monitor.entity.MonitoredChannel;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -9,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -53,6 +55,36 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     @Transactional
     @Query("UPDATE AppUser u SET u.lastLoginAt = :loginAt WHERE u.id = :id")
     int updateLastLoginAt(@Param("id") Long id, @Param("loginAt") LocalDateTime loginAt);
+
+    /**
+     * Discord の Webhook の URL だけを更新する。登録・変更・解除（{@code null}）に使う。
+     *
+     * <p>{@link #updateLastLoginAt} と同じく、読み込んだエンティティを {@code save} しないのは、
+     * その間に管理操作（無効化など）で変わった他の列を古い値で書き戻さないため。
+     *
+     * @param id  利用者の主キー
+     * @param url 登録する URL。解除するなら {@code null}
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE AppUser u SET u.discordWebhookUrl = :url WHERE u.id = :id")
+    int updateDiscordWebhookUrl(@Param("id") Long id, @Param("url") String url);
+
+    /**
+     * このチャンネルを購読していて、Discord の Webhook を登録している有効な利用者を返す。
+     * 配信開始を利用者ごとに通知する相手を決めるのに使う（巡回から呼ばれる）。
+     *
+     * <p>購読の行ではなく利用者そのものを返すのは、巡回がトランザクションの外で動くため。
+     * 購読の {@code user} は遅延読み込みなので、購読を返すと利用者の項目を読んだ時点で失敗する。
+     * 無効化された利用者には送らない。
+     *
+     * @param channel 配信が始まったチャンネル
+     * @return 通知の相手。いなければ空
+     */
+    @Query("SELECT s.user FROM UserSubscription s WHERE s.channel = :channel "
+            + "AND s.user.enabled = true AND s.user.discordWebhookUrl IS NOT NULL")
+    List<AppUser> findNotificationTargets(@Param("channel") MonitoredChannel channel);
 
     /**
      * セッションに残った認証情報だけでは無効化・削除を検出できないため、毎回現状を照合する。
