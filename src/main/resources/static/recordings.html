@@ -37,42 +37,42 @@
 
   <h2>録画一覧 <span class="hint" title="サムネイルまたはタイトルをクリックすると再生画面へ移動します。">ⓘ</span></h2>
   <form id="filterForm" class="inline">
-    <input type="search" id="keywordFilter" placeholder="タイトル・チャンネル名で検索">
-    <select id="channelFilter"><option value="">全チャンネル</option></select>
-    <select id="statusFilter">
+    <input type="search" name="keyword" placeholder="タイトル・チャンネル名で検索">
+    <select id="channelFilter" name="channelId"><option value="">全チャンネル</option></select>
+    <select name="status">
       <option value="">すべての状態</option>
       <option value="COMPLETED">完了</option>
       <option value="PARTIAL">途中まで</option>
       <option value="RECORDING">録画中</option>
       <option value="FAILED">失敗</option>
     </select>
-    <select id="genreFilter" aria-label="ジャンル"><option value="">すべてのジャンル</option></select>
-    <label>期間 <input type="date" id="fromFilter" aria-label="期間の開始日"> 〜 <input type="date" id="toFilter" aria-label="期間の終了日"></label>
-    <select id="sortFilter" aria-label="並び順">
+    <select id="genreFilter" name="genre" aria-label="ジャンル"><option value="">すべてのジャンル</option></select>
+    <label>期間 <input type="date" name="from" aria-label="期間の開始日"> 〜 <input type="date" name="to" aria-label="期間の終了日"></label>
+    <select name="sort" aria-label="並び順">
       <option value="newest">新しい順</option>
       <option value="oldest">古い順</option>
       <option value="longest">長い順</option>
       <option value="largest">サイズが大きい順</option>
     </select>
-    <select id="sizeFilter" aria-label="表示件数">
+    <select name="size" aria-label="表示件数">
       <option value="24">24件ずつ</option>
       <option value="48">48件ずつ</option>
       <option value="96">96件ずつ</option>
     </select>
-    <select id="watchedFilter" aria-label="視聴">
+    <select name="watched" aria-label="視聴">
       <option value="">すべて</option>
       <option value="unwatched">未視聴</option>
       <option value="watched">視聴済み</option>
     </select>
-    <label><input type="checkbox" id="favoriteFilter"> お気に入りのみ</label>
+    <label><input type="checkbox" name="favorite"> お気に入りのみ</label>
     <button type="submit">検索</button>
-    <button type="button" id="resetBtn">条件をクリア</button>
+    <button type="reset">条件をクリア</button>
   </form>
 
   <div class="inline">
     <div class="viewToggle" role="group" aria-label="表示">
-      <button type="button" id="cardViewBtn" aria-pressed="true">カード</button>
-      <button type="button" id="listViewBtn" aria-pressed="false">リスト</button>
+      <button type="button" class="cardViewBtn" aria-pressed="true">カード</button>
+      <button type="button" class="listViewBtn" aria-pressed="false">リスト</button>
     </div>
     <span id="resultSummary" class="muted"></span>
   </div>
@@ -84,10 +84,10 @@
     </table>
   </div>
 
-  <nav class="inline" aria-label="ページ送り">
-    <button id="prevBtn">前へ</button>
-    <span id="pageNumbers" style="display:contents"></span>
-    <button id="nextBtn">次へ</button>
+  <nav class="inline" id="pager" aria-label="ページ送り">
+    <button class="prevBtn">前へ</button>
+    <span class="pageNumbers" style="display:contents"></span>
+    <button class="nextBtn">次へ</button>
   </nav>
   <details class="utilityPanel" id="recordingTools">
     <summary>動画URLから追加・保存容量の管理</summary>
