@@ -470,11 +470,18 @@ sudo ufw status verbose       # 受信は既定で拒否（deny (incoming)）、
 
 ```bash
 echo "SERVER_ADDRESS=0.0.0.0" >> .env
+echo "SESSION_COOKIE_SECURE=false" >> .env
 bin/service.sh restart
 ```
 
+2 行目は、セッションの Cookie（`JSESSIONID`）に既定で付く `Secure` を外す設定です。
+`Secure` の Cookie はブラウザが HTTPS でしか送らないため、`http://192.168.x.x:8080` では
+ログインしても Cookie が捨てられ、ログイン画面に戻されます。外しても、`tailscale serve` を通った
+HTTPS の要求には Tomcat が自動で `Secure` を付けるので、tailnet 経由の Cookie は守られたままです。
+
 `bin/api.sh`・`bin/preview.sh`・`bin/health-watch.sh`・`bin/service.sh status` は
-`localhost` / `127.0.0.1` へつなぐので、どちらの設定でもそのまま動きます。
+`localhost` / `127.0.0.1` へつなぐので、どちらの設定でもそのまま動きます
+（curl・Chromium は `localhost` / `127.0.0.1` を安全な接続先として扱い、http でも `Secure` の Cookie を送ります）。
 
 ### 画面の見た目
 
