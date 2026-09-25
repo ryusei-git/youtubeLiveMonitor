@@ -39,8 +39,8 @@ public class PortalAwareAuthenticationProvider implements AuthenticationProvider
 
     public PortalAwareAuthenticationProvider(AppUserDetailsService userDetailsService,
                                              PasswordEncoder passwordEncoder) {
-        delegate = new DaoAuthenticationProvider(passwordEncoder);
-        delegate.setUserDetailsService(userDetailsService);
+        delegate = new DaoAuthenticationProvider(userDetailsService);
+        delegate.setPasswordEncoder(passwordEncoder);
     }
 
     /**

@@ -46,9 +46,21 @@ public class RecordingFileAuthorizationManager
     @Lazy
     private final UserSubscriptionService userSubscriptionService;
 
+    /**
+     * Spring Security 6 ではまだ抽象メソッドなので実装が要るが、6.4 で非推奨になり、
+     * フィルターは {@link #authorize} を呼ぶ。判定は {@link #authorize} に置き、ここは委ねるだけにする
+     * （7 系〈Spring Boot 4.x、#320〉で消える）。
+     */
     @Override
+    @Deprecated
     public AuthorizationDecision check(Supplier<Authentication> authentication,
                                        RequestAuthorizationContext context) {
+        return authorize(authentication, context);
+    }
+
+    @Override
+    public AuthorizationDecision authorize(Supplier<Authentication> authentication,
+                                           RequestAuthorizationContext context) {
         Authentication auth = authentication.get();
         if (auth == null || !auth.isAuthenticated()) {
             return new AuthorizationDecision(false);
