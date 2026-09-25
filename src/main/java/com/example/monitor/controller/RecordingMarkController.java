@@ -3,10 +3,13 @@ package com.example.monitor.controller;
 import com.example.monitor.dto.RecordingFavoriteRequest;
 import com.example.monitor.dto.RecordingMarkResponse;
 import com.example.monitor.dto.RecordingWatchedRequest;
+import com.example.monitor.service.RecordingHistoryService;
 import com.example.monitor.service.RecordingMarkService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class RecordingMarkController {
 
     private final RecordingMarkService recordingMarkService;
+    private final RecordingHistoryService recordingHistoryService;
 
     /**
      * 視聴済みを切り替える。
@@ -52,5 +56,20 @@ public class RecordingMarkController {
     @PutMapping("/favorite")
     public RecordingMarkResponse setFavorite(@PathVariable Long id, @RequestBody RecordingFavoriteRequest request) {
         return recordingMarkService.setFavorite(id, request.favorite());
+    }
+
+    /**
+     * 再生回数（全員の合計）に 1 を足す。画面が再生を始めたときに 1 回だけ呼ぶ。
+     *
+     * <p>回数は印と違って利用者ごとではないが、{@code /watched} と同じ場所から呼ばれるため
+     * パスをそろえてここに置いている。
+     *
+     * @param id 録画の主キー
+     * @return 本文なしの 204
+     */
+    @PostMapping("/play")
+    public ResponseEntity<Void> countPlay(@PathVariable Long id) {
+        recordingHistoryService.countPlay(id);
+        return ResponseEntity.noContent().build();
     }
 }

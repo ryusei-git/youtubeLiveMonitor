@@ -29,6 +29,7 @@ import java.time.LocalDateTime;
  *                       画面はこれを {@code /recordings/} と連結して再生用 URL を組み立てる
  * @param fileSizeBytes  ファイルサイズ（バイト）。録画中・失敗時は {@code null}
  * @param durationSeconds 再生時間（秒）。読み取れていなければ {@code null}
+ * @param playCount      このサービスの画面で再生された回数（全員の合計。YouTube 上の再生数ではない）
  * @param thumbnailPath  サムネイル画像のパス（{@code monitor.recording.directory}からの相対パス）。
  *                       未生成なら {@code null}。画面はこれを {@code /recordings/} と連結して表示する
  * @param status         録画の状態（{@code RECORDING} / {@code COMPLETED} / {@code PARTIAL} / {@code FAILED}）
@@ -49,6 +50,7 @@ public record RecordingResponse(
         String filePath,
         Long fileSizeBytes,
         Integer durationSeconds,
+        int playCount,
         String thumbnailPath,
         String status,
         LocalDateTime startedAt,
@@ -109,6 +111,7 @@ public record RecordingResponse(
                 recording.getFilePath(),
                 recording.getFileSizeBytes(),
                 recording.getDurationSeconds(),
+                recording.getPlayCount(),
                 recording.getThumbnailPath(),
                 recording.getStatus().name(),
                 recording.getStartedAt(),

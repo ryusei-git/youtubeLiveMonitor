@@ -275,6 +275,22 @@ public class RecordingHistoryService {
     }
 
     /**
+     * 再生回数（全員の合計）に 1 を足す。画面で録画の再生を始めたときに呼ばれる。
+     *
+     * <p>先に {@code findById} で有無を確かめず、UPDATE の件数で判定している。
+     * 1 回の問い合わせで済み、確かめてから足すまでの間に消された場合も 404 にできるため。
+     * 監査ログには残さない（閲覧の記録であり、状態変更操作の証跡の対象外のため）。
+     *
+     * @param recordingId 録画履歴の主キー
+     * @throws RecordingNotFoundException 指定 ID の録画履歴が存在しない場合
+     */
+    public void countPlay(Long recordingId) {
+        if (recordingRepository.incrementPlayCount(recordingId) == 0) {
+            throw new RecordingNotFoundException(recordingId);
+        }
+    }
+
+    /**
      * 録画履歴と、それに紐づく録画ファイルを削除する。
      *
      * <p>DB からの削除を先に行い、ファイルの削除はそれに続く後始末として扱う

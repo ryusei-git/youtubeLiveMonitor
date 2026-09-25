@@ -327,6 +327,20 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
                              @Param("thumbnailPath") String thumbnailPath);
 
     /**
+     * 再生回数に 1 を足す。
+     *
+     * <p>エンティティを読んで {@code save} し直さず UPDATE 文で足すのは、同時に再生されたときに
+     * 片方の加算を上書きして数え落とさないため。
+     *
+     * @param id 録画履歴の主キー
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Recording r SET r.playCount = r.playCount + 1 WHERE r.id = :id")
+    int incrementPlayCount(@Param("id") Long id);
+
+    /**
      * 録画履歴に記録されている動画IDを、状態・チャンネルを問わずすべて取得する。
      *
      * <p>{@link com.example.monitor.service.OrphanedPreviewService#preview()} が、履歴のある動画の
