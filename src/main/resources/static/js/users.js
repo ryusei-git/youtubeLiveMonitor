@@ -19,12 +19,12 @@ async function loadUsers() {
                 <td>${datetimeCell(user.createdAt)}</td>
                 <td>${user.lastLoginAt ? datetimeCell(user.lastLoginAt) : '<span class="muted">未ログイン</span>'}</td>
                 <td>${managed ? `<button type="button" class="resetUser" ${user.enabled ? "" : "disabled"}>再設定用のリンクを発行</button>
-                    <button type="button" class="disableUser" ${user.enabled ? "" : "disabled"}>無効化</button>
+                    ${user.enabled ? '<button type="button" class="disableUser">無効化</button>' : '<button type="button" class="enableUser">有効化</button>'}
                     <button type="button" class="deleteUser">削除</button>` : '<span class="muted">管理者は操作できません</span>'}</td>`;
             if (managed) {
                 query(".resetUser", row).addEventListener("click", (ev) => issueResetLink(user, /** @type {HTMLButtonElement} */ (ev.currentTarget)));
-                query(".disableUser", row).addEventListener("click", () => changeUser(user, false));
-                query(".deleteUser", row).addEventListener("click", () => changeUser(user, true));
+                query(user.enabled ? ".disableUser" : ".enableUser", row).addEventListener("click", () => changeUser(user, user.enabled ? "disable" : "enable"));
+                query(".deleteUser", row).addEventListener("click", () => changeUser(user, "delete"));
             }
             body.append(row);
         }
@@ -45,13 +45,15 @@ async function loadUsers() {
 /**
  * 取り消せない操作の対象と影響を、送信直前に確認する。
  * @param {any} user 対象の表示情報
- * @param {boolean} remove 削除か、無効化か
+ * @param {"disable"|"delete"|"enable"} action 行う操作
  */
-async function changeUser(user, remove) {
+async function changeUser(user, action) {
     if (userOperationPending) return;
-    const message = remove
+    const message = action === "delete"
         ? `「${user.username}」を削除しますか？\n利用者と購読を削除します。元には戻せません。共有チャンネル・録画・監査履歴は残ります。`
-        : `「${user.username}」を無効化しますか？\nログイン中のアクセスも停止します。この画面から有効には戻せません。`;
+        : action === "disable"
+            ? `「${user.username}」を無効化しますか？\nログイン中のアクセスも停止します。`
+            : `「${user.username}」を有効に戻しますか？`;
     if (!confirm(message)) return;
     userOperationPending = true;
     const buttons = document.querySelectorAll("#userTable button, #reloadUsers");
@@ -62,9 +64,9 @@ async function changeUser(user, remove) {
         return { control, disabled };
     });
     try {
-        if (remove) await apiDelete(`/api/admin/users/${user.id}`);
-        else await apiPost(`/api/admin/users/${user.id}/disable`, {});
-        showToast(remove ? "利用者を削除しました" : "利用者を無効化しました");
+        if (action === "delete") await apiDelete(`/api/admin/users/${user.id}`);
+        else await apiPost(`/api/admin/users/${user.id}/${action}`, {});
+        showToast(action === "delete" ? "利用者を削除しました" : action === "disable" ? "利用者を無効化しました" : "利用者を有効に戻しました");
         await loadUsers();
     } catch (error) {
         // 最新状態を取り直し、削除済みの行を操作し続けないようにする。
