@@ -76,10 +76,17 @@ public class UserSubscriptionService {
     public List<SubscribedChannelResponse> listMySubscriptions() {
         // 件数はチャンネルごとに数えず、全チャンネル分を 1 回の問い合わせで数えて引き当てる
         // （購読数ぶん問い合わせが走るのを避けるため。管理者の一覧と同じやり方）
+        // 録画中かも同じ理由で、状態が RECORDING の録画を 1 回で数えて引き当てる
         Map<Long, Long> recordingCounts = monitoredChannelService.countPlayableRecordingsByChannel();
+        Map<Long, Long> recordingNowCounts = monitoredChannelService.countRecordingNowByChannel();
         return userSubscriptionRepository.findByUserOrderBySubscribedAtDesc(currentAppUser.require()).stream()
-                .map(subscription -> SubscribedChannelResponse.from(
-                        subscription, recordingCounts.getOrDefault(subscription.getChannel().getId(), 0L)))
+                .map(subscription -> {
+                    Long channelId = subscription.getChannel().getId();
+                    return SubscribedChannelResponse.from(
+                            subscription,
+                            recordingCounts.getOrDefault(channelId, 0L),
+                            recordingNowCounts.getOrDefault(channelId, 0L) > 0);
+                })
                 .toList();
     }
 

@@ -68,6 +68,20 @@ public class MonitoredChannelService {
     }
 
     /**
+     * チャンネルごとの録画中（{@code RECORDING}）の録画の件数を返す。
+     *
+     * <p>DB の状態で数えるので、再起動で完了の記録が失われた行（{@code RecordingReconciler} が補正するまで
+     * {@code RECORDING} のまま残る）も録画中に数える。補正は巡回と同じ間隔で走るため、食い違いは一時的。
+     *
+     * @return チャンネルの主キーから件数への対応。録画中の録画が無いチャンネルは含まない
+     */
+    public Map<Long, Long> countRecordingNowByChannel() {
+        return recordingRepository.countByChannel(List.of(RecordingStatus.RECORDING))
+                .stream()
+                .collect(Collectors.toMap(row -> (Long) row[0], row -> (Long) row[1]));
+    }
+
+    /**
      * チャンネルごとの購読者数を返す。
      *
      * <p>チャンネルを削除すると購読も連鎖で消えるため、管理者が削除する前に

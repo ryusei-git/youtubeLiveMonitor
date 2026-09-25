@@ -552,6 +552,7 @@ async function myLoadRelated(rec, grid) {
  * @property {string|null} channelUrl チャンネルページの URL。組み立てられなければ null
  * @property {string|null} channelIconUrl アイコンの URL。まだ読み取れていなければ null
  * @property {number} recordingCount 再生できる録画の件数
+ * @property {boolean} recordingNow そのチャンネルの配信を今録画しているか
  */
 
 /**
@@ -567,6 +568,9 @@ function myChannelStateLabel(ch) {
             "配信状態を判定できていません。しばらくしても直らない場合は管理者に連絡してください。");
     }
     if (!ch.lastCheckedAt) return statusLamp("unknown", "未確認", "まだ一度も確認していません");
+    if (ch.currentlyLive && ch.recordingNow) {
+        return statusLamp("live", "配信中・録画中", "最終確認時点で配信中で、録画しています。終わるとアーカイブに並びます");
+    }
     return ch.currentlyLive
         ? statusLamp("live", "配信中", "最終確認時点で配信中です")
         : statusLamp("idle", "配信していません");
