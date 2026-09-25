@@ -38,6 +38,7 @@ function renderDetail(rec) {
     // 印が付かなくても再生には関係ないので、失敗しても画面にエラーは出さない
     player.addEventListener("play", () => {
         apiPut(`/api/recordings/${rec.id}/watched`, { watched: true }).catch(() => {});
+        apiPost(`/api/recordings/${rec.id}/play`, {}).catch(() => {});
     }, { once: true });
 
     query("#detailTable tbody").innerHTML = [
