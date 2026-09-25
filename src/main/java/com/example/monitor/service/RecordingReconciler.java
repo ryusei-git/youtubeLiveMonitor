@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -104,6 +105,15 @@ public class RecordingReconciler {
      * （{@code ffmpeg} を入れ直した場合などはむしろ望ましい）。
      */
     private final Map<Long, Long> unsalvageableFileSizes = new ConcurrentHashMap<>();
+
+    /**
+     * サムネイルを作れなかった録画の ID と、そのときのファイルの合計サイズ。
+     *
+     * <p>映像が壊れた録画に、後始末のたび ffprobe・ffmpeg（1 件で最大 5 回、1 回 30 秒まで）を
+     * 掛け続けないための記憶。{@link #unsalvageableFileSizes} と同じく、サイズが変われば改めて試す。
+     * DB に持たせない理由も同じ。
+     */
+    private final Map<Long, Long> thumbnailFailedFileSizes = new ConcurrentHashMap<>();
 
     /**
      * 後始末が実行中かどうか。{@code ffmpeg} が周期より長引いたときに、次の回を重ねないため
@@ -254,26 +264,41 @@ public class RecordingReconciler {
      * 完了済みなのにサムネイルが無い録画について、再生時間とサムネイルを後から作る。
      *
      * <p>サムネイルの仕組みを入れる前に録画したものや、生成に失敗したものを救うための処理。
-     * 取得できなくても録画自体は問題なく再生できるので、失敗しても状態は変えずに次回へ持ち越す
-     * （次の巡回でまた対象として拾われる）。
+     * 取得できなくても録画自体は問題なく再生できるので、失敗しても状態は変えずに次回へ持ち越す。
+     * ただしファイルのサイズが変わるまで試し直さない（{@link #thumbnailFailedFileSizes}）。
      */
     private void generateMissingThumbnails() {
         List<RecordingStatus> playableStatuses = List.of(RecordingStatus.COMPLETED, RecordingStatus.PARTIAL);
         for (Recording recording : recordingRepository.findByStatusInAndThumbnailPathIsNull(playableStatuses)) {
-            recordingFileService.resolveExistingFile(recording).ifPresent(videoFile -> {
-                Integer durationSeconds = videoMetadataExtractor.extractDurationSeconds(videoFile).orElse(null);
-                if (durationSeconds == null) {
-                    return;
-                }
+            Long sizeWhenFailed = thumbnailFailedFileSizes.get(recording.getId());
+            if (sizeWhenFailed != null && sizeWhenFailed == recordingFileService.totalFileSizeFor(recording)) {
+                continue;
+            }
 
-                String thumbnailPath = videoMetadataExtractor.extractThumbnail(videoFile, durationSeconds)
-                        .map(recordingFileService::toRelativePath)
-                        .orElse(null);
+            Optional<Path> existingFile = recordingFileService.resolveExistingFile(recording);
+            if (existingFile.isEmpty()) {
+                continue;
+            }
+            Path videoFile = existingFile.get();
 
-                recordingHistoryService.updateMediaMetadata(recording.getId(), durationSeconds, thumbnailPath);
-                log.info("録画の再生時間とサムネイルを生成しました: id={}, video={}, duration={}秒",
-                        recording.getId(), recording.getVideoId(), durationSeconds);
-            });
+            Integer durationSeconds = videoMetadataExtractor.extractDurationSeconds(videoFile).orElse(null);
+            if (durationSeconds == null) {
+                thumbnailFailedFileSizes.put(recording.getId(), recordingFileService.totalFileSizeFor(recording));
+                continue;
+            }
+
+            String thumbnailPath = videoMetadataExtractor.extractThumbnail(videoFile, durationSeconds)
+                    .map(recordingFileService::toRelativePath)
+                    .orElse(null);
+            if (thumbnailPath == null) {
+                thumbnailFailedFileSizes.put(recording.getId(), recordingFileService.totalFileSizeFor(recording));
+            } else {
+                thumbnailFailedFileSizes.remove(recording.getId());
+            }
+
+            recordingHistoryService.updateMediaMetadata(recording.getId(), durationSeconds, thumbnailPath);
+            log.info("録画の再生時間とサムネイルを生成しました: id={}, video={}, duration={}秒",
+                    recording.getId(), recording.getVideoId(), durationSeconds);
         }
     }
 
