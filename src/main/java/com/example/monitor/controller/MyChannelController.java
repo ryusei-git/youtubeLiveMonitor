@@ -59,7 +59,8 @@ public class MyChannelController {
     @PostMapping
     public SubscribedChannelResponse subscribe(@Valid @RequestBody SubscriptionRequest request) {
         return userSubscriptionService.subscribe(
-                request.platformOrDefault(), request.channelInput(), request.channelName());
+                request.platformOrDefault(), request.channelInput(), request.channelName(),
+                request.recordEnabledOrDefault());
     }
 
     /**

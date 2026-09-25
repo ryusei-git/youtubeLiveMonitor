@@ -664,6 +664,7 @@ const myChannelsView = {
               <select id="addPlatform" aria-label="配信プラットフォーム"></select>
               <input type="text" id="addChannelId" placeholder="URL / @ハンドル / チャンネルID" required aria-label="チャンネルURL・ハンドル・ID">
               <input type="text" id="addChannelName" placeholder="表示名（省略可）" aria-label="表示名">
+              <label><input type="checkbox" id="addRecordEnabled"> 配信を自動で録画する</label>
               <button type="submit">追加</button>
             </form>
             <h2>購読しているチャンネル</h2>
@@ -733,16 +734,20 @@ const myChannelsView = {
         const platform = selectEl("addPlatform");
         const channelInput = inputEl("addChannelId");
         const channelName = inputEl("addChannelName");
+        const recordEnabled = inputEl("addRecordEnabled");
         form.addEventListener("submit", async (event) => {
             event.preventDefault();
             const submit = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
             submit.disabled = true;
             try {
                 const added = await apiPost("/api/my/channels", {
-                    platform: platform.value, channelInput: channelInput.value.trim(), channelName: channelName.value.trim() });
+                    platform: platform.value, channelInput: channelInput.value.trim(), channelName: channelName.value.trim(),
+                    recordEnabled: recordEnabled.checked });
                 if (!form.isConnected) return;
                 clearError();
-                showToast(`${added.channelName} を追加しました`);
+                showToast(recordEnabled.checked
+                    ? `${added.channelName} を追加しました。配信を自動で録画します`
+                    : `${added.channelName} を追加しました。録画するには表の「自動録画: オフ」を押してオンにしてください`);
                 channelInput.value = "";
                 channelName.value = "";
                 load();

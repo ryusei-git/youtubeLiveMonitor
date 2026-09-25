@@ -110,12 +110,14 @@ public class UserSubscriptionService {
      * @param platform     プラットフォーム
      * @param channelInput 利用者の入力（チャンネル ID・ハンドル・ログイン名・URL）
      * @param channelName  新規登録時に使う表示名
+     * @param recordEnabled 自動録画を希望するか
      * @return 追加された購読
      * @throws ChannelAlreadyRegisteredException 既に自分が購読している場合
      * @throws IllegalArgumentException          入力に該当するチャンネルが見つからない場合
      */
     @Transactional
-    public SubscribedChannelResponse subscribe(Platform platform, String channelInput, String channelName) {
+    public SubscribedChannelResponse subscribe(Platform platform, String channelInput, String channelName,
+                                               boolean recordEnabled) {
         AppUser user = currentAppUser.require();
 
         // 上限の判定は findOrRegister より前に行う。後ろに置くと、上限に達した利用者でも
@@ -138,10 +140,11 @@ public class UserSubscriptionService {
         UserSubscription subscription = new UserSubscription();
         subscription.setUser(user);
         subscription.setChannel(channel);
+        subscription.setRecordEnabled(recordEnabled);
         UserSubscription saved = userSubscriptionRepository.save(subscription);
         log.info("チャンネルを購読しました: user={}, channel={}", user.getUsername(), channel.getYoutubeChannelId());
         auditLogger.record(AuditAction.CHANNEL_SUBSCRIBE, AuditOutcome.SUCCESS, user.getId(), user.getUsername(),
-                null, "CHANNEL", String.valueOf(channel.getId()), "channel=" + channel.getYoutubeChannelId());
+                null, "CHANNEL", String.valueOf(channel.getId()), "channel=" + channel.getYoutubeChannelId() + ", record=" + recordEnabled);
         return SubscribedChannelResponse.from(saved);
     }
 
