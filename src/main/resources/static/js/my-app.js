@@ -326,28 +326,33 @@ const myArchiveView = {
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <form id="filterForm" class="inline">
               <input type="search" name="keyword" placeholder="タイトル・チャンネル名で検索" aria-label="タイトル・チャンネル名で検索">
-              <select name="channelId" aria-label="チャンネル"><option value="">全チャンネル</option></select>
-              <select name="genre" aria-label="ジャンル"><option value="">すべてのジャンル</option></select>
-              <label>期間 <input type="date" name="from" aria-label="期間の開始日"> 〜 <input type="date" name="to" aria-label="期間の終了日"></label>
-              <select name="sort" aria-label="並び順">
-                <option value="newest">新しい順</option>
-                <option value="oldest">古い順</option>
-                <option value="longest">長い順</option>
-                <option value="largest">サイズが大きい順</option>
-              </select>
-              <select name="size" aria-label="表示件数">
-                <option value="24">24件ずつ</option>
-                <option value="48">48件ずつ</option>
-                <option value="96">96件ずつ</option>
-              </select>
-              <select name="watched" aria-label="視聴">
-                <option value="">すべて</option>
-                <option value="unwatched">未視聴</option>
-                <option value="watched">視聴済み</option>
-              </select>
-              <label><input type="checkbox" name="favorite"> お気に入りのみ</label>
               <button type="submit">検索</button>
-              <button type="reset">条件をクリア</button>
+              <details class="filterMore">
+                <summary aria-expanded="false">絞り込み・並び順<small class="filterCount"></small></summary>
+                <div class="inline">
+                  <select name="channelId" aria-label="チャンネル"><option value="">全チャンネル</option></select>
+                  <select name="genre" aria-label="ジャンル"><option value="">すべてのジャンル</option></select>
+                  <label>期間 <input type="date" name="from" aria-label="期間の開始日"> 〜 <input type="date" name="to" aria-label="期間の終了日"></label>
+                  <select name="sort" aria-label="並び順">
+                    <option value="newest">新しい順</option>
+                    <option value="oldest">古い順</option>
+                    <option value="longest">長い順</option>
+                    <option value="largest">サイズが大きい順</option>
+                  </select>
+                  <select name="size" aria-label="表示件数">
+                    <option value="24">24件ずつ</option>
+                    <option value="48">48件ずつ</option>
+                    <option value="96">96件ずつ</option>
+                  </select>
+                  <select name="watched" aria-label="視聴">
+                    <option value="">すべて</option>
+                    <option value="unwatched">未視聴</option>
+                    <option value="watched">視聴済み</option>
+                  </select>
+                  <label><input type="checkbox" name="favorite"> お気に入りのみ</label>
+                  <button type="reset">条件をクリア</button>
+                </div>
+              </details>
             </form>
             <div class="inline">
               <div class="viewToggle" role="group" aria-label="表示">
