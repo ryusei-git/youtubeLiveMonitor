@@ -64,9 +64,16 @@ public class NotificationHistory {
     /** 通知時点での配信タイトル。配信中に変更されることがあるため、あくまで通知時点のスナップショット。 */
     private String videoTitle;
 
-    /** 送信結果。 */
+    /**
+     * 送信結果。
+     *
+     * <p>{@code columnDefinition} で文字列の列にしているのは、無いと H2 のネイティブ ENUM 型で作られ、
+     * 列挙子を足した時点でこの列の読み書きがすべて失敗するため（docs/pitfalls.md 参照）。
+     * 既に ENUM で作られた DB は、起動時の {@code ddl-auto: update}（Hibernate 7）がこの定義との食い違いを見て
+     * {@code ALTER COLUMN ... SET DATA TYPE varchar(16)} を流し、値を保ったまま直す（#206 で本番 DB の複製で確認）。
+     */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 16, columnDefinition = "varchar(16)")
     private NotificationResultType status;
 
     /** 送信に失敗した場合の例外メッセージ。成功時は {@code null}。 */
