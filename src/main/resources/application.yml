@@ -46,6 +46,15 @@ spring:
       enabled: false
       path: /h2-console
 
+  # @Scheduled は既定では 1 スレッドを取り合う。巡回（LiveStreamPollingScheduler）が固まると、
+  # 録画の後始末・動画収集の起動・資源の記録まで止まるので、定期処理の数だけ用意する（#243）。
+  # 後始末と動画収集は仮想スレッドへ逃がし、AtomicBoolean で自分の重複を防いでいるので、
+  # スレッドを増やしても新しく同時に動く組み合わせは「巡回」と「資源の記録」だけ（共有する状態は無い）
+  task:
+    scheduling:
+      pool:
+        size: 4
+
 # ログ出力の設定は logback-spring.xml 側で一元管理する
 
 monitor:
