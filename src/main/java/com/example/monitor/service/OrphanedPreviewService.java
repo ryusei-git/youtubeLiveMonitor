@@ -12,7 +12,13 @@ import java.security.NoSuchAlgorithmException;
 import java.io.IOException;
 import java.util.*;
 
-/** 確認したファイルだけを削除し、確認後に増えたファイルを巻き込まないための操作。 */
+/**
+ * 録画履歴に無い動画のファイル（孤立ファイル）を、確認してから削除する。
+ *
+ * <p>確認したファイルだけを削除し、確認後に増えたファイルを巻き込まないための操作。
+ * 録画中のファイルは、動画 ID とチャンネル ID の両方でプロセスを確かめて除外する
+ * （チャンネルを削除しても yt-dlp は JVM と独立に動き続けるため）。
+ */
 @Service
 @RequiredArgsConstructor
 public class OrphanedPreviewService {
@@ -21,7 +27,12 @@ public class OrphanedPreviewService {
     private final ProcessLauncher processLauncher;
     private final ActiveVideoJobs activeVideoJobs;
 
-    /** 削除候補と除外理由を、ファイルを変更せずに返す。 */
+    /**
+     * 削除候補と除外理由を、ファイルを変更せずに返す。
+     *
+     * @return 削除候補・除外理由・合計サイズと、候補の一覧から作ったトークン
+     * @throws IllegalStateException 保存先の走査に失敗した場合
+     */
     public Preview preview() {
         Path base = Path.of(properties.recording().directory()).toAbsolutePath().normalize();
         List<Candidate> candidates = new ArrayList<>();
@@ -50,7 +61,17 @@ public class OrphanedPreviewService {
                 candidates.stream().mapToLong(Candidate::bytes).sum());
     }
 
-    /** 確認後の変更を検出し、録画開始と同じ予約を取得してからファイル単位で削除する。 */
+    /**
+     * プレビューで確認した削除候補だけを削除する。
+     *
+     * <p>確認後の変更を検出し、録画開始と同じ予約を取得してからファイル単位で削除する。
+     * 予約が取れないファイルや、確認時から状態が変わったファイルは消さずに除外理由へ回す。
+     *
+     * @param token {@link #preview()} で受け取ったトークン
+     * @return 削除の集計（チャンネル数・ファイル数・解放した容量・消さなかったファイルと理由）
+     * @throws IllegalArgumentException 確認した後に候補が変わった場合
+     * @throws IllegalStateException 保存先の走査に失敗した場合
+     */
     public OrphanedCleanupResponse deleteConfirmed(String token) {
         Preview current = preview();
         if (!current.token().equals(token)) throw new IllegalArgumentException("対象が変わりました。削除候補を再確認してください。");
@@ -85,8 +106,26 @@ public class OrphanedPreviewService {
                     .digest(candidates.toString().getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
-    /** ファイル名だけでなく更新状態も確認し、別の内容への置換を検出する。 */
+    /**
+     * 削除候補のファイル 1 件。
+     *
+     * <p>ファイル名だけでなく更新状態も確認し、別の内容への置換を検出する。
+     *
+     * @param path 保存先からの相対パス（区切りは {@code /}、先頭はチャンネル ID）
+     * @param videoId ファイル名から取り出した動画 ID
+     * @param bytes 確認時のファイルサイズ
+     * @param modifiedAt 確認時の更新日時（エポックミリ秒）
+     */
     public record Candidate(String path, String videoId, long bytes, long modifiedAt) {}
-    /** トークンは削除候補の同一性確認用であり、認証の代用ではない。 */
+    /**
+     * 削除候補の確認結果。
+     *
+     * <p>トークンは削除候補の同一性確認用であり、認証の代用ではない。
+     *
+     * @param token 削除候補の一覧から作ったハッシュ（確定時に送り返させる）
+     * @param files 削除候補
+     * @param skipped 録画中などで候補から外したものと、その理由
+     * @param totalBytes 削除候補の合計サイズ
+     */
     public record Preview(String token, List<Candidate> files, List<String> skipped, long totalBytes) {}
 }
