@@ -24,7 +24,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** 通常動画の取得待ちでライブ検知・通知を遅らせないよう、独立したスレッドで収集する。 */
+/**
+ * 監視チャンネルの投稿動画・配信アーカイブを定期的に集め、動画ライブラリへ記録する。
+ * <p>通常動画の取得待ちでライブ検知・通知を遅らせないよう、独立したスレッドで収集する。
+ */
 @Component @Profile("!cli") @RequiredArgsConstructor @Slf4j
 public class OnlineVideoCollector {
     private final MonitoredChannelRepository channels;
@@ -41,6 +44,10 @@ public class OnlineVideoCollector {
     @Value("${monitor.scheduling.enabled:true}")
     private boolean schedulingEnabled = true;
 
+    /**
+     * 動画の収集を仮想スレッドで 1 回始める。
+     * <p>{@code @Scheduled} のスレッドはライブ検知の定期実行と共有しているため、時間のかかる収集はそこで走らせず仮想スレッドへ逃がす。前回の収集がまだ終わっていなければ（{@code running} が立っていれば）何もしない。確認用の起動（{@code monitor.scheduling.enabled=false}）でも何もしない。
+     */
     @Scheduled(fixedDelayString = "${monitor.video-collection-interval-ms:600000}", initialDelay = 10000)
     public void schedule() {
         if (!schedulingEnabled || !running.compareAndSet(false, true)) return;
@@ -55,6 +62,10 @@ public class OnlineVideoCollector {
         });
     }
 
+    /**
+     * 全チャンネルの新着動画を 1 回集め、サムネイルの取得と種類の判定まで済ませる。
+     * <p>YouTube は公開フィードを先に試し、取れなければ公式 API（uploads 再生リスト）へ切り替える。フィードはクォータを使わないため。1 チャンネルの失敗で残りのチャンネルを止めないよう、失敗はチャンネルごとに記録して次へ進む。スレッドが割り込まれたら（{@link #stop()}）、次のチャンネルへ進まずに終える。
+     */
     public void collect() {
         var all = channels.findAll();
         refreshTwitchLogins(all);
@@ -117,6 +128,10 @@ public class OnlineVideoCollector {
         }
     }
 
+    /**
+     * アプリの終了時に、収集中のスレッドを割り込みで止める。
+     * <p>収集が終わるまで終了処理を待たせないため。{@link #collect()} はチャンネルごとに割り込みを確かめて終える。
+     */
     @PreDestroy
     public void stop() {
         if (worker != null) worker.interrupt();

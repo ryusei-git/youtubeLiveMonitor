@@ -12,13 +12,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** フィードが404等になっても投稿を取得できるよう、公式のuploads一覧を予備経路にする。 */
+/**
+ * YouTube Data API の uploads 再生リストから、チャンネルの投稿を取る。
+ * <p>フィードが404等になっても投稿を取得できるよう、公式のuploads一覧を予備経路にする。
+ */
 @Service @RequiredArgsConstructor
 public class YouTubeUploadsClient {
     private final YouTube youtube;
     private final YouTubeCatalogQuota quota;
     private final Map<String, String> uploads = new ConcurrentHashMap<>();
 
+    /**
+     * チャンネルの投稿を uploads 再生リストの先頭から、{@code since} より古い投稿に達したページまで取る。
+     * <p>1 ページ（最大 50 件）ごとにクォータを 1 単位使う。そのチャンネルの uploads 再生リストの ID をまだ覚えていなければ、最初に {@code channels.list} でもう 1 単位使う。境界のページはまるごと返すので、{@code since} より古い投稿も一部含まれる。
+     *
+     * @param channelId YouTube のチャンネル ID（{@code UC} で始まる）
+     * @param since この時刻より古い投稿に達したら、次のページを取らない
+     * @return 取れた投稿（{@code since} より古いものも含む）
+     * @throws IOException 本日のクォータの上限に達した、uploads 再生リストが見つからない・応答が不正、API の呼び出しに失敗した、またはスレッドが割り込まれた場合
+     */
     public List<OnlineVideoCandidate> fetch(String channelId, Instant since) throws IOException {
         String playlist = uploadsPlaylistId(channelId);
         List<OnlineVideoCandidate> videos = new ArrayList<>();
