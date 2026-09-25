@@ -1902,7 +1902,7 @@ function openOnlineVideo(video) {
     dialog.setAttribute("aria-labelledby", "onlinePlayerTitle");
     dialog.innerHTML = `<div class="onlinePlayerHead"><h2 id="onlinePlayerTitle">${escapeHtml(video.title)}</h2><button type="button" class="closeOnlinePlayer">閉じる</button></div>
         <div class="onlinePlayerFrame"></div>
-        <p class="muted">${escapeHtml(video.channelName)} · ${escapeHtml(video.platform)}</p>
+        <p class="muted">${escapeHtml(video.channelName)} · ${escapeHtml(video.platformLabel)}</p>
         <p class="muted">投稿者が埋め込みを許可していない動画、非公開・削除済みの動画は再生できません。 <a href="${escapeHtml(video.watchUrl)}" target="_blank" rel="noopener noreferrer">配信元で開く ↗</a></p>`;
     const frame = document.createElement("iframe");
     frame.src = source;
@@ -1938,7 +1938,7 @@ function buildOnlineVideoCard(video) {
         <span class="thumbPlaceholder" ${video.thumbnailRetryExhausted ? "" : "hidden"}>${video.thumbnailRetryExhausted ? "サムネイル取得失敗" : "サムネイル取得待ち"}</span>
         <span class="onlinePlayMark" aria-hidden="true">▶</span>
         </button><div class="cardBody"><h3 class="cardTitle"><button type="button" class="onlineTitle" ${video.playable ? "" : "disabled"}>${escapeHtml(video.title)}</button></h3>
-        <div class="muted">${escapeHtml(video.channelName)} · ${escapeHtml(video.platform)}</div>
+        <div class="muted">${escapeHtml(video.channelName)} · ${escapeHtml(video.platformLabel)}</div>
         <div class="muted">${escapeHtml(state)}</div><div class="muted">${escapeHtml(when)}</div></div>`;
     const thumbnail = query("img", card);
     if (!video.thumbnailRetryExhausted) {

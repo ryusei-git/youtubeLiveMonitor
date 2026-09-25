@@ -107,7 +107,7 @@ public class OnlineVideoService {
                 || STATE_LIVE.equals(state);
         String watchUrl = STATE_LIVE.equals(state) && video.getLiveWatchUrl() != null ? video.getLiveWatchUrl() : video.getWatchUrl();
         return new OnlineVideoResponse(video.getId(), channel.getId(), channel.getChannelName(),
-                channel.getPlatform().name(), video.getTitle(), watchUrl,
+                channel.getPlatform().name(), channel.getPlatform().displayName(), video.getTitle(), watchUrl,
                 "/api/videos/" + video.getId() + "/thumbnail", video.getPublishedAt(), video.getLastObservedAt(), state, playable,
                 ThumbnailRetryPolicy.exhausted(video.getThumbnailAttempts()),
                 video.getContentKind(), video.getScheduledStartTime());
