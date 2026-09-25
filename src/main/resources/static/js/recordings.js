@@ -2,139 +2,8 @@
 // 画面固有の状態をグローバルへ漏らさないため、全体を即時実行関数で包む。
 // （各画面のスクリプトは <script> で読み込まれ、既定では同じスコープを共有するため）
 (() => {
-    let currentPage = 0;
-    let totalPages = 1;
-
     /** 一覧の読み込み番号。条件を続けて変えたとき、遅れて届いた古い応答で画面を上書きしないため。 */
     let loadRequest = 0;
-
-    /**
-     * URL に残す絞り込み条件と、その入力欄。
-     * 既定値（空・新しい順・24件）のときは URL に載せない。載せると条件を付けていないのに URL が長くなり、
-     * チャンネル一覧からの `?channelId=` のような短いリンクと見分けにくくなるため。
-     */
-    const URL_FILTERS = [
-        { key: "keyword", id: "keywordFilter" },
-        { key: "channelId", id: "channelFilter" },
-        { key: "status", id: "statusFilter" },
-        { key: "genre", id: "genreFilter" },
-        { key: "from", id: "fromFilter" },
-        { key: "to", id: "toFilter" },
-        { key: "sort", id: "sortFilter" },
-        { key: "size", id: "sizeFilter" },
-        { key: "watched", id: "watchedFilter" },
-        { key: "favorite", id: "favoriteFilter" },
-    ];
-
-    /** 今の表示（カード / リスト）。既定のカードのときは URL に載せない。 */
-    let currentView = "card";
-
-    /** 今表示している録画。表示を切り替えたとき、一覧を読み直さずに描き直すため。 */
-    /** @type {Recording[]} */
-    let shownRecordings = [];
-
-    /** 並び順・表示件数の既定値（HTML の先頭の選択肢と揃える）。この値のときは URL に載せない。 */
-    const DEFAULT_SORT = "newest";
-    const DEFAULT_SIZE = "24";
-
-    /**
-     * 今の条件とページを URL に書き出す。
-     * 再生画面へ移って「戻る」を押したとき、同じ条件・同じページに戻れるようにするため。
-     * ページは画面の表示に合わせて 1 始まりで載せる（API の 0 始まりのままだと、URL を見た人が 1 ずれて読む）。
-     *
-     * @param {boolean} replace 読み込み直後の整えやページ超過の補正は履歴を増やさない
-     */
-    function syncRecordingUrl(replace = false) {
-        const url = new URL(location.href);
-        for (const { key } of URL_FILTERS) url.searchParams.delete(key);
-        url.searchParams.delete("page");
-        url.searchParams.delete("view");
-        for (const { key, id } of URL_FILTERS) {
-            const value = inputOrSelectValue(id);
-            const isDefault = !value || (key === "sort" && value === DEFAULT_SORT) || (key === "size" && value === DEFAULT_SIZE);
-            if (!isDefault) url.searchParams.set(key, value);
-        }
-        if (currentPage > 0) url.searchParams.set("page", String(currentPage + 1));
-        if (currentView === "list") url.searchParams.set("view", "list");
-        if (url.href !== location.href) history[replace ? "replaceState" : "pushState"](null, "", url);
-    }
-
-    /**
-     * URL から条件とページを入力欄へ戻す。
-     * select は選択肢に無い値（削除済みチャンネル・無くなったジャンルなど）を入れると空になるため、
-     * 無い値は既定に戻す。日付欄も yyyy-MM-dd 以外は空になるので、そのまま入れてよい。
-     */
-    function restoreRecordingUrl() {
-        const params = new URLSearchParams(location.search);
-        for (const { key, id } of URL_FILTERS) {
-            const value = (params.get(key) || "").trim();
-            const field = el(id);
-            if (field instanceof HTMLSelectElement) {
-                field.value = Array.from(field.options).some(o => o.value === value) ? value : field.options[0].value;
-            } else if (inputEl(id).type === "checkbox") {
-                inputEl(id).checked = value === "true";
-            } else {
-                inputEl(id).value = key === "keyword" ? value.slice(0, 200) : value;
-            }
-        }
-        const page = Number.parseInt(params.get("page") || "", 10);
-        currentPage = Number.isFinite(page) && page > 1 ? page - 1 : 0;
-        currentView = params.get("view") === "list" ? "list" : "card";
-        syncRecordingUrl(true);
-    }
-
-    /**
-     * @param {string} id 入力欄または select の ID
-     * @returns {string} 前後の空白を除いた値。チェックボックスは付いていれば "true"、外れていれば空
-     */
-    function inputOrSelectValue(id) {
-        const field = el(id);
-        if (field instanceof HTMLSelectElement) return field.value;
-        if (inputEl(id).type === "checkbox") return inputEl(id).checked ? "true" : "";
-        return inputEl(id).value.trim();
-    }
-
-    /**
-     * ページ番号のボタンを並べる。数千件（100ページ超）でも行が溢れないよう、
-     * 先頭・末尾・今のページの前後 2 つだけを出し、間は「…」で詰める。
-     */
-    function renderPageNumbers() {
-        const container = el("pageNumbers");
-        container.replaceChildren();
-        const pages = [];
-        for (let p = 0; p < totalPages; p++) {
-            // 「…」が 1 ページ分だけを隠すことになる場合（例: 1 2 3 … 5）は、そのページを出す
-            const onlyHiddenPage = Math.abs(p - currentPage) === 3 && (p === 1 || p === totalPages - 2);
-            if (p === 0 || p === totalPages - 1 || Math.abs(p - currentPage) <= 2 || onlyHiddenPage) pages.push(p);
-        }
-        let previous = -1;
-        for (const p of pages) {
-            if (p - previous > 1) {
-                const gap = document.createElement("span");
-                gap.className = "muted";
-                gap.textContent = "…";
-                container.appendChild(gap);
-            }
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.textContent = String(p + 1);
-            if (p === currentPage) {
-                btn.setAttribute("aria-current", "page");
-                btn.disabled = true;
-            } else {
-                btn.addEventListener("click", () => goToPage(p));
-            }
-            container.appendChild(btn);
-            previous = p;
-        }
-    }
-
-    /** @param {number} page 移動先（0 始まり） */
-    function goToPage(page) {
-        currentPage = page;
-        syncRecordingUrl();
-        loadRecordings();
-    }
 
     /**
      * 実行中のもの（録画・ダウンロード）があるときに一覧を読み直す間隔（ミリ秒）。
@@ -283,73 +152,37 @@
         return tr;
     }
 
-    /** 今の表示（カード / リスト）で shownRecordings を描く。 */
-    function renderRecordings() {
-        const list = currentView === "list";
-        buttonEl("cardViewBtn").setAttribute("aria-pressed", String(!list));
-        buttonEl("listViewBtn").setAttribute("aria-pressed", String(list));
-
-        const grid = el("videoGrid");
-        const tbody = query("#recordingTable tbody");
-        grid.innerHTML = "";
-        tbody.innerHTML = "";
-        if (shownRecordings.length === 0) {
-            // 空のときは表示によらずカード枠に案内を出す（見出しだけの空の表より理由が伝わる）
-            grid.hidden = false;
-            el("recordingList").hidden = true;
-            grid.innerHTML = emptyState(
-                "該当する録画はありません",
-                "絞り込み条件を外すか、上の入力欄に動画URLを貼ってダウンロードできます");
-            return;
-        }
-        grid.hidden = list;
-        el("recordingList").hidden = !list;
-        for (const r of shownRecordings) {
-            if (list) tbody.appendChild(buildRecordingRow(r));
-            else grid.appendChild(buildVideoCard(r, afterDelete, true, null, toggleMark));
-        }
-        bindDatetimeCells(list ? tbody : grid);
-    }
-
-    /** @param {"card"|"list"} view 切り替え先の表示 */
-    function switchView(view) {
-        if (currentView === view) return;
-        currentView = view;
-        syncRecordingUrl();
-        renderRecordings();
-    }
-
     async function loadRecordings() {
         const request = ++loadRequest;
         try {
-            const params = new URLSearchParams({ page: String(currentPage), size: selectEl("sizeFilter").value });
-            for (const { key, id } of URL_FILTERS) {
-                const value = inputOrSelectValue(id);
-                if (value && key !== "size") params.set(key, value);
-            }
-
-            const data = await apiGet(`/api/recordings?${params}`);
+            const data = await apiGet(`/api/recordings?${search.apiParams()}`);
             if (request !== loadRequest) return;
-            // 件数が減った（URL の page が古い・最後のページの録画を消した）ときは、空のページではなく最後のページを出す
-            if (currentPage > 0 && currentPage >= data.totalPages) {
-                currentPage = Math.max(0, data.totalPages - 1);
-                syncRecordingUrl(true);
-                return loadRecordings();
-            }
+            // ページが範囲を超えていた（URL の page が古いなど）ときは、最後のページに直して読み直す
+            if (!search.show(data)) return loadRecordings();
             clearError();
-            totalPages = data.totalPages;
-
-            shownRecordings = data.content;
-            renderRecordings();
             el("resultSummary").textContent =
                 data.totalElements === 0 ? "該当する録画はありません" : `${data.totalElements}件`;
-            updatePagination(currentPage, totalPages);
-            renderPageNumbers();
             scheduleRefreshWhileRunning(data.content);
         } catch (e) {
             if (request === loadRequest) showError(errorMessage(e));
         }
     }
+
+    // 条件のフォーム・URL・ページ送り・カード／リストは利用者のアーカイブと共通（common.js）。
+    // 状態の絞り込みは、この画面のフォームにだけ置いている
+    const search = bindRecordingSearch({
+        form: formEl("filterForm"),
+        viewToggle: query(".viewToggle"),
+        grid: el("videoGrid"),
+        list: el("recordingList"),
+        pager: el("pager"),
+        load: loadRecordings,
+        buildCard: (r) => buildVideoCard(r, afterDelete, true, null, toggleMark),
+        buildRow: buildRecordingRow,
+        empty: emptyState(
+            "該当する録画はありません",
+            "絞り込み条件を外すか、上の入力欄に動画URLを貼ってダウンロードできます"),
+    });
 
     el("downloadForm").addEventListener("submit", async (ev) => {
         ev.preventDefault();
@@ -368,7 +201,7 @@
             const owner = res.channelName ? res.channelName : "未登録チャンネル";
             summary.textContent = `「${res.title}」（${owner}）のダウンロードを開始しました`;
             // 開始直後は一覧の先頭に「録画中」として並ぶ
-            goToPage(0);
+            search.goToPage(0);
             loadDiskUsage();
         } catch (e) {
             summary.textContent = "";
@@ -378,34 +211,8 @@
         }
     });
 
-    el("filterForm").addEventListener("submit", (ev) => {
-        ev.preventDefault();
-        goToPage(0);
-    });
-
-    el("resetBtn").addEventListener("click", () => {
-        for (const { id } of URL_FILTERS) {
-            const field = el(id);
-            if (field instanceof HTMLSelectElement) field.value = field.options[0].value;
-            else if (inputEl(id).type === "checkbox") inputEl(id).checked = false;
-            else inputEl(id).value = "";
-        }
-        goToPage(0);
-    });
-
-    el("cardViewBtn").addEventListener("click", () => switchView("card"));
-    el("listViewBtn").addEventListener("click", () => switchView("list"));
-
-    el("prevBtn").addEventListener("click", () => {
-        if (currentPage > 0) goToPage(currentPage - 1);
-    });
-
-    el("nextBtn").addEventListener("click", () => {
-        if (currentPage + 1 < totalPages) goToPage(currentPage + 1);
-    });
-
     window.addEventListener("popstate", () => {
-        restoreRecordingUrl();
+        search.restore();
         loadRecordings();
     });
 
@@ -453,7 +260,7 @@
 
     // 選択肢が揃ってから URL を戻す（先に戻すと、チャンネル一覧から来た ?channelId= やジャンルが選択肢に無いとして捨てられる）
     Promise.all([loadChannelOptions(), loadGenreOptions()]).then(() => {
-        restoreRecordingUrl();
+        search.restore();
         loadRecordings();
     });
     loadDiskUsage();

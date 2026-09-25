@@ -713,6 +713,244 @@ function recordingMarkButton(recording, kind, onToggle) {
     return button;
 }
 
+/**
+ * {@link bindRecordingSearch} の戻り値。
+ *
+ * @typedef {object} RecordingSearch
+ * @property {() => void} restore URL の条件・ページ・表示を入力欄へ戻す。読み込み時と「戻る」「進む」で呼ぶ
+ *           （チャンネル・ジャンルの選択肢が揃ってから呼ぶ。先に戻すと、選択肢に無い値として捨てられる）
+ * @property {(page: number) => void} goToPage 指定のページ（0 始まり）へ移って読み直す
+ * @property {() => URLSearchParams} apiParams 検索 API のクエリ（ページ・空でない条件）
+ * @property {(data: {content: Recording[], totalPages: number}) => boolean} show 読み込んだ結果を今の表示
+ *           （カード／リスト）で描き、ページ送りを合わせる。ページが結果の範囲を超えていたら（URL の page が古い・
+ *           最後のページの録画を消した）、空のページを出さずに最後のページへ直して false を返す（呼び出し側で読み直す）
+ */
+
+/**
+ * アーカイブの検索一式（条件のフォームと URL の同期・API のクエリ・ページ送り・カード／リストの切り替え）を結びつける。
+ *
+ * <p>管理画面（recordings.js）と利用者のアーカイブで同じ検索を持つため、片方だけ直して動きがずれないよう 1 か所に
+ * まとめた。利用者のアーカイブは 1 枚のページ（my.html）の中に部品を JS で組み立てるため、要素は ID で決め打ちせず
+ * 引数の入れ物の中から探す。条件の入力欄は name を URL と API のキーにする（フォームに置いた欄がそのまま条件になり、
+ * 管理画面だけの「状態」もフォームに置くだけで済む）。
+ *
+ * <p>「戻る」「進む」（popstate）はここでは拾わない。利用者のアーカイブではルーター（my-app.js）が拾って画面ごと
+ * 描き直すため、ここでも拾うと二重に読み直す。拾う画面が {@link RecordingSearch} の restore を呼ぶ。
+ *
+ * @param {object} parts 部品と、画面ごとに違う処理
+ * @param {HTMLFormElement} parts.form 検索条件のフォーム。条件の入力欄に name、条件のクリアに type="reset" のボタンを置く
+ * @param {HTMLElement} parts.viewToggle カード（.cardViewBtn）とリスト（.listViewBtn）の切り替えボタンの入れ物
+ * @param {HTMLElement} parts.grid カードを並べる入れ物
+ * @param {HTMLElement} parts.list 表の入れ物。中の tbody に行を入れる
+ * @param {HTMLElement} parts.pager ページ送り。前へ（.prevBtn）・番号を並べる入れ物（.pageNumbers）・次へ（.nextBtn）
+ * @param {() => void} parts.load 条件・ページを変えたときに一覧を読み直す処理
+ * @param {(recording: Recording) => HTMLElement} parts.buildCard カード 1 枚を作る（削除や印の API が画面ごとに違う）
+ * @param {(recording: Recording) => HTMLTableRowElement} parts.buildRow 表の 1 行を作る
+ * @param {string} parts.empty 0 件のときにカード枠へ出す HTML
+ * @param {(url: URL, replace: boolean) => void} [parts.writeUrl] URL を書く処理。省くと履歴に積む（replace のときは
+ *        今の履歴を置き換える）。利用者のアーカイブはルーターと食い違わないよう差し替えられる
+ * @returns {RecordingSearch} 読み込みの前後で呼ぶ操作
+ */
+function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildCard, buildRow, empty,
+        writeUrl = (url, replace) => history[replace ? "replaceState" : "pushState"](null, "", url) }) {
+    let page = 0;
+    let totalPages = 1;
+    /** 今の表示。既定のカードのときは URL に載せない。 */
+    /** @type {"card"|"list"} */
+    let view = "card";
+    /** 今表示している録画。表示を切り替えたとき、一覧を読み直さずに描き直すため。 */
+    /** @type {Recording[]} */
+    let shown = [];
+
+    const fields = /** @type {NodeListOf<HTMLInputElement|HTMLSelectElement>} */ (form.querySelectorAll("[name]"));
+    const cardButton = query(".cardViewBtn", viewToggle);
+    const listButton = query(".listViewBtn", viewToggle);
+    const prevButton = /** @type {HTMLButtonElement} */ (query(".prevBtn", pager));
+    const nextButton = /** @type {HTMLButtonElement} */ (query(".nextBtn", pager));
+    const pageNumbers = query(".pageNumbers", pager);
+
+    /**
+     * @param {HTMLInputElement|HTMLSelectElement} field 条件の入力欄
+     * @returns {string} 前後の空白を除いた値。チェックボックスは付いていれば "true"、外れていれば空
+     */
+    function valueOf(field) {
+        if (field instanceof HTMLSelectElement) return field.value;
+        if (field.type === "checkbox") return field.checked ? "true" : "";
+        return field.value.trim();
+    }
+
+    /**
+     * 今の条件とページを URL に書き出す。
+     * 再生画面へ移って「戻る」を押したとき、同じ条件・同じページに戻れるようにするため。
+     * 既定値（空・選択欄の先頭の選択肢）は載せない。載せると条件を付けていないのに URL が長くなり、
+     * チャンネル一覧からの `?channelId=` のような短いリンクと見分けにくくなるため。
+     * ページは画面の表示に合わせて 1 始まりで載せる（API の 0 始まりのままだと、URL を見た人が 1 ずれて読む）。
+     *
+     * @param {boolean} replace 読み込み直後の整えやページ超過の補正は履歴を増やさない
+     */
+    function syncUrl(replace = false) {
+        const url = new URL(location.href);
+        for (const field of fields) url.searchParams.delete(field.name);
+        url.searchParams.delete("page");
+        url.searchParams.delete("view");
+        for (const field of fields) {
+            const value = valueOf(field);
+            const isDefault = !value || (field instanceof HTMLSelectElement && value === field.options[0].value);
+            if (!isDefault) url.searchParams.set(field.name, value);
+        }
+        if (page > 0) url.searchParams.set("page", String(page + 1));
+        if (view === "list") url.searchParams.set("view", "list");
+        if (url.href !== location.href) writeUrl(url, replace);
+    }
+
+    /**
+     * URL から条件とページを入力欄へ戻す。
+     * select は選択肢に無い値（削除済みチャンネル・無くなったジャンルなど）を入れると空になるため、
+     * 無い値は既定に戻す。日付欄も yyyy-MM-dd 以外は空になるので、そのまま入れてよい。
+     */
+    function restore() {
+        const params = new URLSearchParams(location.search);
+        for (const field of fields) {
+            const value = (params.get(field.name) || "").trim();
+            if (field instanceof HTMLSelectElement) {
+                field.value = Array.from(field.options).some(o => o.value === value) ? value : field.options[0].value;
+            } else if (field.type === "checkbox") {
+                field.checked = value === "true";
+            } else {
+                field.value = field.name === "keyword" ? value.slice(0, 200) : value;
+            }
+        }
+        const requested = Number.parseInt(params.get("page") || "", 10);
+        page = Number.isFinite(requested) && requested > 1 ? requested - 1 : 0;
+        view = params.get("view") === "list" ? "list" : "card";
+        syncUrl(true);
+    }
+
+    /** @param {number} to 移動先（0 始まり） */
+    function goToPage(to) {
+        page = to;
+        syncUrl();
+        load();
+    }
+
+    function apiParams() {
+        const params = new URLSearchParams({ page: String(page) });
+        for (const field of fields) {
+            const value = valueOf(field);
+            if (value) params.set(field.name, value);
+        }
+        return params;
+    }
+
+    /**
+     * ページ番号のボタンを並べる。数千件（100ページ超）でも行が溢れないよう、
+     * 先頭・末尾・今のページの前後 2 つだけを出し、間は「…」で詰める。
+     */
+    function renderPageNumbers() {
+        pageNumbers.replaceChildren();
+        const pages = [];
+        for (let p = 0; p < totalPages; p++) {
+            // 「…」が 1 ページ分だけを隠すことになる場合（例: 1 2 3 … 5）は、そのページを出す
+            const onlyHiddenPage = Math.abs(p - page) === 3 && (p === 1 || p === totalPages - 2);
+            if (p === 0 || p === totalPages - 1 || Math.abs(p - page) <= 2 || onlyHiddenPage) pages.push(p);
+        }
+        let previous = -1;
+        for (const p of pages) {
+            if (p - previous > 1) {
+                const gap = document.createElement("span");
+                gap.className = "muted";
+                gap.textContent = "…";
+                pageNumbers.appendChild(gap);
+            }
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = String(p + 1);
+            if (p === page) {
+                btn.setAttribute("aria-current", "page");
+                btn.disabled = true;
+            } else {
+                btn.addEventListener("click", () => goToPage(p));
+            }
+            pageNumbers.appendChild(btn);
+            previous = p;
+        }
+    }
+
+    /** 今の表示（カード / リスト）で shown を描く。 */
+    function renderResults() {
+        const asList = view === "list";
+        cardButton.setAttribute("aria-pressed", String(!asList));
+        listButton.setAttribute("aria-pressed", String(asList));
+
+        const tbody = query("tbody", list);
+        grid.innerHTML = "";
+        tbody.innerHTML = "";
+        if (shown.length === 0) {
+            // 空のときは表示によらずカード枠に案内を出す（見出しだけの空の表より理由が伝わる）
+            grid.hidden = false;
+            list.hidden = true;
+            grid.innerHTML = empty;
+            return;
+        }
+        grid.hidden = asList;
+        list.hidden = !asList;
+        for (const r of shown) {
+            if (asList) tbody.appendChild(buildRow(r));
+            else grid.appendChild(buildCard(r));
+        }
+        bindDatetimeCells(asList ? tbody : grid);
+    }
+
+    /** @param {"card"|"list"} to 切り替え先の表示 */
+    function switchView(to) {
+        if (view === to) return;
+        view = to;
+        syncUrl();
+        renderResults();
+    }
+
+    /** @param {{content: Recording[], totalPages: number}} data 検索 API の応答 */
+    function show(data) {
+        if (page > 0 && page >= data.totalPages) {
+            page = Math.max(0, data.totalPages - 1);
+            syncUrl(true);
+            return false;
+        }
+        totalPages = data.totalPages;
+        shown = data.content;
+        renderResults();
+        prevButton.disabled = page <= 0;
+        nextButton.disabled = page + 1 >= totalPages;
+        renderPageNumbers();
+        return true;
+    }
+
+    form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        goToPage(0);
+    });
+    form.addEventListener("reset", (ev) => {
+        // ブラウザ標準のリセットは、このイベントの後で値を戻す。戻した値で URL を書いて読み直すため、ここで戻す
+        ev.preventDefault();
+        for (const field of fields) {
+            if (field instanceof HTMLSelectElement) field.value = field.options[0].value;
+            else if (field.type === "checkbox") field.checked = false;
+            else field.value = "";
+        }
+        goToPage(0);
+    });
+    cardButton.addEventListener("click", () => switchView("card"));
+    listButton.addEventListener("click", () => switchView("list"));
+    prevButton.addEventListener("click", () => {
+        if (page > 0) goToPage(page - 1);
+    });
+    nextButton.addEventListener("click", () => {
+        if (page + 1 < totalPages) goToPage(page + 1);
+    });
+
+    return { restore, goToPage, apiParams, show };
+}
+
 /* ============================================================
    再生
    ============================================================ */
