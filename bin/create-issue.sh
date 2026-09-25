@@ -46,7 +46,8 @@ if [ -n "$PARENT" ]; then
         exit 1
     fi
     # 検証：親の子一覧に実際に現れるか（応答の成否だけでなく実体を見る）
-    if ! gh api "repos/$REPO/issues/$PARENT/sub_issues" --jq '.[].number' | grep -qx "$NUM"; then
+    # 既定では 30 件までしか返らないため、子の多い親でも全件を見るようにページをたどる
+    if ! gh api --paginate "repos/$REPO/issues/$PARENT/sub_issues?per_page=100" --jq '.[].number' | grep -qx "$NUM"; then
         echo "   ★失敗：#$PARENT の子として登録されていません" >&2
         exit 1
     fi
@@ -54,7 +55,11 @@ if [ -n "$PARENT" ]; then
 fi
 
 echo "3) Project #$PROJECT_NUM へ登録..."
-ITEM_ID=$(gh project item-add "$PROJECT_NUM" --owner ryusei-git --url "$URL")
+# Project の自動追加で既に入っていると item-add が「Content already exists」で止まるため、先に Issue 側から引く
+ITEM_ID=$(gh api graphql -f query="{ repository(owner:\"ryusei-git\", name:\"youtubeLiveMonitor\") { issue(number:$NUM) { projectItems(first:5) { nodes { id project { number } } } } } }" --jq ".data.repository.issue.projectItems.nodes[] | select(.project.number==$PROJECT_NUM).id")
+if [ -z "$ITEM_ID" ]; then
+    ITEM_ID=$(gh project item-add "$PROJECT_NUM" --owner ryusei-git --url "$URL" --format json --jq .id)
+fi
 echo "   item id: $ITEM_ID"
 
 # 検証：Project の一覧ではなく、Issue 自身から「所属しているか」を問い合わせる
