@@ -10,9 +10,28 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-/** 認可条件をページ分割より前に適用し、他人の購読や件数を漏らさない。 */
+/**
+ * 収集した外部動画（{@code OnlineVideo}）の検索と、巡回・収集からの更新。
+ *
+ * <p>認可条件をページ分割より前に適用し、他人の購読や件数を漏らさない。
+ */
 public interface OnlineVideoRepository extends JpaRepository<OnlineVideo, String> {
     String ACCESS = "(:admin = true or exists (select s.id from UserSubscription s where s.channel = v.channel and s.user.username = :username))";
+    /**
+     * 見てよい動画を、種類を問わず公開の新しい順に返す（一覧の {@code section} 省略時の従来の検索）。
+     *
+     * <p>ダッシュボードが {@code liveOnly=true} で使うため、段ごとの検索と分けて動きを変えずに残している。
+     * 種類が未判定の動画も含む。
+     *
+     * @param admin     管理者なら {@code true}（すべてのチャンネルを見られる）
+     * @param username  利用者のログイン ID。一般の利用者は購読しているチャンネルの動画だけを返す
+     * @param channelId 絞り込むチャンネルの主キー。{@code null} なら絞らない
+     * @param liveOnly  {@code true} なら確認済みの配信中（{@link #LIVE_NOW} と同じ条件）だけ
+     * @param startedAt アプリの起動時刻。これより前の観測は配信中の確認に数えない
+     * @param keyword   タイトル・チャンネル名に対する、大文字小文字を区別しない部分一致の検索語。空文字なら絞らない
+     * @param pageable  ページ指定
+     * @return 条件に一致する動画
+     */
     @EntityGraph(attributePaths = "channel")
     @Query("select v from OnlineVideo v where " + ACCESS
         + " and (:channelId is null or v.channel.id = :channelId)"
@@ -56,6 +75,18 @@ public interface OnlineVideoRepository extends JpaRepository<OnlineVideo, String
         @Param("channelId") Long channelId, @Param("startedAt") Instant startedAt,
         @Param("keyword") String keyword, Pageable pageable);
 
+    /**
+     * 見てよい投稿動画（種類が {@code UPLOAD}）を公開の新しい順に返す（一覧の {@code section=uploads}）。
+     *
+     * <p>投稿動画は配信中にならないので、配信中の条件も起動時刻も使わない。
+     *
+     * @param admin     管理者なら {@code true}（すべてのチャンネルを見られる）
+     * @param username  利用者のログイン ID。一般の利用者は購読しているチャンネルの動画だけを返す
+     * @param channelId 絞り込むチャンネルの主キー。{@code null} なら絞らない
+     * @param keyword   タイトル・チャンネル名に対する、大文字小文字を区別しない部分一致の検索語。空文字なら絞らない
+     * @param pageable  ページ指定
+     * @return 条件に一致する投稿動画
+     */
     @EntityGraph(attributePaths = "channel")
     @Query("select v from OnlineVideo v where " + SECTION_FILTER
         + " and v.contentKind = 'UPLOAD'"
@@ -63,11 +94,31 @@ public interface OnlineVideoRepository extends JpaRepository<OnlineVideo, String
     Page<OnlineVideo> searchUploads(@Param("admin") boolean admin, @Param("username") String username,
         @Param("channelId") Long channelId, @Param("keyword") String keyword, Pageable pageable);
 
+    /**
+     * 見てよい動画を 1 件返す。
+     *
+     * <p>詳細とサムネイルの取得で、一覧と同じ購読の境界を効かせるため、主キーだけで引かずに認可条件を付ける。
+     *
+     * @param id       動画の主キー
+     * @param admin    管理者なら {@code true}（すべてのチャンネルを見られる）
+     * @param username 利用者のログイン ID
+     * @return 該当する動画。無い・購読していないチャンネルの動画なら空
+     */
     @EntityGraph(attributePaths = "channel")
     @Query("select v from OnlineVideo v where v.id = :id and " + ACCESS)
     Optional<OnlineVideo> findVisible(@Param("id") String id, @Param("admin") boolean admin,
                                     @Param("username") String username);
 
+    /**
+     * チャンネルの配信中の印を、今の配信以外から外す。
+     *
+     * <p>配信が終わったか別の配信に変わったとき、古い配信に配信中の印を残さないため、巡回の判定ごとに呼ぶ。
+     * {@code currentId} に空文字を渡すと、そのチャンネルの配信中の印をすべて外す（配信中でないと判定できたとき。
+     * 待機所を含む。判定できなかったときは呼ばれない）。
+     *
+     * @param channelId チャンネルの主キー
+     * @param currentId 印を残す今の配信の主キー。空文字ならどの動画にも一致しないので、すべて外す
+     */
     @Modifying(clearAutomatically = true, flushAutomatically = true) @Transactional
     @Query("update OnlineVideo v set v.live = false where v.channel.id = :channelId and v.id <> :currentId and v.live = true")
     void endOtherStreams(@Param("channelId") Long channelId, @Param("currentId") String currentId);
