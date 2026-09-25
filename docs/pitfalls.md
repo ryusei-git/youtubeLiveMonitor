@@ -386,7 +386,7 @@ Range リクエスト対応とパストラバーサル対策を最初から持�
 ### ディスク使用量は DB ではなく実ファイルを走査して求める
 
 `RecordingFileService.calculateUsage()` は `Recording.fileSizeBytes` の合計ではなく
-`recordings/` 配下を実際に `Files.walk` で走査する。録画が失敗すると DB 上は完成ファイルの
+`recordings/` 配下を実際に走査する（`DirectorySizeUtils.sizeOf()`）。録画が失敗すると DB 上は完成ファイルの
 記録が無いのに、映像・音声の断片ファイル（`{動画ID}.f137.mp4` 等）だけがディスクに残る
 （実際に発生した）。DB 集計だとこれを取りこぼし、利用者が「アプリ上は大した使用量じゃないのに
 ディスクが減っていく」という不可解な状態に陥る。ディレクトリ名がどの登録チャンネルとも
