@@ -59,6 +59,7 @@ button[type="submit"], #checkNowBtn, .filterSave { background: var(--navy-800); 
 button[type="submit"]:hover, #checkNowBtn:hover { background: var(--navy-700); color: #fff; }
 button:disabled { opacity: .45; cursor: default; }
 :focus-visible { outline: 3px solid #a18ddd; outline-offset: 3px; }
+h1[tabindex="-1"]:focus { outline: none; box-shadow: none; }
 .deleteBtn, .removeBtn, #cleanupOrphanedBtn { background: #fff; color: var(--danger); border-color: #eddadd; }
 .inline { gap: 10px; margin: 16px 0; flex-wrap: wrap; }
 #filterForm { padding: 16px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }

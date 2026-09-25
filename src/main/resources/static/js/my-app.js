@@ -997,8 +997,16 @@ function myMarkNav(href) {
     decorateStudioNavigation();
 }
 
-/** 今の URL の画面を描く。リンクの横取り・戻る／進む・起動時のすべてがここを通る。 */
-function myRender() {
+/**
+ * 今の URL の画面を描く。リンクの横取り・戻る／進む・起動時のすべてがここを通る。
+ * 切り替えたら新しい画面の見出しへフォーカスを移す。移さないと、スクリーンリーダーには画面が
+ * 変わったことが伝わらず、キーボードでは Tab がメニューの続きへ進み、本文のリンクから移ったときは
+ * フォーカスしていた要素が消えて body に落ちる（WCAG 2.4.3 / 4.1.3）。
+ *
+ * @param {{ initial?: boolean }} [options] initial は最初の表示。ページを開いた直後はスキップリンクから
+ *   始められるよう、フォーカスを動かさない
+ */
+function myRender({ initial = false } = {}) {
     myCurrentView?.leave?.();
     const params = new URLSearchParams(location.search);
     for (const [pattern, view] of myRoutes) {
@@ -1011,6 +1019,13 @@ function myRender() {
         window.scrollTo(0, 0);
         myMarkNav(view.nav);
         view.render(root, match, params);
+        if (!initial) {
+            // 見出しへ移すと画面名が読み上げられる。見出しの無い画面は描き替え先（tabindex=-1 付き）へ
+            const heading = root.querySelector("h1");
+            const target = heading instanceof HTMLElement ? heading : root;
+            if (target === heading) heading.tabIndex = -1;
+            target.focus({ preventScroll: true });
+        }
         return;
     }
 }
@@ -1042,8 +1057,8 @@ document.addEventListener("click", (event) => {
     if (url.href !== location.href) history.pushState(null, "", url);
     myRender();
 });
-window.addEventListener("popstate", myRender);
+window.addEventListener("popstate", () => myRender());
 
 myDropContinueParam();
 myDockInit();
-myRender();
+myRender({ initial: true });
