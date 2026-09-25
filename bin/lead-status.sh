@@ -41,8 +41,12 @@ for i in rows[:10]:
 
 echo
 echo "== エージェントのターミナル =="
-orca-ide terminal list --json 2>/dev/null | python3 -c '
+if out=$(orca-ide terminal list --json 2>/dev/null); then
+    echo "$out" | python3 -c '
 import json, sys
 for t in json.load(sys.stdin)["result"]["terminals"]:
-    print(t["agentIdentity"], t["handle"], t["branch"].removeprefix("refs/heads/"), "|", t["title"][:50])
-' || echo "(orca に接続できません)"
+    print(t.get("agentIdentity") or "-", t.get("handle") or "-", (t.get("branch") or "").removeprefix("refs/heads/"), "|", (t.get("title") or "")[:50])
+'
+else
+    echo "(orca に接続できません)"
+fi
