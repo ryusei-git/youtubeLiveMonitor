@@ -124,6 +124,7 @@ function myDockInit() {
  *
  * @typedef {object} MyView
  * @property {string} title 画面名（document.title に使う）
+ * @property {string} [nav] メニューで今いる画面として印を付ける項目の href。メニューに無い画面は省く
  * @property {(root: HTMLElement, match: RegExpMatchArray, params: URLSearchParams) => unknown} render
  *   main#view に中身を描く。読み込みを待った後は、描いた要素がまだページにあるときだけ結果を反映する
  *   （待つ間に別の画面へ移っていると、古い画面の結果が今の画面を上書きするため）
@@ -140,14 +141,69 @@ function myWatchPath(rec) {
     return `/my/watch/${rec.id}`;
 }
 
+/** トップの自動更新を止める関数。トップを出していない間は null。 */
+/** @type {(() => void)|null} */
+let myTopStopRefresh = null;
+
+/**
+ * トップ。購読しているチャンネルの配信中と配信予定を出す。
+ * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直す（管理画面のダッシュボードと同じ間隔）。
+ * 配信予定も一緒に読み直すのは、始まった配信が「配信予定」に残ったまま「配信中」にも並ぶのを避けるため。
+ * @type {MyView}
+ */
+const myTopView = {
+    title: "トップ",
+    nav: "/my",
+    render(root) {
+        root.innerHTML = `<h1>トップ</h1>
+            <p class="pageDescription">購読しているチャンネルの配信中と配信予定。開いている間は 1 分ごとに更新します。</p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <section class="livePanel"><h2>配信中</h2><div class="videoGrid"></div></section>
+            <section class="upcomingPanel">
+                <h2>配信予定 <span class="hint" title="YouTube の待機所（配信開始前の予約枠）から読み取った、7 日以内の開始予定です。Twitch は対象外です。">ⓘ</span></h2>
+                <div></div>
+            </section>`;
+        const live = query(".livePanel .videoGrid", root);
+        const upcoming = query(".upcomingPanel > div", root);
+        // 配信はダイアログで開く。開いている間はダイアログの外（ミニプレーヤー）を押せず、録画と音が重なるため止める。
+        // カードのボタンがダイアログを開いた後に届くので、開けなかったとき（埋め込めない URL）は止めない
+        live.addEventListener("click", () => {
+            if (document.querySelector("dialog[open]")) myDockVideo().pause();
+        });
+        const load = async () => {
+            try {
+                const [page, streams] = await Promise.all([
+                    // 購読は 1 人 50 件までなので、API の上限の 100 件で全部入る（ページ送りを置かない）
+                    apiGet("/api/videos?liveOnly=true&size=100"),
+                    apiGet("/api/my/upcoming"),
+                ]);
+                if (!live.isConnected) return;
+                clearError();
+                const none = emptyState("今はありません");
+                renderLiveVideoCards(live, page, none);
+                renderUpcomingStreams(streams, upcoming, none);
+            } catch (e) {
+                if (live.isConnected) showError(errorMessage(e));
+            }
+        };
+        load();
+        myTopStopRefresh = startVisibleRefresh(load);
+    },
+    leave() {
+        myTopStopRefresh?.();
+        myTopStopRefresh = null;
+    },
+};
+
 /**
  * 録画一覧（仮）。第 2 陣で検索一式を備えたアーカイブ画面に置き換える。
  * @type {MyView}
  */
 const myArchiveView = {
-    title: "録画",
+    title: "アーカイブ",
+    nav: "/my/archive",
     async render(root) {
-        root.innerHTML = `<h1>録画</h1>
+        root.innerHTML = `<h1>アーカイブ</h1>
             <p class="pageDescription">購読しているチャンネルの録画（新しい順に 24 件）。再生中にほかの画面へ移っても、画面下で再生を続けます。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <div class="videoGrid"></div>`;
@@ -178,6 +234,8 @@ const myArchiveView = {
  */
 const myWatchView = {
     title: "再生",
+    // 録画を選んで開く画面なので、アーカイブの中にいるものとして示す（管理画面の再生画面も同じ）
+    nav: "/my/archive",
     async render(root, match) {
         root.innerHTML = `<p id="error" class="error" role="alert" style="display:none;"></p>
             <h1>読み込み中...</h1>
@@ -260,7 +318,7 @@ const myNotFoundView = {
     title: "ページが見つかりません",
     render(root) {
         root.innerHTML = `<h1>ページが見つかりません</h1>
-            <p class="pageDescription">URL を確かめてください。<a href="/my/archive">録画の一覧へ</a></p>`;
+            <p class="pageDescription">URL を確かめてください。<a href="/my">トップへ</a></p>`;
     },
 };
 
@@ -274,7 +332,8 @@ const myNotFoundView = {
  * @type {Array<[RegExp, MyView]>}
  */
 const myRoutes = [
-    [/^\/my(?:\/archive)?\/?$/, myArchiveView],
+    [/^\/my\/?$/, myTopView],
+    [/^\/my\/archive\/?$/, myArchiveView],
     [/^\/my\/watch\/(\d+)\/?$/, myWatchView],
     [/^/, myNotFoundView],
 ];
@@ -282,6 +341,21 @@ const myRoutes = [
 /** 今出している画面。離れるときに leave() を呼ぶため覚えておく。 */
 /** @type {MyView|null} */
 let myCurrentView = null;
+
+/**
+ * メニューの今いる画面の項目に印（active）を付け替える。ページを読み込み直さずに画面を移るため、
+ * HTML に書いた印では最初に開いた画面にしか合わない。
+ *
+ * @param {string|undefined} href 今いる画面の項目の href。メニューに無い画面では undefined
+ */
+function myMarkNav(href) {
+    document.querySelectorAll(".globalnav a").forEach((link) => {
+        link.classList.toggle("active", link.getAttribute("href") === href);
+        link.removeAttribute("aria-current");
+    });
+    // aria-current を付け直すのと、狭い画面で今いる項目を見える位置へ寄せるのは共通の処理に任せる
+    decorateStudioNavigation();
+}
 
 /** 今の URL の画面を描く。リンクの横取り・戻る／進む・起動時のすべてがここを通る。 */
 function myRender() {
@@ -295,6 +369,7 @@ function myRender() {
         const root = el("view");
         root.replaceChildren();
         window.scrollTo(0, 0);
+        myMarkNav(view.nav);
         view.render(root, match, params);
         return;
     }

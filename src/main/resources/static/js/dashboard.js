@@ -77,60 +77,6 @@ function renderRecordingStatusChart(status) {
 }
 
 /**
- * 開始予定を日付・曜日・時間の列に分ける。列ごとに並べ替えや目視での比較をしやすくするため。
- * @param {string|null} iso 開始予定時刻
- * @returns {{date: string, weekday: string, time: string}} 表示用の文字列。不明なら全て "-"
- */
-function splitScheduledStart(iso) {
-    if (!iso) return { date: "-", weekday: "-", time: "-" };
-    const start = new Date(iso);
-    return {
-        date: `${start.getMonth() + 1}/${start.getDate()}`,
-        weekday: "日月火水木金土"[start.getDay()],
-        time: `${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")}`,
-    };
-}
-
-/**
- * 配信予定を開始時刻の近さで読み取れる一覧にする。
- *
- * <p>配信中の一覧と分けることで、待機所を配信開始と誤解せず、利用者が次の予定を把握できる。
- *
- * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string, genre?: string|null, channelIconUrl?: string|null, channelUrl: string|null}>} streams 開始予定の早い順で返された配信予定
- */
-function renderUpcomingStreams(streams) {
-    const box = el("upcomingStreams");
-    if (!streams || streams.length === 0) {
-        box.innerHTML = emptyState("配信予定はありません",
-            "監視中のチャンネルが YouTube で待機所を作ると、ここに開始予定の早い順で並びます。");
-        return;
-    }
-    const rows = streams.map(s => {
-        const start = splitScheduledStart(s.scheduledStartTime);
-        // 隣にチャンネル名があるため alt は空にし、読み上げで名前が 2 回読まれないようにする
-        const icon = s.channelIconUrl
-            ? `<img class="channelIcon" src="${escapeHtml(s.channelIconUrl)}" alt="" width="24" height="24" loading="lazy" referrerpolicy="no-referrer">`
-            : "";
-        return `
-        <tr>
-            <td>${escapeHtml(start.date)}</td>
-            <td>${escapeHtml(start.weekday)}</td>
-            <td>${escapeHtml(start.time)}</td>
-            <td><span class="channelWithIcon">${icon}${externalLink(s.channelName, s.channelUrl)}</span></td>
-            <td>${escapeHtml(s.genre || "未設定")}</td>
-            <td>${externalLink(s.title ?? "（タイトル不明）", s.watchUrl)}</td>
-        </tr>`;
-    }).join("");
-    box.innerHTML = `
-        <div class="table-scroll">
-            <table id="upcomingTable">
-                <thead><tr><th>日付</th><th>曜日</th><th>時間</th><th>チャンネル名</th><th>ジャンル</th><th>タイトル</th></tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>`;
-}
-
-/**
  * 判定に連続失敗しているチャンネルの警告を出す。
  * 該当が無い平常時は見出しごと隠し、画面を余計に占有しないようにする。
  *
