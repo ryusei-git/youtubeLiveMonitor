@@ -51,6 +51,15 @@ public class DefaultProcessLauncher implements ProcessLauncher {
                 .anyMatch(commandLine -> commandLine.contains(commandLineFragment));
     }
 
+    @Override
+    public List<ProcessHandle> findYtDlpProcessesWithCommandLineContaining(String commandLineFragment) {
+        return ProcessHandle.allProcesses()
+                .filter(handle -> isYtDlp(handle.info()) && handle.info().commandLine()
+                        .map(commandLine -> commandLine.contains(commandLineFragment))
+                        .orElse(false))
+                .toList();
+    }
+
     /**
      * このアプリが起動する種類のプロセス（yt-dlp・ffmpeg・ffprobe）かどうか。
      *
@@ -59,7 +68,13 @@ public class DefaultProcessLauncher implements ProcessLauncher {
      */
     private static boolean isWorkerProcess(ProcessHandle.Info info) {
         String executable = info.command().map(DefaultProcessLauncher::fileName).orElse("");
-        if (WORKER_EXECUTABLES.contains(executable)) {
+        return WORKER_EXECUTABLES.contains(executable) || isYtDlp(info);
+    }
+
+    /** yt-dlp のプロセスかどうか。実行ファイルが yt-dlp のものと、Python の処理系で引数に yt-dlp を含むもの。 */
+    private static boolean isYtDlp(ProcessHandle.Info info) {
+        String executable = info.command().map(DefaultProcessLauncher::fileName).orElse("");
+        if ("yt-dlp".equals(executable)) {
             return true;
         }
         // yt-dlp は Python のスクリプトなので、実行ファイルは Python の処理系になり、yt-dlp は引数の側に入る

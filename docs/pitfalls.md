@@ -408,6 +408,14 @@ Range リクエスト対応とパストラバーサル対策を最初から持�
 書き込み中のファイルを消すとプロセス側がエラーになったり中途半端なファイルが残る
 （yt-dlp のコマンドラインには出力先パスとして動画 ID とチャンネル ID が含まれるので判定に使える）。
 
+**チャンネルを削除すると、そのチャンネルで録画中の yt-dlp も子孫ごと止まる（#444）。**
+以前は止めておらず、録画履歴の行が消えて画面から見えないまま録り続けた（2026-09-26、削除したチャンネルの
+`--live-from-start` が約 1 時間で 6.9GB を書いた）。`MonitoredChannelService.remove()` が削除の前に
+`RECORDING` の動画 ID を集め、削除後に `ProcessLauncher.findYtDlpProcessesWithCommandLineContaining()` で
+yt-dlp だけを探して `ProcessTermination.terminateTreeAndAwait()` で止める（仮想スレッドで、応答は待たせない）。
+止めた録画のファイルは消さないので、上の孤立ファイルの削除で片付ける。
+追跡中の録画スレッドは、行が無いことを見て記録も録り直しもしない（`StreamRecorder.awaitCompletion`）。
+
 ### エンティティを API に直接返さない
 
 `dto` 配下のレスポンス型に詰め替える。

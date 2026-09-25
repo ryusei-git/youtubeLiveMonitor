@@ -65,6 +65,8 @@ class StreamRecorderTest {
         // startRecording() が到達する行だが、テストの主眼ではないケースが多いため lenient にする
         lenient().when(recordingHistoryService.recordStart(any(), any(), any(), any()))
                 .thenReturn(Recording.builder().id(1L).build());
+        // 行が無いと awaitCompletion() は記録を飛ばす（チャンネル削除時の扱い）。通常は行がある
+        lenient().when(recordingHistoryService.exists(any())).thenReturn(true);
     }
 
     @SuppressWarnings("unchecked")
