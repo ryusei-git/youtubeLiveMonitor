@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 録画履歴の永続化を担当するリポジトリ。
@@ -392,6 +393,18 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @return 履歴が存在すれば {@code true}
      */
     boolean existsByVideoId(String videoId);
+
+    /**
+     * 指定した動画 ID の録画履歴を 1 件返す。
+     *
+     * <p>「端末に保存」で、既にサービスにある録画のファイルをそのまま渡すために使う
+     * （{@link #existsByVideoId} だけでは渡すファイルの場所が分からない）。
+     * 取り直さない決まりなので同じ動画 ID の履歴は通常 1 件だが、念のため先頭だけを取る。
+     *
+     * @param videoId 動画 ID
+     * @return 録画履歴。無ければ空
+     */
+    Optional<Recording> findFirstByVideoId(String videoId);
 
     /**
      * 再生できる状態なのにサムネイルがまだ無い録画を取得する。

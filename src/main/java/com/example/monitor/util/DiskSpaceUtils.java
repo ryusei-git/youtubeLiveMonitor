@@ -33,6 +33,23 @@ public final class DiskSpaceUtils {
         }
     }
     /**
+     * 空き容量がしきい値を下回っているかを返す。
+     *
+     * <p>「サービスに保存」（{@code VideoDownloadService}）と「端末に保存」（{@code DeviceDownloadService}）が
+     * 同じ基準で断るために切り出した。<b>容量を読めなかったときは下回っていないと扱う</b>
+     * （「判定できなかった」を「満杯」と扱わない。{@code StreamRecorder} と同じ）。
+     *
+     * @param directory 書き込み先のディレクトリ（未作成でもよい）
+     * @param minFreeGb しきい値（GB）。0 以下なら確認しない
+     * @return 空き容量を読めて、しきい値を下回っていれば {@code true}
+     */
+    public static boolean isBelow(Path directory, long minFreeGb) {
+        if (minFreeGb <= 0) return false;
+        Capacity disk = read(directory);
+        return disk.error() == null && disk.usableBytes() != null
+                && disk.usableBytes() < minFreeGb * 1024L * 1024 * 1024;
+    }
+    /**
      * ボリュームの容量。
      *
      * <p>録画ファイルの合計とは別の指標として表示する。
