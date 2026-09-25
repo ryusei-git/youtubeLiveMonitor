@@ -181,11 +181,11 @@ const myTopView = {
         root.innerHTML = `<h1>トップ</h1>
             <p class="pageDescription">購読しているチャンネルの配信中と配信予定。開いている間は 1 分ごとに更新します。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
-            <section class="livePanel"><h2>配信中</h2><div class="videoGrid"></div></section>
+            <section class="livePanel"><h2>配信中</h2><div class="videoGrid"><p class="muted">読み込み中...</p></div></section>
             <section class="upcomingPanel">
                 <h2>配信予定</h2>
                 <p class="muted">YouTube の待機所（配信開始前の予約枠）から読み取った、7 日以内の開始予定です。Twitch は対象外です。</p>
-                <div></div>
+                <div><p class="muted">読み込み中...</p></div>
             </section>`;
         const live = query(".livePanel .videoGrid", root);
         const upcoming = query(".upcomingPanel > div", root);
@@ -210,9 +210,8 @@ const myTopView = {
                 }
                 lastKey = key;
                 clearError();
-                const none = emptyState("今はありません");
-                renderLiveVideoCards(live, page, none);
-                renderUpcomingStreams(streams, upcoming, none);
+                renderLiveVideoCards(live, page, emptyState("配信中のチャンネルはありません"));
+                renderUpcomingStreams(streams, upcoming, emptyState("7 日以内の配信予定はありません"));
             } catch (e) {
                 if (live.isConnected) showError(errorMessage(e));
             }
@@ -399,7 +398,7 @@ const myArchiveView = {
                 // ページが範囲を超えていた（URL の page が古いなど）ときは、最後のページに直して読み直す
                 if (!search.show(data)) return load();
                 clearError();
-                summary.textContent = data.totalElements === 0 ? "該当する録画はありません" : `${data.totalElements}件`;
+                summary.textContent = data.totalElements === 0 ? "" : `${data.totalElements}件`;
             } catch (e) {
                 if (current === request && grid.isConnected) showError(errorMessage(e));
             }
@@ -470,7 +469,8 @@ const myWatchView = {
             if (res.status === 404) {
                 if (heading.isConnected) {
                     root.innerHTML = `<h1>この録画は見られません</h1>
-                        <p class="pageDescription">購読していないチャンネルの録画か、削除された録画です。</p>`;
+                        <p class="pageDescription">購読していないチャンネルの録画か、削除された録画です。</p>
+                        <p><a href="/my/archive">アーカイブへ戻る</a></p>`;
                 }
                 return;
             }
@@ -479,6 +479,7 @@ const myWatchView = {
         } catch (e) {
             if (heading.isConnected) {
                 heading.textContent = "録画を読み込めませんでした";
+                heading.insertAdjacentHTML("afterend", '<p><a href="/my/archive">アーカイブへ戻る</a></p>');
                 showError(errorMessage(e));
             }
             return;
