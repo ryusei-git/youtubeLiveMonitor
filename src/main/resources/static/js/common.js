@@ -971,8 +971,7 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
         prevButton.disabled = page <= 0;
         nextButton.disabled = page + 1 >= totalPages;
         // 押せないページ送りを残さない（1 ページに収まるとき、0 件を含む）。
-        // hidden 属性は .inline の display: flex に負けて効かないため、style で消す
-        pager.style.display = totalPages <= 1 ? "none" : "";
+        pager.hidden = totalPages <= 1;
         renderPageNumbers();
         return true;
     }
@@ -1786,7 +1785,7 @@ const studioPages = {
     "invitations.html": "M3 5h18v14H3z M3 5l9 7 9-7",
     "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     // 利用者の 1 枚のページ（my.html）のトップ（/my）・動画・配信（/my/videos）・アーカイブ（/my/archive）・
-    // マイチャンネル（/my/channels）・通知（/my/settings/notifications。管理者の通知履歴と同じベル）
+    // マイチャンネル（/my/channels）・通知の設定（/my/settings/notifications。管理者の通知履歴と同じベル）
     "my": "M3 11l9-8 9 8 M5 9v12h14V9 M10 21v-6h4v6",
     "videos": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "archive": "M4 5h16v14H4z M10 9l5 3-5 3z",

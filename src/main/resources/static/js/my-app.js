@@ -843,7 +843,7 @@ const myNotificationSettingsView = {
               Discord で「ウェブフック URL をコピー」した URL を、そのまま貼り付けてください（https://discord.com/api/webhooks/ で始まります）。<br>
               保存した URL は、この画面にも表示しません。
             </p>
-            <div class="inline" id="webhookActions" style="display:none;">
+            <div class="inline" id="webhookActions" hidden>
               <button type="button" id="webhookTestBtn" disabled>テスト送信</button>
               <button type="button" id="webhookRemoveBtn" class="removeBtn" disabled>解除</button>
             </div>
@@ -881,8 +881,7 @@ const myNotificationSettingsView = {
                 warning.hidden = !settings.failing;
             }
             testBtn.disabled = removeBtn.disabled = settings?.configured !== true;
-            // hidden 属性は .inline の display: flex に負けて効かないので、エラー帯と同じく style で隠す
-            actions.style.display = settings?.configured === true ? "" : "none";
+            actions.hidden = settings?.configured !== true;
         };
         /**
          * ボタンの操作を行い、失敗はエラー帯に出す。通信の間は押したボタンを止める（続けて押して二重に送らないため）。
