@@ -1194,6 +1194,12 @@ button:disabled:hover {
         width: 100%;
     }
 
+    /* チェックボックス・ラジオは幅を広げない。広げると四角が中央に行き、ラベルの文字と離れる */
+    .inline input[type="checkbox"],
+    .inline input[type="radio"] {
+        width: auto;
+    }
+
     /* ラベル付きの入力は縦に積む。横並びのままだと、幅いっぱいに広がる入力欄に
        押されてラベルの文字が「結／果」「タイト／ル」のように途中で折り返される */
     .inline label {

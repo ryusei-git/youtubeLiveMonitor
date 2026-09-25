@@ -1,6 +1,9 @@
 /* 配信コンテンツを主役にし、管理操作と視覚的に区別するための共通テーマ。 */
 /* ページが縦に長くなった瞬間にスクロールバーが出て、本文が左へずれないよう、最初から幅を空けておく。 */
-html { scrollbar-gutter: stable; }
+/* Tab で進んだとき、固定ヘッダー（PC で 68px）・ミニプレーヤーの裏にフォーカス中の要素が隠れないよう、スクロールの余白を取る（WCAG 2.4.11）。
+   760px 以下はヘッダーとナビが 2 段になるので、下の :root の scroll-padding-top（詳細度が html より高い）が勝つ。 */
+html { scrollbar-gutter: stable; scroll-padding-top: 76px; }
+html:has(#playerDock.is-mini) { scroll-padding-bottom: calc(var(--dock-mini-height) + 8px); }
 :root {
     --bg: #f7f8fa;
     --surface: #fff;
