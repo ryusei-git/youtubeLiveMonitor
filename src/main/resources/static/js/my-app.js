@@ -196,35 +196,167 @@ const myTopView = {
 };
 
 /**
- * 録画一覧（仮）。第 2 陣で検索一式を備えたアーカイブ画面に置き換える。
+ * 視聴済み・お気に入りを切り替える（アーカイブのカードと表のボタン）。
+ * 管理画面（recordings.js の toggleMark）と同じく、先に表示を変えてから API を呼び、一覧は読み直さない
+ * （絞り込み中に読み直すと、押した録画が消えて何が起きたか分からなくなるため）。違うのは API のパスだけ。
+ *
+ * @param {Recording} recording 対象の録画
+ * @param {RecordingMarkKind} kind 印の種類
+ * @param {HTMLButtonElement} button 押されたボタン
+ */
+async function myToggleMark(recording, kind, button) {
+    const next = !recording[kind];
+    recording[kind] = next;
+    renderRecordingMarkButton(button, kind, next);
+    button.disabled = true;
+    try {
+        await apiPut(`/api/my/recordings/${recording.id}/${kind}`, { [kind]: next });
+        // 待つ間に別の画面へ移っていたら、その画面のエラー帯には触らない
+        if (button.isConnected) clearError();
+    } catch (e) {
+        recording[kind] = !next;
+        renderRecordingMarkButton(button, kind, !next);
+        if (button.isConnected) showError(errorMessage(e));
+    } finally {
+        button.disabled = false;
+    }
+}
+
+/**
+ * アーカイブの表の 1 行。列は管理画面の表と同じ並びで、削除だけが無い（録画は購読者どうしで共有しているため、
+ * 利用者には消させない）。題名はカードと同じく再生画面（/my/watch/ID）へのリンクにする。
+ *
+ * @param {Recording} r 録画 1 件
+ * @returns {HTMLTableRowElement} 行
+ */
+function myArchiveRow(r) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${datetimeCell(r.startedAt)}</td>
+        <td>${channelLink(r.channelName, r.channelUrl)}</td>
+        <td><a href="${myWatchPath(r)}">${escapeHtml(r.videoTitle)}</a></td>
+        <td>${formatDuration(r.durationSeconds)}</td>
+        <td>${formatFileSize(r.fileSizeBytes)}</td>
+        <td>${recordingStatusLabel(r.status)}</td>
+        <td>${escapeHtml(r.genre || "-")}</td>`;
+    for (const kind of RECORDING_MARK_KINDS) tr.insertCell().appendChild(recordingMarkButton(r, kind, myToggleMark));
+    return tr;
+}
+
+/**
+ * アーカイブ。管理画面のアーカイブと同じ検索一式（common.js の bindRecordingSearch）で、購読しているチャンネルの
+ * 録画を探す。録画中・失敗の録画は開いても見られないので、API に playableOnly=true を常に付け、状態の絞り込みは置かない。
+ *
+ * 条件は URL（/my/archive?...）に残す。「戻る」「進む」はルーターが拾って画面ごと描き直し、描き直した画面が
+ * URL から条件を戻す。ルーターは history.state を使わないので、URL の書き方は管理画面と同じ（pushState）でよい。
  * @type {MyView}
  */
 const myArchiveView = {
     title: "アーカイブ",
     nav: "/my/archive",
-    async render(root) {
+    render(root) {
         root.innerHTML = `<h1>アーカイブ</h1>
-            <p class="pageDescription">購読しているチャンネルの録画（新しい順に 24 件）。再生中にほかの画面へ移っても、画面下で再生を続けます。</p>
+            <p class="pageDescription">購読しているチャンネルの録画。再生中にほかの画面へ移っても、画面下で再生を続けます。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
-            <div class="videoGrid"></div>`;
+            <form id="filterForm" class="inline">
+              <input type="search" name="keyword" placeholder="タイトル・チャンネル名で検索" aria-label="タイトル・チャンネル名で検索">
+              <select name="channelId" aria-label="チャンネル"><option value="">全チャンネル</option></select>
+              <select name="genre" aria-label="ジャンル"><option value="">すべてのジャンル</option></select>
+              <label>期間 <input type="date" name="from" aria-label="期間の開始日"> 〜 <input type="date" name="to" aria-label="期間の終了日"></label>
+              <select name="sort" aria-label="並び順">
+                <option value="newest">新しい順</option>
+                <option value="oldest">古い順</option>
+                <option value="longest">長い順</option>
+                <option value="largest">サイズが大きい順</option>
+              </select>
+              <select name="size" aria-label="表示件数">
+                <option value="24">24件ずつ</option>
+                <option value="48">48件ずつ</option>
+                <option value="96">96件ずつ</option>
+              </select>
+              <select name="watched" aria-label="視聴">
+                <option value="">すべて</option>
+                <option value="unwatched">未視聴</option>
+                <option value="watched">視聴済み</option>
+              </select>
+              <label><input type="checkbox" name="favorite"> お気に入りのみ</label>
+              <button type="submit">検索</button>
+              <button type="reset">条件をクリア</button>
+            </form>
+            <div class="inline">
+              <div class="viewToggle" role="group" aria-label="表示">
+                <button type="button" class="cardViewBtn" aria-pressed="true">カード</button>
+                <button type="button" class="listViewBtn" aria-pressed="false">リスト</button>
+              </div>
+              <span class="resultSummary muted"></span>
+            </div>
+            <div class="videoGrid"></div>
+            <div class="table-scroll" hidden>
+              <table>
+                <thead><tr><th>開始日時</th><th>チャンネル</th><th>タイトル</th><th>長さ</th><th>サイズ</th><th>状態</th><th>ジャンル</th><th>視聴</th><th>★</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <nav class="inline pager" aria-label="ページ送り">
+              <button type="button" class="prevBtn">前へ</button>
+              <span class="pageNumbers" style="display:contents"></span>
+              <button type="button" class="nextBtn">次へ</button>
+            </nav>`;
         const grid = query(".videoGrid", root);
-        setBusy(grid, true);
-        try {
-            const data = await apiGet("/api/my/recordings?playableOnly=true&size=24");
+        const summary = query(".resultSummary", root);
+        /** 読み込みの番号。条件を続けて変えたとき、遅れて届いた古い応答で上書きしないため（管理画面と同じ）。 */
+        let request = 0;
+        const load = async () => {
+            const current = ++request;
+            try {
+                const params = search.apiParams();
+                params.set("playableOnly", "true");
+                const data = await apiGet(`/api/my/recordings?${params}`);
+                if (current !== request || !grid.isConnected) return;
+                // ページが範囲を超えていた（URL の page が古いなど）ときは、最後のページに直して読み直す
+                if (!search.show(data)) return load();
+                clearError();
+                summary.textContent = data.totalElements === 0 ? "該当する録画はありません" : `${data.totalElements}件`;
+            } catch (e) {
+                if (current === request && grid.isConnected) showError(errorMessage(e));
+            }
+        };
+        const search = bindRecordingSearch({
+            form: formEl("filterForm"),
+            viewToggle: query(".viewToggle", root),
+            grid,
+            list: query(".table-scroll", root),
+            pager: query(".pager", root),
+            load,
+            buildCard: (r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath),
+            buildRow: myArchiveRow,
+            empty: emptyState("該当する録画はありません",
+                "絞り込みを外してお試しください。マイチャンネルで録画を「する」にすると、条件に合う配信が自動で保存されます"),
+        });
+        /**
+         * 選択肢を API から足す。失敗しても一覧は出す（その選択肢で絞れないだけで、ほかの条件では探せる。管理画面と同じ）。
+         *
+         * @param {string} name 選択欄の name
+         * @param {string} path 選択肢の元を返す API
+         * @param {(item: any) => HTMLOptionElement} toOption 1 件を選択肢にする
+         */
+        const addOptions = async (name, path, toOption) => {
+            const select = /** @type {HTMLSelectElement} */ (query(`select[name="${name}"]`, root));
+            try {
+                for (const item of await apiGet(path)) select.add(toOption(item));
+            } catch (e) {
+                if (select.isConnected) showError(errorMessage(e));
+            }
+        };
+        // 選択肢が揃ってから URL の条件を戻す（先に戻すと、チャンネル・ジャンルが選択肢に無い値として捨てられる）
+        Promise.all([
+            addOptions("channelId", "/api/my/channels", (ch) => new Option(ch.channelName, String(ch.id))),
+            // 件数を添えるのは、選ぶ前にどれだけ当たるか分かるようにするため（管理画面と同じ）
+            addOptions("genre", "/api/my/recordings/genres", (g) => new Option(`${g.genre}（${g.count}）`, g.genre)),
+        ]).then(() => {
             if (!grid.isConnected) return;
-            if (data.content.length === 0) {
-                grid.innerHTML = emptyState("再生できる録画はまだありません",
-                    "マイチャンネルで録画を「する」にすると、条件に合う配信が自動で保存されます");
-            }
-            for (const rec of /** @type {Recording[]} */ (data.content)) {
-                grid.appendChild(buildVideoCard(rec, null, true, null, null, myWatchPath));
-            }
-            bindDatetimeCells(grid);
-        } catch (e) {
-            if (grid.isConnected) showError(errorMessage(e));
-        } finally {
-            setBusy(grid, false);
-        }
+            search.restore();
+            load();
+        });
     },
 };
 
