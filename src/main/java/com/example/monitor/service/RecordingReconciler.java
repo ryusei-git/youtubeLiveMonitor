@@ -89,7 +89,7 @@ public class RecordingReconciler {
     /**
      * 救済できなかった録画の主キーと、そのときのファイルの合計サイズ。
      *
-     * <p><b>同じ録画を毎巡回 {@code ffmpeg} に掛け続けないための記憶。</b>
+     * <p><b>同じ録画を後始末のたびに {@code ffmpeg} に掛け続けないための記憶。</b>
      * 断片そのものが壊れていて何度やっても失敗する録画は珍しくない。それを放っておくと、
      * 数GBのファイルに対する外部プロセスの起動が後始末のたび（既定 120 秒ごと、
      * {@code monitor.youtube.interval-seconds}）に
@@ -163,7 +163,7 @@ public class RecordingReconciler {
      *   <li>{@code FAILED} なのにファイルが残っているもの … 再生できる形に直せれば救済する。
      *       ファイルが実在するときだけ状態が変わるので安全。何も残っていない録画では
      *       外部コマンドを起動せずに読み飛ばす。<b>一度救済に失敗した録画は、ファイルの
-     *       合計サイズが変わるまで再試行しない</b>——必ず失敗する録画を毎巡回 {@code ffmpeg} に
+     *       合計サイズが変わるまで再試行しない</b>——必ず失敗する録画を後始末のたびに {@code ffmpeg} に
      *       掛け続けると、数GBのファイルに対する外部プロセスの起動コストを永久に払い続ける
      *       ことになるため（{@link #unsalvageableFileSizes} 参照）</li>
      * </ul>
@@ -179,7 +179,7 @@ public class RecordingReconciler {
         }
 
         for (Recording recording : recordingRepository.findByStatus(RecordingStatus.FAILED)) {
-            // ファイルが1つも無ければ詰め替えを試みるまでもない（毎巡回 ffprobe を走らせない）
+            // ファイルが1つも無ければ詰め替えを試みるまでもない（後始末のたびに ffprobe を走らせない）
             if (recordingFileService.sizeIfExists(recording).isEmpty()
                     && !recordingFileService.hasAnyFileFor(recording)) {
                 continue;
