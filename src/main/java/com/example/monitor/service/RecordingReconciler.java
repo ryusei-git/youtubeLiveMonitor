@@ -7,12 +7,17 @@ import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * DB 上「録画中」のまま更新されなくなった録画履歴を、実ファイルの有無で完了・失敗に補正する。
@@ -50,9 +55,25 @@ import java.util.concurrent.ConcurrentHashMap;
  *       止めない）ため、1 だけだと「再起動直後、実際にはまだ録画中なのに追跡していない」
  *       ものを失敗と誤判定し、その後 {@code yt-dlp} が完成させても永久に失敗表示のままになる。</li>
  * </ol>
- * この 2 段階により、アプリ起動直後でも定期巡回でも「今すぐチェック」からでも安全に呼べる。
+ * この 2 段階により、アプリ起動直後でも、配信の巡回・録画の開始と並行してでも安全に呼べる。
+ *
+ * <h2>配信の巡回とは別に、自分の周期で動く理由</h2>
+ * 以前は配信の巡回（{@link com.example.monitor.scheduler.LiveStreamPollingScheduler}）の最初に
+ * 同期で呼んでいたため、{@link RecordingSalvager} の {@code ffmpeg}（1 件最大 600 秒）が終わるまで
+ * <b>全チャンネルの配信検知・通知・録画開始が止まっていた</b>（実際に発生した：置き去りの録画 1 件の
+ * 詰め替えに 16 秒、その間巡回が進まなかった）。再起動直後は {@link #unsalvageableFileSizes} が
+ * 空なので、ファイルの残った失敗録画を全部詰め直し、止まる時間はさらに延びる。
+ * そこで {@link #schedule()} から仮想スレッドへ逃がし、スケジューラのスレッドも塞がない。
+ *
+ * <p>巡回と別スレッドになっても同じ動画を二重に触らない。録画の開始（{@link StreamRecorder}）と
+ * 手動ダウンロード（{@link VideoDownloadService}）は {@link ActiveVideoJobs} への予約を
+ * {@code RECORDING} 行の作成より先に行い、完了・失敗の記録の後で外す。そのため
+ * {@code RECORDING} 行を見つけた時点で進行中なら予約が見える。{@code FAILED} 行の動画が
+ * もう一度始まることも無い（自動録画は開始に成功した時点で録画済みの動画 ID を更新して同じ配信を
+ * 録り直さず、手動ダウンロードは履歴にある動画を受け付けない）。
  */
 @Service
+@Profile("!cli")
 @RequiredArgsConstructor
 @Slf4j
 public class RecordingReconciler {
@@ -85,6 +106,42 @@ public class RecordingReconciler {
     private final Map<Long, Long> unsalvageableFileSizes = new ConcurrentHashMap<>();
 
     /**
+     * 後始末が実行中かどうか。{@code ffmpeg} が周期より長引いたときに、次の回を重ねないため
+     * （仮想スレッドへ逃がすので {@code fixedDelay} だけでは重複を防げない）。
+     */
+    private final AtomicBoolean running = new AtomicBoolean();
+
+    /**
+     * 確認用の起動（{@code bin/preview.sh}）では後始末しない。本番と同じ録画ファイルを
+     * 同時に詰め替えて壊さないため（配信の巡回と同じ設定に従う）。
+     */
+    @Value("${monitor.scheduling.enabled:true}")
+    private boolean schedulingEnabled = true;
+
+    /**
+     * 後始末を仮想スレッドで始める。前回がまだ終わっていなければ見送る。
+     *
+     * <p>周期は配信の巡回と同じ値にしている。以前は巡回のたびに呼んでいたので、補正が
+     * 反映されるまでの時間を変えないため。「今すぐチェック」からは呼ばない
+     * （画面の応答が {@code ffmpeg} を待たないようにするため。後始末は急ぐものではない）。
+     */
+    @Scheduled(fixedDelayString = "${monitor.youtube.interval-seconds:120}", timeUnit = TimeUnit.SECONDS)
+    public void schedule() {
+        if (!schedulingEnabled || !running.compareAndSet(false, true)) {
+            return;
+        }
+        Thread.startVirtualThread(() -> {
+            try {
+                reconcileOrphanedRecordings();
+            } catch (RuntimeException e) {
+                log.error("録画の後始末に失敗しました。次回再試行します", e);
+            } finally {
+                running.set(false);
+            }
+        });
+    }
+
+    /**
      * DB 上の録画状態を、実ファイルの有無という事実に合わせて補正する。
      *
      * <p>対象は 2 種類。どちらも {@link RecordingSalvager} を通すため、
@@ -101,8 +158,7 @@ public class RecordingReconciler {
      *       ことになるため（{@link #unsalvageableFileSizes} 参照）</li>
      * </ul>
      *
-     * <p>{@link com.example.monitor.scheduler.LiveStreamPollingScheduler} から、
-     * 定期巡回のたびと「今すぐチェック」の両方で呼ばれる。
+     * <p>{@link #schedule()} から、配信の巡回とは別の仮想スレッドで定期的に呼ばれる。
      */
     public void reconcileOrphanedRecordings() {
         for (Recording recording : recordingRepository.findByStatus(RecordingStatus.RECORDING)) {
