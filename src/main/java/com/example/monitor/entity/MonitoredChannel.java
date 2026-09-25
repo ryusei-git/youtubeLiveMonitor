@@ -22,13 +22,13 @@ import java.util.Objects;
 import java.util.stream.Stream;
 
 /**
- * 監視対象として登録された YouTube チャンネル。
+ * 監視対象として登録された配信チャンネル（YouTube または Twitch）。
  *
- * <p>「YouTube 上のチャンネル」そのものではなく、<b>このアプリが監視対象として登録した１件</b>を表す。
+ * <p>「配信サイト上のチャンネル」そのものではなく、<b>このアプリが監視対象として登録した１件</b>を表す。
  * そのため ID が 2 種類あり、混同しやすいので注意すること。
  * <ul>
  *   <li>{@link #id} … このテーブルの主キー（アプリ内部の連番）。CLI の {@code channel remove -i} で指定するのはこちら。</li>
- *   <li>{@link #youtubeChannelId} … YouTube が発行するチャンネル ID（{@code UC...} で始まる文字列）。</li>
+ *   <li>{@link #youtubeChannelId} … プラットフォームが発行する不変のチャンネル識別子（YouTube は {@code UC...}、Twitch は数値のユーザー ID）。名前は YouTube 専用だった頃の名残。</li>
  * </ul>
  *
  * <p>配信状態を表すフィールド（{@link #currentlyLive} 等）は監視サイクルごとに上書きされる
@@ -44,7 +44,7 @@ import java.util.stream.Stream;
 @AllArgsConstructor
 public class MonitoredChannel {
 
-    /** このテーブルの主キー。YouTube のチャンネル ID ではない点に注意。 */
+    /** このテーブルの主キー。プラットフォームのチャンネル識別子（{@link #youtubeChannelId}）ではない点に注意。 */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -214,7 +214,7 @@ public class MonitoredChannel {
     /**
      * 新規登録用のコンストラクタ。
      *
-     * @param youtubeChannelId YouTube が発行するチャンネル ID
+     * @param youtubeChannelId プラットフォームが発行するチャンネル識別子（名前は YouTube 専用だった頃の名残）
      * @param channelName      表示用のチャンネル名
      */
     public MonitoredChannel(String youtubeChannelId, String channelName) {
@@ -225,7 +225,7 @@ public class MonitoredChannel {
     /**
      * 登録時に録画有無まで指定したい場合のコンストラクタ。
      *
-     * @param youtubeChannelId YouTube が発行するチャンネル ID
+     * @param youtubeChannelId プラットフォームが発行するチャンネル識別子（名前は YouTube 専用だった頃の名残）
      * @param channelName      表示用のチャンネル名
      * @param recordEnabled    配信を検知した際に自動録画するか
      */
@@ -237,10 +237,10 @@ public class MonitoredChannel {
     /**
      * 登録時に録画有無とタイトルフィルターまで指定したい場合のコンストラクタ。
      *
-     * @param youtubeChannelId    YouTube が発行するチャンネル ID
+     * @param youtubeChannelId    プラットフォームが発行するチャンネル識別子（名前は YouTube 専用だった頃の名残）
      * @param channelName         表示用のチャンネル名
      * @param recordEnabled       配信を検知した際に自動録画するか
-     * @param recordTitleKeywords 録画対象を絞り込むタイトルキーワード（カンマ区切り）。
+     * @param recordTitleKeywords 通知・録画の対象を絞り込むタイトルキーワード（カンマ区切り）。
      *                            {@code null} や空文字なら絞り込みなし
      */
     public MonitoredChannel(String youtubeChannelId, String channelName, boolean recordEnabled,

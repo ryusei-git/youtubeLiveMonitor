@@ -53,7 +53,7 @@ public class Recording {
      *
      * <p>{@link OnDelete} により、チャンネルを削除すると紐づく録画履歴も DB 側で連鎖削除される
      * （{@link NotificationHistory}と同じ理由）。実ファイルはこの連鎖削除では消えないため、
-     * 別途 {@code recordings/} ディレクトリの整理は利用者側で行う必要がある。
+     * まとめて片付けるには、アーカイブ画面の「孤立した録画ファイルを一括削除」（{@code GET /api/recordings/orphaned/preview} → {@code DELETE /api/recordings/orphaned/confirmed}）を使う。
      *
      * <p><b>{@code null} を許す理由。</b>URL を指定したダウンロード
      * （{@link com.example.monitor.service.VideoDownloadService}）では、対象が
