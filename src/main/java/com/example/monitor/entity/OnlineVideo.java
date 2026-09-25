@@ -8,7 +8,11 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import java.time.Instant;
 
-/** 録画の有無に依存せず視聴先を残す。動画本体は保存しない。 */
+/**
+ * 収集した外部動画（YouTube・Twitch の配信と投稿）の視聴先 1 件。
+ *
+ * <p>録画の有無に依存せず視聴先を残す。動画本体は保存しない。
+ */
 @Entity
 @Table(name = "online_videos", indexes = @Index(columnList = "published_at"))
 @Getter @Setter @NoArgsConstructor
