@@ -1,6 +1,7 @@
 package com.example.monitor.service;
 
 import com.example.monitor.dto.LiveStreamDetails;
+import com.example.monitor.dto.NotificationDeliveryStatus;
 import com.example.monitor.dto.NotificationOutcome;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
@@ -60,6 +61,9 @@ public class UserNotificationService {
      */
     private static final int MAX_ATTEMPTS = 3;
 
+    /** 失敗の理由を残す長さ。{@link UserNotification} の {@code lastError} 列の長さと揃える。 */
+    private static final int MAX_ERROR_LENGTH = 200;
+
     /** 監査ログの対象の種類。利用者管理の監査ログと揃える。 */
     private static final String AUDIT_TARGET_TYPE = "USER";
 
@@ -75,6 +79,20 @@ public class UserNotificationService {
      */
     public boolean isWebhookConfigured() {
         return currentUser().getDiscordWebhookUrl() != null;
+    }
+
+    /**
+     * ログイン中の利用者へ、最後に通知を届けた時刻と最後に送れなかった時刻を返す。
+     *
+     * <p>Webhook を Discord 側で消された利用者は、以後の配信で毎回黙って失敗し続け、
+     * 「最近配信が無いだけ」と区別できない。画面で気付けるようにするために返す。
+     *
+     * @return 通知が届いているかの状況
+     */
+    public NotificationDeliveryStatus getDeliveryStatus() {
+        AppUser user = currentUser();
+        return new NotificationDeliveryStatus(userNotificationRepository.findLastDeliveredAt(user),
+                userNotificationRepository.findLastFailedAt(user));
     }
 
     /**
@@ -95,6 +113,8 @@ public class UserNotificationService {
         String change = user.getDiscordWebhookUrl() == null ? "登録" : "更新";
         DatabaseUpdateVerifier.verify(appUserRepository.updateDiscordWebhookUrl(user.getId(), url),
                 "Discord の Webhook の" + change, user.getId());
+        // 前の Webhook での失敗を、新しい Webhook が届いていない印に見せない
+        userNotificationRepository.clearFailures(user);
         log.info("Discord の Webhook を{}しました: user={}", change, user.getUsername());
         auditLogger.record(AuditAction.NOTIFICATION_SETTING_CHANGE, AuditOutcome.SUCCESS, user.getId(),
                 user.getUsername(), null, AUDIT_TARGET_TYPE, user.getUsername(), "Discord の Webhook を" + change);
@@ -200,8 +220,10 @@ public class UserNotificationService {
             return;
         }
 
-        DatabaseUpdateVerifier.verify(userNotificationRepository.incrementFailureCount(record.getId()),
-                "利用者への通知の失敗回数の加算", record.getId());
+        String error = outcome.errorMessage();
+        DatabaseUpdateVerifier.verify(userNotificationRepository.recordFailure(record.getId(), LocalDateTime.now(),
+                        error.length() > MAX_ERROR_LENGTH ? error.substring(0, MAX_ERROR_LENGTH) : error),
+                "利用者への通知の失敗の記録", record.getId());
         int failures = record.getFailureCount() + 1;
         log.warn("利用者への通知に失敗しました（{}/{} 回目{}）: user={}, video={}, reason={}",
                 failures, MAX_ATTEMPTS, failures >= MAX_ATTEMPTS ? "。この配信への送信は諦めます" : "",
