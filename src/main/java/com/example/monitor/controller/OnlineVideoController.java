@@ -1,32 +1,56 @@
 package com.example.monitor.controller;
 
-import com.example.monitor.dto.*;
+import com.example.monitor.dto.OnlineVideoResponse;
+import com.example.monitor.dto.PageResponse;
 import com.example.monitor.entity.OnlineVideo;
-import com.example.monitor.repository.*;
+import com.example.monitor.repository.MonitoredChannelRepository;
+import com.example.monitor.repository.OnlineVideoRepository;
+import com.example.monitor.repository.VideoThumbnailRepository;
 import com.example.monitor.service.OnlineVideoService;
+import com.example.monitor.service.VideoCollectionTracker;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.http.*;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 
 /** 一覧と画像の両方で購読を照合し、URLの直打ちでも他人のライブラリを読ませない。 */
 @RestController @RequestMapping("/api/videos") @RequiredArgsConstructor
 public class OnlineVideoController {
+    /** 1 ページの件数の上限。一度に大量の行を読ませて応答を重くしないため。 */
+    private static final int MAX_PAGE_SIZE = 100;
+    /** 検索語の長さの上限。極端に長い語で LIKE 検索を重くさせないため。 */
+    private static final int MAX_KEYWORD_LENGTH = 200;
+    /** 画面の配信予定は直近 1 週間分だけを並べる。 */
+    private static final Duration UPCOMING_WINDOW = Duration.ofDays(7);
+
     private final OnlineVideoRepository repository;
     private final VideoThumbnailRepository thumbnails;
     private final OnlineVideoService service;
     private final MonitoredChannelRepository channels;
-    private final com.example.monitor.service.VideoCollectionTracker tracker;
+    private final VideoCollectionTracker tracker;
 
     @GetMapping("/viewer")
-    public java.util.Map<String, Boolean> viewer(Authentication auth) {
-        return java.util.Map.of("admin", admin(auth));
+    public Map<String, Boolean> viewer(Authentication auth) {
+        return Map.of("admin", admin(auth));
     }
 
     @GetMapping("/channels")
-    public java.util.List<com.example.monitor.service.VideoCollectionTracker.Snapshot> channels(Authentication auth) {
+    public List<VideoCollectionTracker.Snapshot> channels(Authentication auth) {
         return channels.findLibraryChannels(admin(auth), auth.getName()).stream().map(tracker::snapshot).toList();
     }
 
@@ -36,7 +60,7 @@ public class OnlineVideoController {
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "24") int size,
             @RequestParam(defaultValue = "") String keyword, @RequestParam(required = false) Long channelId,
             @RequestParam(defaultValue = "false") boolean liveOnly, @RequestParam(required = false) String section) {
-        if (page < 0 || size < 1 || size > 100 || keyword.length() > 200) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE || keyword.length() > MAX_KEYWORD_LENGTH) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         boolean admin = admin(auth);
         String user = auth.getName();
         var pageable = PageRequest.of(page, size);
@@ -44,9 +68,8 @@ public class OnlineVideoController {
         var videos = section == null
                 ? repository.search(admin, user, channelId, liveOnly, service.startedAt(), keyword, pageable)
                 : switch (section) {
-                    // 画面の「配信予定」は直近 1 週間分だけを並べる
                     case "now" -> repository.searchNow(admin, user, channelId, service.startedAt(),
-                            java.time.Instant.now().plus(java.time.Duration.ofDays(7)), keyword, pageable);
+                            Instant.now().plus(UPCOMING_WINDOW), keyword, pageable);
                     case "streams" -> repository.searchStreams(admin, user, channelId, service.startedAt(), keyword, pageable);
                     case "uploads" -> repository.searchUploads(admin, user, channelId, keyword, pageable);
                     default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
@@ -69,9 +92,9 @@ public class OnlineVideoController {
 
     /** 存在しない画像や入力不正を、共通の想定外エラー処理へ渡さない。 */
     @ExceptionHandler(ResponseStatusException.class)
-    public ResponseEntity<java.util.Map<String, String>> handleStatus(ResponseStatusException error) {
+    public ResponseEntity<Map<String, String>> handleStatus(ResponseStatusException error) {
         String message = error.getStatusCode().value() == 404 ? "動画またはサムネイルが見つかりません" : "指定された条件が不正です";
-        return ResponseEntity.status(error.getStatusCode()).body(java.util.Map.of("error", message));
+        return ResponseEntity.status(error.getStatusCode()).body(Map.of("error", message));
     }
 
     private OnlineVideo visible(String id, Authentication auth) {
