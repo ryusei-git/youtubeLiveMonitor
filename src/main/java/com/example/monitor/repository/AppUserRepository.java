@@ -78,11 +78,13 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
      * <p>購読の行ではなく利用者そのものを返すのは、巡回がトランザクションの外で動くため。
      * 購読の {@code user} は遅延読み込みなので、購読を返すと利用者の項目を読んだ時点で失敗する。
      * 無効化された利用者には送らない。
+     * 購読で通知をオフにした利用者にも送らない（{@code UserSubscription.notifyEnabled} 参照）。
      *
      * @param channel 配信が始まったチャンネル
      * @return 通知の相手。いなければ空
      */
     @Query("SELECT s.user FROM UserSubscription s WHERE s.channel = :channel "
+            + "AND s.notifyEnabled = true "
             + "AND s.user.enabled = true AND s.user.discordWebhookUrl IS NOT NULL")
     List<AppUser> findNotificationTargets(@Param("channel") MonitoredChannel channel);
 
