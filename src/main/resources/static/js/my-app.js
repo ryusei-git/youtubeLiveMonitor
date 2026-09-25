@@ -549,6 +549,7 @@ async function myLoadRelated(rec, grid) {
  * @property {string} subscribedAt 購読した時刻
  * @property {boolean} recordEnabled 自分が自動録画を希望しているか
  * @property {string|null} recordTitleKeywords 自分の絞り込みキーワード。未設定なら null
+ * @property {boolean} notifyEnabled 配信開始を自分の Webhook へ通知するか
  * @property {string|null} channelUrl チャンネルページの URL。組み立てられなければ null
  * @property {string|null} channelIconUrl アイコンの URL。まだ読み取れていなければ null
  * @property {number} recordingCount 再生できる録画の件数
@@ -577,7 +578,7 @@ function myChannelStateLabel(ch) {
 }
 
 /**
- * マイチャンネルの表の 1 行。録画の希望・キーワードは押した行だけを書き換え、一覧は読み直さない
+ * マイチャンネルの表の 1 行。録画の希望・キーワード・通知は押した行だけを書き換え、一覧は読み直さない
  * （apiPut は応答を読まないので、応答の録画数 0 で表が上書きされることもない）。
  *
  * @param {MySubscribedChannel} ch 購読しているチャンネル
@@ -599,6 +600,7 @@ function myChannelRow(ch, reload) {
         <td data-sort-value="${subscribed}" title="${subscribed}">${subscribed.slice(0, 10)}</td>
         <td><button type="button" class="recordBtn" aria-pressed="${ch.recordEnabled}">自動録画: ${ch.recordEnabled ? "オン" : "オフ"}</button></td>
         <td class="titleFilterCell">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
+        <td><button type="button" class="notifyBtn" aria-pressed="${ch.notifyEnabled}">通知: ${ch.notifyEnabled ? "オン" : "オフ"}</button></td>
         <td><button type="button" class="unsubscribeBtn">解除</button></td>`;
 
     const recordBtn = /** @type {HTMLButtonElement} */ (query(".recordBtn", tr));
@@ -617,6 +619,25 @@ function myChannelRow(ch, reload) {
             if (recordBtn.isConnected) showError(errorMessage(e));
         } finally {
             recordBtn.disabled = false;
+        }
+    });
+
+    // 通知は購読者ごとに自分の Webhook へ送るので、録画と違って他の人の設定に左右されない
+    const notifyBtn = /** @type {HTMLButtonElement} */ (query(".notifyBtn", tr));
+    notifyBtn.addEventListener("click", async () => {
+        const next = !ch.notifyEnabled;
+        notifyBtn.disabled = true;
+        try {
+            await apiPut(`/api/my/channels/${ch.id}/notify`, { enabled: next });
+            ch.notifyEnabled = next;
+            notifyBtn.textContent = `通知: ${next ? "オン" : "オフ"}`;
+            notifyBtn.setAttribute("aria-pressed", String(next));
+            if (notifyBtn.isConnected) clearError();
+            showToast(next ? "通知をオンにしました" : "通知をオフにしました");
+        } catch (e) {
+            if (notifyBtn.isConnected) showError(errorMessage(e));
+        } finally {
+            notifyBtn.disabled = false;
         }
     });
 
@@ -682,7 +703,7 @@ const myChannelsView = {
                 <thead><tr>
                   <th data-sort="text" data-key="name">チャンネル名</th><th>配信元</th><th>状態</th>
                   <th data-sort="number" data-key="recordings">録画数</th><th data-sort="text" data-key="subscribed">購読した日</th>
-                  <th>自動録画</th><th>キーワード</th><th></th>
+                  <th>自動録画</th><th>キーワード</th><th>通知</th><th></th>
                 </tr></thead>
                 <tbody></tbody>
               </table>
@@ -788,7 +809,7 @@ const myNotificationSettingsView = {
     nav: "/my/settings/notifications",
     render(root) {
         root.innerHTML = `<h1>通知</h1>
-            <p class="pageDescription">購読しているチャンネルの配信が始まると、登録した Discord の Webhook へ知らせます（購読しているチャンネルすべてが対象）。通知が要らなければ登録しなくてかまいません。</p>
+            <p class="pageDescription">購読しているチャンネルの配信が始まると、登録した Discord の Webhook へ知らせます（マイチャンネルで通知をオンにしているチャンネルが対象）。通知が要らなければ登録しなくてかまいません。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <h2>Discord の Webhook</h2>
             <div class="inline">

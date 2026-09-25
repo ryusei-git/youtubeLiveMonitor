@@ -190,6 +190,33 @@ public class UserSubscriptionService {
     }
 
     /**
+     * ログイン中の利用者の、このチャンネルに対する通知の希望を変更する。
+     *
+     * <p><b>変わるのは自分の購読だけ。</b>通知は購読者それぞれの Webhook へ送るため、
+     * 録画と違って「誰か 1 人でも」の合算は無く、OFF にすれば自分にだけ届かなくなる。
+     *
+     * @param channelId 対象チャンネルの主キー
+     * @param enabled   配信開始を通知してほしいか
+     * @return 変更後の購読。購読していなければ {@link Optional#empty()}
+     */
+    @Transactional
+    public Optional<SubscribedChannelResponse> updateNotifySetting(Long channelId, boolean enabled) {
+        AppUser user = currentAppUser.require();
+        return monitoredChannelRepository.findById(channelId)
+                .flatMap(channel -> userSubscriptionRepository.findByUserAndChannel(user, channel))
+                .map(subscription -> {
+                    subscription.setNotifyEnabled(enabled);
+                    UserSubscription saved = userSubscriptionRepository.save(subscription);
+                    log.info("購読の通知設定を変更しました: user={}, channelId={}, enabled={}",
+                            user.getUsername(), channelId, enabled);
+                    auditLogger.record(AuditAction.CHANNEL_SETTING_CHANGE, AuditOutcome.SUCCESS,
+                            user.getId(), user.getUsername(), null, "CHANNEL", String.valueOf(channelId),
+                            "notify=" + enabled);
+                    return SubscribedChannelResponse.from(saved);
+                });
+    }
+
+    /**
      * ログイン中の利用者が購読しているチャンネルの録画を 1 件取得する。
      *
      * <p><b>購読していない録画は「存在しない」と同じ扱い（404）にする。</b>403 にすると、

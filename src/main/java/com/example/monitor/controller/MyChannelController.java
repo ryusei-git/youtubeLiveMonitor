@@ -1,5 +1,6 @@
 package com.example.monitor.controller;
 
+import com.example.monitor.dto.RecordToggleRequest;
 import com.example.monitor.dto.SubscribedChannelResponse;
 import com.example.monitor.dto.SubscriptionRecordRequest;
 import com.example.monitor.dto.SubscriptionRequest;
@@ -79,6 +80,24 @@ public class MyChannelController {
             @PathVariable Long channelId, @RequestBody SubscriptionRecordRequest request) {
         return userSubscriptionService
                 .updateRecordSetting(channelId, request.enabled(), request.titleKeywords())
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * 自分の通知の希望を変更する。
+     *
+     * <p><b>変わるのは自分の設定だけ。</b>他の購読者への通知には影響しない。
+     * 本文は {@code enabled} だけなので、同じ形の {@link RecordToggleRequest} を使い回している。
+     *
+     * @param channelId 対象チャンネルの主キー
+     * @param request   通知するか
+     * @return 変更後の購読。購読していなければ 404
+     */
+    @PutMapping("/{channelId}/notify")
+    public ResponseEntity<SubscribedChannelResponse> updateNotifySetting(
+            @PathVariable Long channelId, @RequestBody RecordToggleRequest request) {
+        return userSubscriptionService.updateNotifySetting(channelId, request.enabled())
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
