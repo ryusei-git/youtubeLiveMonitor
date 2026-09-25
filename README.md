@@ -532,6 +532,12 @@ ls logs/channels/
 
 特定のチャンネルだけを追いたいときは、そのファイルを見れば他チャンネルの出力に埋もれません。
 
+保持の期間と上限は次のとおりです（`src/main/resources/logback-spring.xml`）。
+
+- `logs/service-app.log`（Spring・Hibernate・Tomcat を含むサービス全体の INFO 以上）… 日ごとに `logs/service-app.<日付>.log` へ回し、14 日・合計 500MB まで残ります。
+- `logs/channels/` … チャンネルごとに 14 日・100MB まで残ります（上限はチャンネルごとで、全体の上限ではありません）。
+- `logs/service.log`（標準出力）は起動のたびに回るので、起動直後の失敗を見るのに使います。長い期間の記録は `service-app` 側を見ます。
+
 録画と手動ダウンロードの yt-dlp の出力は、動画ごとに `logs/yt-dlp/<動画ID>.log` に出ます（進捗は出しません）。
 録画・ダウンロードが失敗・途中で終わったときの原因はここを見ます。
 

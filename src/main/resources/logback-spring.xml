@@ -31,6 +31,11 @@
         そのチャンネルを処理している間に発生した全ログ（LiveStatusChecker, YouTubeMonitorService,
         NotificationService 経由のものも含む）が対象チャンネルのファイルに書き込まれる。
         MDC が未設定（システムログ）の場合は default.log に集約される。
+
+        totalSizeCap は SiftingAppender の内側なので「チャンネルごと」に掛かり、全体の上限ではない
+        （20 チャンネルなら最大 2GB）。1 チャンネルが暴走して他を圧迫するのを抑えるためのもの
+        （導入時点の全体量は 194MB）。cleanHistoryOnStart は、日付が変わる瞬間に動いていなかった
+        期間の古いファイルが maxHistory の掃除から漏れるのを防ぐため。
     -->
     <appender name="CHANNEL_LOG" class="ch.qos.logback.classic.sift.SiftingAppender">
         <discriminator>
@@ -43,6 +48,8 @@
                 <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
                     <fileNamePattern>logs/channels/${channelId}.%d{yyyy-MM-dd}.log</fileNamePattern>
                     <maxHistory>14</maxHistory>
+                    <totalSizeCap>100MB</totalSizeCap>
+                    <cleanHistoryOnStart>true</cleanHistoryOnStart>
                 </rollingPolicy>
                 <encoder>
                     <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %msg%n</pattern>
@@ -68,4 +75,40 @@
     <root level="${ROOT_LOG_LEVEL}">
         <appender-ref ref="CONSOLE" />
     </root>
+
+    <!--
+        root（Spring・Hibernate・Tomcat を含む全体）のログを日ごとに回して残す。
+        CONSOLE の出力先 logs/service.log は起動時に数世代回すだけなので、1 日に何度も再起動すると
+        前夜の記録が消え、長く動かすと 1 ファイルが際限なく伸びる。こちらは日付で区切り、期間と総量で消す。
+
+        CONSOLE と同じく INFO のしきい値を付ける。com.example.monitor のロガーは DEBUG かつ
+        additivity="true" なので、root の appender には全チャンネルの DEBUG が流れ込む
+        （root のレベルは子のロガーから来たイベントを絞らない）。チャンネル単位の DEBUG は CHANNEL_LOG にある。
+        書式は ChannelLogReader のパーサーと対なので CHANNEL_LOG と揃える。
+
+        CLI の実行はファイルに残さない（常駐サービスのログに混ざらないように）。<root> の中に
+        <springProfile> を入れ子にする書き方は Spring Boot が受け付けない（起動時に警告して無視する）ため、
+        2 つ目の <root> で appender を足している（<root> は何度書いても同じ root ロガーを指し、appender は追加になる）。
+        appender の定義ごとこの中に置くのは、定義しただけで空の logs/service-app.log が CLI の作業ディレクトリに作られるため。
+    -->
+    <springProfile name="!cli">
+        <appender name="SERVICE_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>INFO</level>
+            </filter>
+            <file>logs/service-app.log</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>logs/service-app.%d{yyyy-MM-dd}.log</fileNamePattern>
+                <maxHistory>14</maxHistory>
+                <totalSizeCap>500MB</totalSizeCap>
+                <cleanHistoryOnStart>true</cleanHistoryOnStart>
+            </rollingPolicy>
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root>
+            <appender-ref ref="SERVICE_FILE" />
+        </root>
+    </springProfile>
 </configuration>
