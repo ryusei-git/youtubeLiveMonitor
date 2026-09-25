@@ -1551,31 +1551,58 @@ function statusLamp(state, label, title = null) {
 }
 
 /**
+ * トーストを積む読み上げの領域（{@link showToast} の置き場所）を返す。無ければ作る。
+ *
+ * <p>読み上げの領域は、中身を入れる前から DOM にある必要がある（作ると同時に中身を入れると
+ * 1 件目が読まれない。WCAG 4.1.3）。そのため {@link initStudioShell} がページの読み込み時に
+ * 一度呼んで空の領域を置き、{@link showToast} はそれを使い回す。
+ *
+ * @returns {HTMLElement} `.toastStack` の要素
+ */
+function ensureToastStack() {
+    /** @type {HTMLElement | null} */
+    let stack = document.querySelector(".toastStack");
+    if (!stack) {
+        stack = document.createElement("div");
+        stack.className = "toastStack";
+        // 操作の結果は「今起きたこと」なので polite で十分
+        stack.setAttribute("role", "status");
+        stack.setAttribute("aria-live", "polite");
+        document.body.appendChild(stack);
+    }
+    return stack;
+}
+
+/**
  * 操作の結果を画面の隅に短く出す。
  *
  * <p>保存・削除が効いたかどうかを、一覧の再読み込みを待たずに伝えるため。
  * <b>エラーはここでは扱わない</b>——エラーはエラー帯（{@link showError}）が担当し、
  * 消えてしまっては困る情報を自動で消さないようにしている。
  *
+ * <p>読み終える前に消えないよう、文の長さに応じて最低 5 秒は出しておく。
+ * マウスを乗せている間・フォーカスがある間は読んでいるので消さず、離れてから消す（WCAG 2.2.1）。
+ *
  * @param {string} message 表示する文言
  * @param {"info"|"danger"} kind 種別。danger は削除など取り消しにくい操作の結果に使う
  */
 function showToast(message, kind = "info") {
-    let stack = document.querySelector(".toastStack");
-    if (!stack) {
-        stack = document.createElement("div");
-        stack.className = "toastStack";
-        // 読み上げ環境にも伝える。操作の結果は「今起きたこと」なので polite で十分
-        stack.setAttribute("aria-live", "polite");
-        document.body.appendChild(stack);
-    }
+    const stack = ensureToastStack();
 
     const item = document.createElement("div");
     item.className = kind === "danger" ? "toast is-danger" : "toast";
     item.textContent = message;
     stack.appendChild(item);
 
-    window.setTimeout(() => item.remove(), 3200);
+    let hovered = false;
+    let focused = false;
+    let expired = false;
+    const removeIfIdle = () => { if (expired && !hovered && !focused) item.remove(); };
+    item.addEventListener("mouseenter", () => { hovered = true; });
+    item.addEventListener("mouseleave", () => { hovered = false; removeIfIdle(); });
+    item.addEventListener("focusin", () => { focused = true; });
+    item.addEventListener("focusout", () => { focused = false; removeIfIdle(); });
+    window.setTimeout(() => { expired = true; removeIfIdle(); }, Math.max(5000, message.length * 120));
 }
 
 /**
@@ -1850,6 +1877,8 @@ function initStudioShell() {
         const label = control.getAttribute("placeholder") || control.querySelector("option")?.textContent;
         if (label) control.setAttribute("aria-label", label);
     });
+    // トーストの読み上げ領域は、最初のトーストより前に置いておく（理由は ensureToastStack）
+    ensureToastStack();
 }
 
 initStudioShell();
