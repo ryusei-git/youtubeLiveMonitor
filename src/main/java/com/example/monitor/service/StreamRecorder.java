@@ -5,12 +5,14 @@ import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
+import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.YtDlpFormatSelector;
 import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -94,6 +96,21 @@ public class StreamRecorder {
     private final ActiveVideoJobs activeVideoJobs;
 
     /**
+     * 録画を始めるのに必要な空き容量（GB）。これを下回っていれば録画を始めない。
+     * 録画・H2（{@code data/}）・ログが同じファイルシステムにあり、満杯になると録画が壊れるだけでなく
+     * H2 の書き込みが失敗して監視・通知まで止まるため。
+     *
+     * <p><b>{@link MonitorProperties.RecordingProperties} に入れていない。</b>record にフィールドを
+     * 足すと正準コンストラクタが変わり、それを直接呼んでいるテスト 10 ファイルがコンパイルエラーになるため。
+     * final でないフィールドなので {@code @RequiredArgsConstructor} のコンストラクタも変わらない。
+     *
+     * <p>初期値を 0（確認しない）にしているのは、Spring を通さずに組み立てるテストが、
+     * 実行した機械の空き容量に左右されないようにするため。
+     */
+    @Value("${monitor.recording.min-free-gb:20}")
+    private long minFreeGb = 0;
+
+    /**
      * 配信の録画を開始する。既にこの動画IDを録画中であれば何もせず成功として扱う。
      *
      * <p>録画は配信終了まで続く長時間のバックグラウンド処理のため、このメソッド自体は
@@ -121,8 +138,15 @@ public class StreamRecorder {
      *                 呼び出し側（{@code StreamPlatform.watchUrl}）が組み立てたものを受け取る
      * @param videoId  録画対象の動画 ID
      * @param title    録画開始時点での配信タイトル。録画一覧画面に表示する
+     * <p><b>空き容量が {@link #minFreeGb} を下回っていれば起動しない。</b>このとき FAILED を記録しない。
+     * {@code false} を返せば呼び出し元は {@code lastRecordedVideoId} を更新せず、次の巡回で再び試みるので、
+     * 空きが戻れば録画が始まる。FAILED を記録すると巡回のたびに FAILED の行が増える。
+     * 空き容量を<b>読めなかった</b>ときは今までどおり起動する。判定できないことを「満杯」と扱うと、
+     * 容量の取得だけが壊れた環境で録画が一切始まらなくなるため（「配信していない」と
+     * 「判定できなかった」を区別するのと同じ考え方）。
+     *
      * @return プロセスの起動に成功した場合（既に録画中の場合を含む） {@code true}。
-     *         {@code yt-dlp} が見つからない等で起動に失敗した場合は {@code false}
+     *         {@code yt-dlp} が見つからない等で起動に失敗した場合と、空き容量がしきい値を下回る場合は {@code false}
      * @throws RuntimeException {@link RecordingHistoryService#recordStart} が失敗した場合。
      *                          起動済みのプロセスは停止済みで、予約も解放済みの状態で伝播する
      */
@@ -135,6 +159,15 @@ public class StreamRecorder {
 
         boolean started = false;
         try {
+            DiskSpaceUtils.Capacity disk = DiskSpaceUtils.read(Path.of(monitorProperties.recording().directory()));
+            if (minFreeGb > 0 && disk.error() == null && disk.usableBytes() != null
+                    && disk.usableBytes() < minFreeGb * 1024L * 1024 * 1024) {
+                // return は try の中なので、予約の解放は finally 節が行う
+                log.warn("空き容量がしきい値を下回っているため録画を始めません: channel={}, video={}, 空き={}GB, しきい値={}GB",
+                        channel.getChannelName(), videoId, disk.usableBytes() / (1024L * 1024 * 1024), minFreeGb);
+                return false;
+            }
+
             Path outputDirectory = Path.of(monitorProperties.recording().directory(), channel.getYoutubeChannelId());
             try {
                 Files.createDirectories(outputDirectory);
