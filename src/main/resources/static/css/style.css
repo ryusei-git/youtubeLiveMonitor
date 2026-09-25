@@ -457,10 +457,11 @@ button:disabled:hover {
     letter-spacing: 0.04em;
 }
 
-/* 見出しやラベルに添える補足説明。常時表示の文章の代わりにホバーで読ませて画面を広く使う */
+/* 見出しやラベルに添える補足説明。常時表示の文章の代わりにホバーで読ませて画面を広く使う。
+   色は見出しの補足の文字（.muted）と同じ濃さにして、背景に対して 3:1 以上を保つ（WCAG 1.4.11） */
 .hint {
     cursor: help;
-    color: var(--border-strong);
+    color: var(--text-muted);
     font-weight: normal;
     font-size: 0.85em;
     letter-spacing: 0;
@@ -468,6 +469,33 @@ button:disabled:hover {
 
 .hint:hover {
     color: var(--navy-700);
+}
+
+/* キーボードのフォーカス中・スマホのタップ後に title の本文を出す（title だけでは両方とも読めない。WCAG 1.4.13）。
+   読み上げには aria-label で同じ本文を渡しているので、生成した文字は代替テキストを空にして二重に読ませない。
+   位置は common.js の initHints が渡す。fixed なのは表の横スクロール枠に切り取られないため */
+.hint[title]:focus:not(.hintDismissed)::after {
+    content: attr(title);
+    content: attr(title) / "";
+    position: fixed;
+    z-index: 25;
+    top: var(--hint-top);
+    left: clamp(16px, var(--hint-left), calc(100vw - 16px - min(22rem, calc(100vw - 32px))));
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(22rem, calc(100vw - 32px));
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    background: var(--surface);
+    box-shadow: 0 4px 12px rgba(22, 32, 46, 0.12);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: normal;
+    line-height: 1.6;
+    letter-spacing: 0;
+    text-align: left;
+    white-space: normal;
 }
 
 /* チャンネルIDの開閉、日時の精密表示など、クリックで表示が切り替わる要素の目印 */
