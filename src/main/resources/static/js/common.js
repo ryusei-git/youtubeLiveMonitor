@@ -1673,10 +1673,12 @@ const studioPages = {
     "my-channels.html": "M4 4h16v16H4z M8 9h8 M8 14h5",
     "my-recordings.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
-    // 利用者の 1 枚のページ（my.html）のトップ（/my）・アーカイブ（/my/archive）・マイチャンネル（/my/channels）
+    // 利用者の 1 枚のページ（my.html）のトップ（/my）・アーカイブ（/my/archive）・マイチャンネル（/my/channels）・
+    // 通知（/my/settings/notifications。管理者の通知履歴と同じベル）
     "my": "M3 11l9-8 9 8 M5 9v12h14V9 M10 21v-6h4v6",
     "archive": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "channels": "M4 4h16v16H4z M8 9h8 M8 14h5",
+    "notifications": "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
 };
 
 /**
