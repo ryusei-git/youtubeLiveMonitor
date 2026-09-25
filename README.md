@@ -523,6 +523,48 @@ A: `./gradlew clean` を実行してください。
 ログ設定は `src/main/resources/logback-spring.xml` に集約しています。
 `application.yml` 側には書かないでください（二重管理になるため）。
 
+## バックアップと復元
+
+H2 の DB（`data/monitor.mv.db`）には、利用者のアカウント・購読・視聴済み／お気に入り・
+利用者ごとの Webhook・監査ログが入っています。壊れると全員が登録し直しになるので、定期的に控えを取ります。
+
+```bash
+bin/backup.sh    # data/backups/monitor-<日時>.zip を作り、新しい 14 個だけ残す
+```
+
+- サービスの稼働中でも止まっていても取れます（H2 の `BACKUP TO` で、書き込みの途中を写さない控えになる）。
+- DB にパスワードを付けていれば `.env` の `SPRING_DATASOURCE_PASSWORD` を使います（無ければ空）。
+- zip はパスワードのハッシュや Webhook の URL を含むので、本人だけが読める（600）にしてあります。
+- 録画ファイルは容量が大きいので対象外です。
+- 控えは DB と同じディスクにあるので、ディスクごと壊れると一緒に失われます。別のディスクへもコピーすると安全です。
+- H2 のクライアントは `~/.gradle/caches` にある最新の版を使います。H2 の版を上げた直後は、
+  キャッシュの状態によってサービスと違う版になりうるので、失敗したら `./gradlew build` の後に試してください。
+
+毎日 4 時に取る cron の例（`crontab -e` で登録）:
+
+```
+0 4 * * * cd <リポジトリ> && bin/backup.sh >> logs/backup.log 2>&1
+```
+
+### 復元
+
+```bash
+bin/service.sh stop
+mv data/monitor.mv.db data/monitor.mv.db.bad          # 今の DB は消さずに退避しておく
+unzip -o data/backups/monitor-<日時>.zip -d data/
+bin/service.sh start
+```
+
+DB のパスワードは DB の中に入っているので、復元した DB は**控えを取った時点のパスワード**に戻ります。
+その後に `.env` の `SPRING_DATASOURCE_PASSWORD` を付けた・変えた場合は、起動しません
+（ログに `Wrong user name or password`）。そのときは止めたまま、控えの時点のパスワード
+（付ける前なら空）で入って今の値に合わせてから起動します（`H2_JAR` の求め方は `.env.example` のとおり）。
+
+```bash
+java -cp "$H2_JAR" org.h2.tools.Shell -url "jdbc:h2:file:./data/monitor" \
+    -user sa -password "<控えの時点のパスワード>" -sql "ALTER USER SA SET PASSWORD '<.env の値>'"
+```
+
 ## トラブルシューティング
 
 ### 通知が届かない
