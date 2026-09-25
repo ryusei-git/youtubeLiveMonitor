@@ -67,7 +67,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>実際にこれが起きた（1 時間 30 分・736MB の正常なファイルが出来ていたのに、
  * 終了コードだけを見て「失敗」と記録され、画面から再生できなくなった）。
  * 数時間ぶんの録画を最後の数秒のために丸ごと失敗扱いにするのは実態に合わない。
- * そのため判断材料は {@link RecordingFileService#sizeIfExists(Path)} だけとし、
+ * そのため判断材料は「再生できるファイルがあるか」（{@link RecordingSalvager#ensurePlayable(Path)}）だけとし、
  * 終了コードはログの文面を変えるためにしか使わない。
  * {@link RecordingReconciler} が置き去りの録画履歴を補正するときも同じ基準を使う。
  */
@@ -145,13 +145,8 @@ public class StreamRecorder {
      * {@link RecordingHistoryService#recordStart} が例外を投げた場合は、
      * {@link ProcessTermination#destroyForciblyAndAwait(Process)} で起動済みのプロセスを
      * 停止・終了確認してから例外を投げ直す。ここで止めずに登録だけ外すと、次の巡回・再試行で
-     * 同じ出力先に別プロセスが起動しうる（実際に起きた指摘）。
+     * 同じ出力先に別プロセスが起動しうる（レビューで指摘された。起こりうる経路）。
      *
-     * @param channel  録画対象のチャンネル
-     * @param watchUrl 録画対象の視聴 URL。プラットフォームごとに形式が異なるため
-     *                 呼び出し側（{@code StreamPlatform.watchUrl}）が組み立てたものを受け取る
-     * @param videoId  録画対象の動画 ID
-     * @param title    録画開始時点での配信タイトル。録画一覧画面に表示する
      * <p><b>空き容量が {@link #minFreeGb} を下回っていれば起動しない。</b>このとき FAILED を記録しない。
      * {@code false} を返せば呼び出し元は {@code lastRecordedVideoId} を更新せず、次の巡回で再び試みるので、
      * 空きが戻れば録画が始まる。FAILED を記録すると巡回のたびに FAILED の行が増える。
@@ -159,6 +154,11 @@ public class StreamRecorder {
      * 容量の取得だけが壊れた環境で録画が一切始まらなくなるため（「配信していない」と
      * 「判定できなかった」を区別するのと同じ考え方）。
      *
+     * @param channel  録画対象のチャンネル
+     * @param watchUrl 録画対象の視聴 URL。形式がプラットフォームごとに異なるため、
+     *                 検知結果（{@link com.example.monitor.dto.LiveStreamDetection#watchUrl()}）が運んだものを受け取る
+     * @param videoId  録画対象の動画 ID
+     * @param title    録画開始時点での配信タイトル。録画一覧画面に表示する
      * @return プロセスの起動に成功した場合（既に録画中の場合を含む） {@code true}。
      *         {@code yt-dlp} が見つからない等で起動に失敗した場合と、空き容量がしきい値を下回る場合は {@code false}
      * @throws RuntimeException {@link RecordingHistoryService#recordStart} が失敗した場合。
