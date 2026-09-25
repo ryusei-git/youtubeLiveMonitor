@@ -79,6 +79,16 @@ public class AppUser {
     private LocalDateTime lastLoginAt;
 
     /**
+     * 最後にパスワードを変えた時刻。一度も変えていなければ {@code null}。
+     *
+     * <p>ほかのセッションを失効させるために持つ（#321）。ログイン時の値をセッションの主体に持たせ、
+     * これより前にログインしたセッションを {@code ActiveAppUserFilter} が次のリクエストで落とす。
+     * パスワードが漏れた疑いで変えたのに、漏れた先のセッションが使い続けられるのを防ぐため。
+     * {@code NULL} を許すのは、利用者が既にいる DB へ {@code ddl-auto: update} で足しても ALTER が失敗しないため。
+     */
+    private LocalDateTime passwordChangedAt;
+
+    /**
      * 配信開始の通知を送る Discord の Webhook の URL。登録していなければ {@code null}（送らない）。
      *
      * <p>通知を使いたい人だけが登録する（#149）。{@code NULL} を許す列なので、利用者が既にいる DB へ

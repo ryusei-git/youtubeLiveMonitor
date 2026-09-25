@@ -87,11 +87,36 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
     List<AppUser> findNotificationTargets(@Param("channel") MonitoredChannel channel);
 
     /**
-     * セッションに残った認証情報だけでは無効化・削除を検出できないため、毎回現状を照合する。
-     * @param id ログイン時の利用者ID
-     * @return 現在も存在し有効ならtrue
+     * セッションに残った認証情報だけでは無効化・削除・パスワードの変更を検出できないため、毎回現状を照合する。
+     *
+     * <p>パスワードの変更は、DB の変更時刻がセッションの値より後なら失効とする。セッションの値が
+     * {@code null}（変更前にログインした）で DB に値があれば、SQL の比較が偽になって失効する。
+     * 等号でなく {@code <=} なのは、DB の時刻の精度で丸められても変更した本人のセッションを落とさないため。
+     *
+     * @param id                ログイン時の利用者ID
+     * @param passwordChangedAt ログイン時点の最後のパスワード変更の時刻。変えていなければ {@code null}
+     * @return 現在も存在し有効で、その後パスワードが変わっていなければ true
      */
-    boolean existsByIdAndEnabledTrue(Long id);
+    @Query("SELECT COUNT(u) > 0 FROM AppUser u WHERE u.id = :id AND u.enabled = true "
+            + "AND (u.passwordChangedAt IS NULL OR u.passwordChangedAt <= :passwordChangedAt)")
+    boolean isSessionValid(@Param("id") Long id, @Param("passwordChangedAt") LocalDateTime passwordChangedAt);
+
+    /**
+     * パスワードのハッシュと変更時刻だけを更新する。
+     *
+     * <p>変更時刻を同時に書くのは、これより前にログインしたセッションを失効させるため（{@link #isSessionValid}）。
+     * 読み込んだエンティティを {@code save} しないのは {@link #updateLastLoginAt} と同じ理由。
+     *
+     * @param id           利用者の主キー
+     * @param passwordHash エンコード済みの新しいパスワード
+     * @param changedAt    変更した時刻
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE AppUser u SET u.passwordHash = :passwordHash, u.passwordChangedAt = :changedAt WHERE u.id = :id")
+    int updatePassword(@Param("id") Long id, @Param("passwordHash") String passwordHash,
+                       @Param("changedAt") LocalDateTime changedAt);
 
     /**
      * 読み込み後に権限が変わっても管理者を無効化しないよう、更新条件にも権限を含める。
