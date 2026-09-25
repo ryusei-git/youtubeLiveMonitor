@@ -17,7 +17,11 @@ spring:
     url: jdbc:h2:file:./data/monitor;AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
     username: sa
-    password:
+    # 空だと、同じ端末のほかのユーザー・プロセスが AUTO_SERVER の口からパスワード無しでつながり、
+    # CREATE ALIAS で任意の Java を実行できる（#240）。値は .env から読む。
+    # 既存の DB は作ったときのパスワード（空）のままなので、ここを変える前に ALTER USER が要る
+    # （順番を誤ると起動しなくなる。手順は .env.example の SPRING_DATASOURCE_PASSWORD）。
+    password: ${SPRING_DATASOURCE_PASSWORD:}
     # 接続プール（Hikari）の既定は、使っていなくても常に 10 本を開いたままにする
     # （minimum-idle の既定が maximum-pool-size と同じ）。個人用の規模では、同時に DB を使うのは
     # 画面を開いたときに並ぶ API（1 本は数十ミリ秒）くらいで 10 本は要らない（#184）。

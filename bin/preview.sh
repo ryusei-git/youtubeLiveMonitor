@@ -50,8 +50,11 @@ case "${1:-start}" in
         H2_JAR="$(find ~/.gradle/caches -name 'h2-*.jar' ! -name '*sources*' | sort | tail -1)"
         mkdir -p "$PREVIEW/data" "$PREVIEW/logs"
         rm -f "$PREVIEW/data/backup.zip" "$PREVIEW"/data/monitor.*.db
+        # DB のパスワードは本番と同じく .env から読む（#314）。ほかの値まで環境変数に流さないよう
+        # サブシェルで読み、このキーだけを取り出す。キーが無ければ空（パスワード未設定の DB）
+        DB_PASSWORD="$(set -a; . ./.env; set +a; echo "${SPRING_DATASOURCE_PASSWORD:-}")"
         java -cp "$H2_JAR" org.h2.tools.Shell \
-            -url "jdbc:h2:file:$ROOT/data/monitor;AUTO_SERVER=TRUE" -user sa -password "" \
+            -url "jdbc:h2:file:$ROOT/data/monitor;AUTO_SERVER=TRUE" -user sa -password "$DB_PASSWORD" \
             -sql "BACKUP TO '$PREVIEW/data/backup.zip'" >/dev/null
         (cd "$PREVIEW/data" && unzip -oq backup.zip && rm backup.zip)
 
