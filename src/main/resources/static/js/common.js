@@ -585,7 +585,7 @@ function thumbnailContent(recording) {
  *        ブラウザの標準機能で揃う（実際に指摘を受けた）。
  * @param {((recording: Recording, kind: RecordingMarkKind, button: HTMLButtonElement) => void)|null} onToggleMark
  *        視聴済み・お気に入りのボタンを押したときの処理。渡したときだけボタンを出す
- *        （印を扱うのはアーカイブ一覧だけで、利用者向けの画面や再生画面の関連一覧の見た目は変えないため）。
+ *        （印を扱わない画面（管理画面の再生画面の関連一覧など）の見た目は変えないため）。
  * @param {(recording: Recording) => string} [playerHref] サムネイルと題名のリンク先。省略すると管理者の再生画面。
  *        利用者の 1 枚のページ（my.html）は {@code /my/watch/<ID>} を渡す。{@code /player.html} へ移ると
  *        ページが読み込み直され、ミニプレーヤーで再生中の動画が止まるため
