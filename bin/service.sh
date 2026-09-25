@@ -115,6 +115,19 @@ launch_jar() {
     # 端末を載せ替えたときに変えられるよう、JAVA_OPTS があればそちらを使う。
     local java_opts="${JAVA_OPTS:--Xmx1g -XX:G1PeriodicGCInterval=300000 -XX:TrimNativeHeapInterval=300000}"
 
+    # .env（API キー・Webhook・初期管理者のパスワード）と DB（利用者ごとの Discord Webhook を平文で持つ）を
+    # 同じ端末のほかのユーザーから読めないようにする（#241）。umask 077 は java と子の yt-dlp が作る
+    # DB・ログ・録画を 600/700 にするため。既にあるものは作り直されないので chmod で揃える
+    # （logs/ はこのスクリプトの先頭の mkdir -p が 775 で作る）。
+    # cmd_start ではなくここに置くのは、rollback（cmd_start を通らない）で起動したときにも効かせるため。
+    # 録画の保存先（MONITOR_RECORDING_DIRECTORY）の新しいファイルも 600/700 になるので、別のユーザーの
+    # プログラムに録画を読ませるなら、ここを緩める必要がある。
+    umask 077
+    [[ -f .env ]] && chmod 600 .env
+    [[ -d data ]] && chmod 700 data
+    chmod 700 "$LOG_DIR"
+    compgen -G "data/*.db" >/dev/null && chmod 600 data/*.db
+
     echo "起動しています... ($RUN_JAR)"
     rotate_log
     # MALLOC_ARENA_MAX=2 は、glibc の malloc のアリーナ（スレッドが取り合わないよう分けた確保領域）の数を絞るため。

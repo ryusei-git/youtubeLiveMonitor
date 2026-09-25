@@ -147,6 +147,7 @@ cd ~/youtubeLiveMonitor
 
 ```bash
 cp .env.example .env
+chmod 600 .env   # API キーや Webhook を同じ端末のほかのユーザーから読めないようにする
 ```
 
 `.env` ファイルを編集して、以下の情報を設定してください：
