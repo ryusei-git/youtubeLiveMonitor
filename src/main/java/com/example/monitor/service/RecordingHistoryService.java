@@ -2,7 +2,6 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.DashboardResponse.RecordingStatusSummary;
 import com.example.monitor.dto.DiskUsageResponse;
-import com.example.monitor.dto.OrphanedCleanupResponse;
 import com.example.monitor.dto.RecordingGenreCountResponse;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
@@ -331,18 +330,6 @@ public class RecordingHistoryService {
      */
     public DiskUsageResponse calculateDiskUsage() {
         return recordingFileService.calculateUsage();
-    }
-
-    /**
-     * 監視対象から削除済みのチャンネルの録画ファイルをまとめて削除する。
-     *
-     * <p>DB 上の録画履歴はチャンネル削除時に連鎖削除で既に消えているため、
-     * ここで消えるのはディスク上のファイルだけ。
-     *
-     * @return 削除結果の集計
-     */
-    public OrphanedCleanupResponse deleteOrphanedRecordings() {
-        return recordingFileService.deleteOrphanedRecordings();
     }
 
     /**

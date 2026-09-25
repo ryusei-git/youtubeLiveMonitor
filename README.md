@@ -458,7 +458,8 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 | GET | `/api/recordings/{id}` | 録画履歴 1 件（再生画面用） |
 | DELETE | `/api/recordings/{id}` | 録画履歴と録画ファイルの削除（録画中は409） |
 | GET | `/api/recordings/disk-usage` | 録画ディレクトリの使用量（合計・チャンネル別、登録有無フラグ付き） |
-| DELETE | `/api/recordings/orphaned` | 削除済みチャンネルの録画ファイルを一括削除（録画中は対象外） |
+| GET | `/api/recordings/orphaned/preview` | 孤立した録画ファイル（録画履歴に動画 ID が無いもの）の削除候補と確認トークン。ファイルは変更しない（録画中は対象外） |
+| DELETE | `/api/recordings/orphaned/confirmed?token=` | プレビューで確認した削除候補だけをファイル単位で削除（確認後に対象が変わっていれば 400） |
 | GET | `/recordings/**` | 録画ファイル本体の配信（静的リソース、HTTP Range 対応） |
 | GET | `/api/logs/channels` | ログがあるチャンネルの一覧 |
 | GET | `/api/logs/channels/{channelId}?limit=&level=` | チャンネル別ログ（`level` でレベル絞り込み） |
