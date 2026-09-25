@@ -436,6 +436,10 @@ CSS/JS/HTML を編集したのに restart だけで確認すると**古い内容
 カラム名を変えた場合、古い NOT NULL カラムが残って INSERT が失敗する。
 開発中は `data/monitor.mv.db` を削除して作り直すのが早い。
 
+**ただし Spring Boot 4.1.1（Hibernate 7、#432）以降、列の型の違いは `ddl-auto: update` が ALTER する**（#206 で確認）。
+`columnDefinition` や Java の型を変えると、次の起動で本番 DB の列の型が黙って変わる。
+変える前に `bin/backup.sh` で控えを取り、DB の複製で起動して起動ログの `alter table` と値が残ることを確かめる。
+
 ### enum の列挙子を増やすと既存 DB で全更新が失敗する（実際に発生した）
 
 `@Enumerated(EnumType.STRING)` のフィールドに `columnDefinition` を書かないと、
@@ -457,6 +461,7 @@ Value not permitted for column "('COMPLETED', 'FAILED', 'RECORDING')": "PARTIAL"
 **対策**: enum のフィールドには必ず `columnDefinition = "varchar(16)"` を書く
 （`MonitoredChannel.platform` と `Recording.status` 参照）。単なる文字列にしておけば、
 列挙子を増やしても DB 側の変更が要らない。
+既に ENUM 型になっている列は、`columnDefinition = "varchar(N)"` を付けて起動すれば Hibernate が VARCHAR に変える（#206）。
 
 **既にネイティブ ENUM で作られてしまった列の直し方**（データは保持される）:
 
