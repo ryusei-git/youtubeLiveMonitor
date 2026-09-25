@@ -195,7 +195,6 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 
 /* 動画本体を持たない項目も、録画と同じカード操作で見られるようにする。 */
 .onlinePlayButton { display: block; position: relative; padding: 0; border: 0; width: 100%; }
-.onlinePlayButton .thumbPlaceholder[hidden], .onlinePlayButton img[hidden] { display: none; }
 .onlinePlayMark { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 16px; background: #17131dcc; color: #fff; border-radius: 12px; font-size: 24px; }
 .onlinePlayButton:disabled .onlinePlayMark { display: none; }
 .onlineTitle { padding: 0; border: 0; min-height: 0; text-align: left; white-space: normal; background: transparent; font: inherit; }
@@ -223,7 +222,6 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 .channelIcon { width: 24px; height: 24px; border-radius: 50%; flex: 0 0 24px; object-fit: cover; background: var(--border); }
 
 /* アーカイブ一覧の表示切り替えと印。押された状態は、選択中のメニューと同じ淡い紫で示す。 */
-.videoGrid[hidden] { display: none; }
 .viewToggle { display: inline-flex; }
 .viewToggle button:first-child { border-radius: 8px 0 0 8px; }
 .viewToggle button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
