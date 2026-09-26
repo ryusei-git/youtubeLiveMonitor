@@ -124,6 +124,21 @@ public class SoundCandidate {
         this.createdAt = Instant.now();
     }
 
+    /**
+     * 聞いた人の答えを書き換える。答えは全員で共有し、最後の答えを有効にする（クラスの説明を参照）。
+     *
+     * <p>取り消し（{@code null}）では、答えた人と時刻も空にする。残すと、誰も答えていない候補なのに
+     * 画面が「自分の答え」とみなして取り消しを出し続けるため（{@link #reviewedBy} の約束どおり、答えが無ければ空）。
+     *
+     * @param verdict  答え。{@code null} なら取り消し
+     * @param reviewer 答えた利用者
+     */
+    public void review(Verdict verdict, AppUser reviewer) {
+        this.verdict = verdict;
+        this.reviewedBy = verdict == null ? null : reviewer;
+        this.reviewedAt = verdict == null ? null : Instant.now();
+    }
+
     /** 聞いた人の答え。 */
     public enum Verdict {
         /** 耳キスだった。 */
