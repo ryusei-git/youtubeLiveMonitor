@@ -9,6 +9,8 @@ import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.MonitoringInProgressException;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
+import com.example.monitor.exception.SoundDetectionConflictException;
+import com.example.monitor.exception.SoundDetectionNotFoundException;
 import com.example.monitor.exception.SoundMarkNotFoundException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import lombok.extern.slf4j.Slf4j;
@@ -187,6 +189,28 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(SoundMarkNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleSoundMarkNotFound(SoundMarkNotFoundException e) {
         return clientError(HttpStatus.NOT_FOUND, e);
+    }
+
+    /**
+     * 答えられない（無い・別の録画のもの・今の版でない）候補と、無い実行記録の指定を 404 Not Found として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(SoundDetectionNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleSoundDetectionNotFound(SoundDetectionNotFoundException e) {
+        return clientError(HttpStatus.NOT_FOUND, e);
+    }
+
+    /**
+     * 検出を今すぐ始められない（検出が走っている・今の版で検出済み・検出できない録画）場合を 409 Conflict として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(SoundDetectionConflictException.class)
+    public ResponseEntity<Map<String, String>> handleSoundDetectionConflict(SoundDetectionConflictException e) {
+        return clientError(HttpStatus.CONFLICT, e);
     }
 
     /**
