@@ -592,38 +592,67 @@ async function myLoadRelated(rec, grid) {
  */
 
 /**
- * 印から飛ぶ先（秒）。印の 3 秒前にする。
+ * 検出器が録画に自動で付けた候補 1 件（GET /api/my/recordings/{id}/sound-candidates の candidates の要素）。
+ * 画面で使う項目だけを書く。
+ *
+ * @typedef {object} MySoundCandidate
+ * @property {number} id 候補の主キー。答えを送るときに使う
+ * @property {number} positionMs 録画の先頭からの位置（ミリ秒）
+ * @property {"CONFIRMED"|"REJECTED"|null} verdict 答え（耳キス・ちがう）。null ならまだ誰も答えていない
+ * @property {boolean} reviewedByMe 最後に答えたのがログイン中の利用者か。取り消しを出すのは自分の答えだけにする
+ *   （印の「消す」を本人の印にだけ出すのと同じ考え方）
+ */
+
+/**
+ * 印・候補 1 か所の前後の区間（秒）。前後の移動で飛ぶ先は、区間の先頭にする。
+ *
+ * @typedef {object} MySoundRange
+ * @property {number} start 区間の先頭（秒）
+ * @property {number} end 区間の終わり（秒）
+ */
+
+/**
+ * 人の印の区間。印の 3 秒前から 4 秒後までにする。
  * 印は音を聞いてから押すので、音より少し後ろに付く。印ちょうどへ飛ぶと音が過ぎた後から流れるため、
- * 少し手前から流して、飛んだ先で音をもう一度聞けるようにする。
+ * 少し手前から流して、飛んだ先で音をもう一度聞けるようにする。後ろより前を広く取るのも、音が印より前にあるため。
  *
  * @param {MySoundMark} mark 印
- * @returns {number} 再生位置（秒）
+ * @returns {MySoundRange} 区間
  */
-function mySoundMarkSeekTime(mark) {
-    return Math.max(0, mark.positionMs / 1000 - 3);
+function mySoundMarkRange(mark) {
+    return { start: Math.max(0, mark.positionMs / 1000 - 3), end: mark.positionMs / 1000 + 4 };
 }
 
 /**
- * 「印の所だけ再生」で流す区間（秒）。印ごとに、印から飛ぶ先（{@link mySoundMarkSeekTime}。3 秒前）から 4 秒後までを取る。
- * 前を広めに取るのは、印は音を聞いてから押すので、音は印より少し前にあるため。
- * 重なる区間と、間が 2 秒以下の区間は 1 つにまとめる。2 秒ほどを飛ばしても聞く時間はほとんど減らず、
- * 飛ぶたびに音が途切れるだけになるため。
+ * 自動の候補の区間。候補の 2 秒前から 2 秒後までにする。
+ * 人の印（{@link mySoundMarkRange}）と幅を変えるのは、候補の位置が検出器の見つけた音そのもの（音の山の時点）で、
+ * 人の印のように聞いてから押す遅れが無いため。音を真ん中にして前後を同じ幅にし、人の印より短くして、
+ * 数の多い候補を 1 件ずつ聞いて答える時間を減らす。
  *
- * @param {MySoundMark[]} marks 印（並びは問わない）
- * @returns {{start: number, end: number}[]} 区間。前から順
+ * @param {MySoundCandidate} candidate 候補
+ * @returns {MySoundRange} 区間
  */
-function mySoundMarkRanges(marks) {
-    /** @type {{start: number, end: number}[]} */
-    const ranges = [];
-    for (const mark of [...marks].sort((a, b) => a.positionMs - b.positionMs)) {
-        const start = mySoundMarkSeekTime(mark);
-        const end = mark.positionMs / 1000 + 4;
-        const last = ranges.at(-1);
-        // 印を前から順に見るので、後の印の終わりが前の区間の終わりより前に来ることはない。まとめるときは終わりを延ばすだけでよい
-        if (last && start - last.end <= 2) last.end = end;
-        else ranges.push({ start, end });
+function mySoundCandidateRange(candidate) {
+    return { start: Math.max(0, candidate.positionMs / 1000 - 2), end: candidate.positionMs / 1000 + 2 };
+}
+
+/**
+ * 「印の所だけ再生」で流す区間（秒）。重なる区間と、間が 2 秒以下の区間は 1 つにまとめる。
+ * 2 秒ほどを飛ばしても聞く時間はほとんど減らず、飛ぶたびに音が途切れるだけになるため。
+ *
+ * @param {MySoundRange[]} ranges 印・候補の区間（並びは問わない）
+ * @returns {MySoundRange[]} まとめた区間。前から順
+ */
+function myMergeSoundRanges(ranges) {
+    /** @type {MySoundRange[]} */
+    const merged = [];
+    for (const range of [...ranges].sort((a, b) => a.start - b.start)) {
+        const last = merged.at(-1);
+        // 人の印と候補で幅が違うので、後から始まる区間が前の区間より先に終わることがある。終わりは遅い方を取る
+        if (last && range.start - last.end <= 2) last.end = Math.max(last.end, range.end);
+        else merged.push({ ...range });
     }
-    return ranges;
+    return merged;
 }
 
 /**
@@ -634,65 +663,118 @@ function mySoundMarkRanges(marks) {
  * 印を付ける・飛ぶのは、ドックが今この録画を読み込んでいるときだけにする。別の録画を読み込んでいると、
  * その録画の再生位置をこの録画の印として送ってしまうため。
  *
- * 「印の所だけ再生」（#467）は、印の前後の区間（{@link mySoundMarkRanges}）だけを続けて流す。オンの間は、
+ * 「印の所だけ再生」（#467）は、印の前後の区間（{@link myMergeSoundRanges}）だけを続けて流す。オンの間は、
  * 手で区間の外へ動かしても次の区間へ飛ぶ（「印の所だけ」を守るため。区間の外を聞きたいときはオフにしてもらう）。
+ *
+ * 検出器が付けた候補（#471）も、人の印と同じ一覧に「自動」として並べ、聞いた人に「耳キス／ちがう」を答えてもらう。
+ * 答えは学び直しの正例・負例になる。「ちがう」と答えた候補は、一覧・前後の移動・「印の所だけ再生」から外す。
+ * 耳キスでないと分かった所なので、残すと、答えた後も同じ外れへ何度も飛ばされ、耳キスの所を聞く邪魔になるため
+ * （候補は外れが多いので、残すと飛ぶ先の多くが外れになる）。答えはサーバーに残るので、学び直しには使える。
+ *
+ * 「候補を順に確かめる」は、未確認の候補の前後だけを 1 件ずつ流して止め、答えたら次の候補へ進む（答えを速く集めるため）。
+ * この流れの間は「印の所だけ再生」をオフにする。どちらも再生位置を動かす（区間の外なら次の区間へ飛ぶ・候補の区間の
+ * 終わりで止めて次の候補へ飛ぶ）ので、両方が動くと、片方が飛んだ先で、もう片方がまた飛ばしてぶつかるため。
  *
  * @param {Recording} rec 再生画面の録画
  * @param {HTMLElement} container 欄を描く入れ物
- * @returns {() => void} 動画に付けた処理を外し、「印の所だけ再生」をオフにする関数。動画要素はドックの 1 つを使い回すので、
- *   画面を離れるときに呼ぶ（外さないと、ほかの画面のミニプレーヤーでも再生が区間へ飛び続ける）
+ * @returns {() => void} 動画に付けた処理を外し、「印の所だけ再生」と「候補を順に確かめる」を終える関数。動画要素は
+ *   ドックの 1 つを使い回すので、画面を離れるときに呼ぶ（外さないと、ほかの画面のミニプレーヤーでも再生が区間へ飛び続け、候補の区間の終わりで止まる）
  */
 function myBindSoundMarks(rec, container) {
     container.innerHTML = `<h2>耳キス <span class="muted soundMarkCount"></span></h2>
         <p class="muted">聞こえたら押してください。声や囁きの「ちゅ」も含みます。印はほかの人とも共有されます。</p>
+        <p class="muted soundCandidateState" hidden></p>
         <p class="inline">
             <button type="button" class="soundMarkAdd">ここは耳キス</button>
             <button type="button" class="soundMarkPrev">前の耳キスへ</button>
             <button type="button" class="soundMarkNext">次の耳キスへ</button>
             <button type="button" class="soundMarkOnly" aria-pressed="false">印の所だけ再生</button>
+            <button type="button" class="soundReviewStart">候補を順に確かめる</button>
             <span class="muted soundMarkStatus" role="status"></span>
         </p>
+        <div class="soundReview" hidden>
+            <p class="soundReviewText" role="status"></p>
+            <p class="inline soundReviewButtons">
+                <button type="button" class="soundReviewBig">耳キス</button>
+                <button type="button" class="soundReviewBig">ちがう</button>
+                <button type="button" class="soundReviewBig">もう一度</button>
+                <button type="button">やめる</button>
+            </p>
+            <p class="soundReviewLast"><span></span> <button type="button">取り消し</button></p>
+        </div>
         <ul></ul>`;
     const video = myDockVideo();
     const addButton = /** @type {HTMLButtonElement} */ (query(".soundMarkAdd", container));
     const prevButton = /** @type {HTMLButtonElement} */ (query(".soundMarkPrev", container));
     const nextButton = /** @type {HTMLButtonElement} */ (query(".soundMarkNext", container));
     const onlyButton = /** @type {HTMLButtonElement} */ (query(".soundMarkOnly", container));
+    const reviewButton = /** @type {HTMLButtonElement} */ (query(".soundReviewStart", container));
+    const reviewButtons = query(".soundReviewButtons", container);
+    const [yesButton, noButton, againButton, stopButton] = reviewButtons.querySelectorAll("button");
+    const lastLine = query(".soundReviewLast", container);
+    const undoButton = /** @type {HTMLButtonElement} */ (query("button", lastLine));
     const list = query("ul", container);
     const path = `/api/my/recordings/${rec.id}/sound-marks`;
+    const candidatePath = `/api/my/recordings/${rec.id}/sound-candidates`;
     /** @type {MySoundMark[]} */
     let marks = [];
+    /** @type {MySoundCandidate[]} */
+    let candidates = [];
+    // 今の版の自動の検出の状態（PENDING・DONE・FAILED）。読み込むまでは null
+    /** @type {string|null} */
+    let candidateState = null;
     // サーバーの二度押しの判定は「探してから保存」なので、同時に届いた 2 つの要求はどちらも印を作りうる。送信中は押させない
     let sending = false;
     // 「印の所だけ再生」がオンか
     let only = false;
+    // 答えを送っている候補の id。送信中は、その候補のボタン（一覧と確かめる欄の両方）を押させない
+    /** @type {Set<number>} */
+    const answering = new Set();
+    // 「候補を順に確かめる」で聞いている候補。確かめていなければ null
+    /** @type {MySoundCandidate|null} */
+    let reviewing = null;
+    // 聞いている候補の区間の終わり（秒）。過ぎたら 1 回だけ止める。止めた後・確かめていないときは null
+    /** @type {number|null} */
+    let stopAt = null;
+    // 確かめる流れを終えたときの知らせ。無ければ空
+    let reviewMessage = "";
+    // 直前の答え。確かめる欄の「取り消し」で戻せるようにする（「ちがう」の候補は一覧から外れるので、ここでしか戻せない）。
+    // verdict が null なら、取り消した後
+    /** @type {{candidate: MySoundCandidate, verdict: "CONFIRMED"|"REJECTED"|null}|null} */
+    let lastAnswer = null;
 
     const active = () => myDockRecording?.id === rec.id;
-    // 前後とも、印の位置ではなく飛ぶ先で比べる。印の位置で比べると、飛んだ直後（印の 3 秒前）に「次」を押したとき
+    // 前後の移動と「印の所だけ再生」の対象（人の印と、「ちがう」以外の候補）の区間。前から順
+    const spots = () => [...marks.map(mySoundMarkRange),
+        ...candidates.filter((c) => c.verdict !== "REJECTED").map(mySoundCandidateRange)].sort((a, b) => a.start - b.start);
+    // 前後とも、印の位置ではなく飛ぶ先（区間の先頭）で比べる。印の位置で比べると、飛んだ直後（印の 3 秒前）に「次」を押したとき
     // 同じ印が選ばれ、先へ進めない。飛んだ先にいるときにその印を選び直さないよう、次は 0.5 秒、前は 1 秒の幅を取る。
     // 前の幅が広いのは、印を聞き終えた後に押せば、その印を聞き直せるようにするため（曲の頭出しと同じ）
-    const nextMark = () => marks.find((m) => mySoundMarkSeekTime(m) >= video.currentTime + 0.5);
-    const prevMark = () => marks.filter((m) => mySoundMarkSeekTime(m) <= video.currentTime - 1).at(-1);
+    const nextSpot = () => spots().find((s) => s.start >= video.currentTime + 0.5);
+    const prevSpot = () => spots().filter((s) => s.start <= video.currentTime - 1).at(-1);
     /** @param {boolean} on オンにするか */
     const setOnly = (on) => {
         only = on;
         onlyButton.setAttribute("aria-pressed", String(on));
     };
     const refresh = () => {
-        // ドックが閉じた・別の録画を読み込んだ（どちらも emptied で来る）ときと、印が無くなったときは、この録画の区間を流せないのでオフにする
-        if (!active() || !marks.length) setOnly(false);
+        // ドックが閉じた・別の録画を読み込んだ（どちらも emptied で来る）ときは、この録画を流せないので、「印の所だけ再生」も
+        // 確かめる流れも終える。印も候補も無くなったときも、流す区間が無いので「印の所だけ再生」をオフにする
+        if (!active() || !spots().length) setOnly(false);
+        if (!active() && reviewing) endReview("");
         addButton.disabled = sending || !active();
-        prevButton.disabled = !active() || !prevMark();
-        nextButton.disabled = !active() || !nextMark();
-        onlyButton.disabled = !active() || !marks.length;
+        prevButton.disabled = !active() || !prevSpot();
+        nextButton.disabled = !active() || !nextSpot();
+        onlyButton.disabled = !active() || !spots().length || reviewing !== null;
+        reviewButton.disabled = !active() || reviewing !== null || !candidates.some((c) => c.verdict === null);
     };
     // 区間の中かは、先頭の 0.1 秒前から見る。先頭へ飛んだ直後の位置が先頭よりわずかでも前に出ると、区間の外とみなして
     // 先頭へ飛び直し続け、再生が進まなくなるため。Chrome は先頭ちょうどを返す（確認済み）が、位置を内部の刻み
     // （フレームや時間の単位）に丸めて返すブラウザでは前に出うる。iPhone の Safari では確かめていない
     /** @param {number} time 再生位置（秒） */
-    const inRange = (time) => mySoundMarkRanges(marks).some((r) => r.start - 0.1 <= time && time <= r.end);
+    const inRange = (time) => myMergeSoundRanges(spots()).some((r) => r.start - 0.1 <= time && time <= r.end);
     /** @param {number} time 再生位置（秒） */
-    const nextRange = (time) => mySoundMarkRanges(marks).find((r) => r.start > time);
+    const nextRange = (time) => myMergeSoundRanges(spots()).find((r) => r.start > time);
     // オンの間、区間の外にいたら次の区間の先頭へ飛び、次が無ければ止めてオフに戻す。最後の区間が録画の終わりを
     // またぐと、区間の中のまま再生が終わる（その後は timeupdate が来ない）ので、終わったときは区間の外と同じに扱う
     const followRanges = () => {
@@ -707,34 +789,149 @@ function myBindSoundMarks(rec, container) {
         setOnly(false);
         query(".soundMarkStatus", container).textContent = "最後の印まで再生しました";
     };
-    /** @param {MySoundMark|undefined} mark 飛ぶ先の印 */
-    const seek = (mark) => {
-        if (mark && active()) video.currentTime = mySoundMarkSeekTime(mark);
+    /** @param {MySoundRange|undefined} spot 飛ぶ先 */
+    const seek = (spot) => {
+        if (spot && active()) video.currentTime = spot.start;
+    };
+    /**
+     * 次に確かめる候補。time より後ろの最初の未確認の候補にし、無ければ先頭へ戻って最初の未確認の候補にする。
+     * 途中から始めたときに、前の方の候補を残したまま「もうありません」で終わらないようにするため
+     * @param {number} time 位置（秒）
+     */
+    const nextUnreviewed = (time) => {
+        const unreviewed = candidates.filter((c) => c.verdict === null);
+        return unreviewed.find((c) => c.positionMs / 1000 > time) ?? unreviewed[0];
+    };
+    /** @param {MySoundCandidate} candidate 聞く候補 */
+    const listen = (candidate) => {
+        const { start, end } = mySoundCandidateRange(candidate);
+        reviewing = candidate;
+        stopAt = end;
+        video.currentTime = start;
+        // 流れなかった（直後の一時停止で中断された等）ことは、流れないこと自体で分かるので何も出さない（ドックの再生ボタンと同じ）
+        video.play().catch(() => {});
+        render();
+    };
+    /** @param {string} message 終えたときの知らせ。無ければ空 */
+    const endReview = (message) => {
+        reviewing = null;
+        stopAt = null;
+        reviewMessage = message;
+        render();
+    };
+    // 聞いている候補の区間の終わりで止める。止めるのは 1 回だけにする（止めた後に再生を押したら、そのまま流す）。
+    // 区間が録画の終わりをまたぐと、終わりに届く前に再生が終わるので、そのときも止め終えたことにする
+    const stopAtEnd = () => {
+        if (stopAt === null || !active() || (video.currentTime < stopAt && !video.ended)) return;
+        stopAt = null;
+        video.pause();
+    };
+    /**
+     * 候補に答える（null は取り消し）。答えは全員で共有し、最後の答えが有効になる（API のとおり）。
+     * @param {MySoundCandidate} candidate 候補
+     * @param {"CONFIRMED"|"REJECTED"|null} verdict 答え
+     * @returns {Promise<boolean>} 送れたか
+     */
+    const answer = async (candidate, verdict) => {
+        if (answering.has(candidate.id)) return false;
+        answering.add(candidate.id);
+        render();
+        try {
+            await apiPut(`${candidatePath}/${candidate.id}/verdict`, { verdict });
+            // 応答の候補と同じ値になる（答えた人は本人。取り消すと答えた人も空になる）ので、手元の候補を書き換える
+            candidate.verdict = verdict;
+            candidate.reviewedByMe = verdict !== null;
+            lastAnswer = { candidate, verdict };
+            // 取り消すと未確認の候補が増えるので、終えたときの「もうありません」は古くなる
+            reviewMessage = "";
+            if (container.isConnected) clearError();
+            return true;
+        } catch (e) {
+            if (container.isConnected) showError(errorMessage(e));
+            return false;
+        } finally {
+            answering.delete(candidate.id);
+            render();
+        }
+    };
+    /** @param {"CONFIRMED"|"REJECTED"} verdict 聞いている候補への答え。答えたら次の未確認の候補へ進む */
+    const answerAndNext = async (verdict) => {
+        const candidate = reviewing;
+        // 送っている間に「やめる」・ドックの切り替えで流れが終わっていたら、次へ進まない
+        if (!candidate || !(await answer(candidate, verdict)) || reviewing !== candidate) return;
+        const next = nextUnreviewed(candidate.positionMs / 1000);
+        if (next) listen(next);
+        else endReview("未確認の候補はもうありません");
     };
 
-    const renderList = () => {
+    /** @param {MySoundMark} mark 印 */
+    const markItem = (mark) => {
+        const time = formatDuration(mark.positionMs / 1000);
+        const li = document.createElement("li");
+        li.innerHTML = `<button type="button">${time}</button>`
+            + (mark.mine ? ` <button type="button" aria-label="${time} の印を消す">消す</button>` : "");
+        const [jumpButton, deleteButton] = li.querySelectorAll("button");
+        jumpButton.addEventListener("click", () => seek(mySoundMarkRange(mark)));
+        deleteButton?.addEventListener("click", async () => {
+            deleteButton.disabled = true;
+            try {
+                await apiDelete(`${path}/${mark.id}`);
+                marks = marks.filter((m) => m.id !== mark.id);
+                render();
+                if (container.isConnected) clearError();
+            } catch (e) {
+                deleteButton.disabled = false;
+                if (container.isConnected) showError(errorMessage(e));
+            }
+        });
+        return li;
+    };
+    /** @param {MySoundCandidate} candidate 一覧に出す候補（「ちがう」以外） */
+    const candidateItem = (candidate) => {
+        const time = formatDuration(candidate.positionMs / 1000);
+        const li = document.createElement("li");
+        // 同じ名前のボタンが並ぶので、読み上げでどの候補か分かるよう、名前に時刻を入れる（印の「消す」と同じ）
+        li.innerHTML = `<button type="button">${time}</button> <span class="muted">自動</span> ` + (candidate.verdict === null
+            ? `<button type="button" aria-label="${time} の候補は耳キス">耳キス</button> <button type="button" aria-label="${time} の候補はちがう">ちがう</button>`
+            : `確認済み${candidate.reviewedByMe ? ` <button type="button" aria-label="${time} の候補の答えを取り消す">取り消し</button>` : ""}`);
+        const [jumpButton, ...answerButtons] = li.querySelectorAll("button");
+        jumpButton.addEventListener("click", () => seek(mySoundCandidateRange(candidate)));
+        /** @type {("CONFIRMED"|"REJECTED"|null)[]} */
+        const verdicts = candidate.verdict === null ? ["CONFIRMED", "REJECTED"] : [null];
+        answerButtons.forEach((button, i) => {
+            button.disabled = answering.has(candidate.id);
+            button.addEventListener("click", () => answer(candidate, verdicts[i]));
+        });
+        return li;
+    };
+    const render = () => {
+        const unreviewed = candidates.filter((c) => c.verdict === null).length;
         query(".soundMarkCount", container).textContent = `印 ${marks.length} 件`;
-        list.replaceChildren(...marks.map((mark) => {
-            const time = formatDuration(mark.positionMs / 1000);
-            const li = document.createElement("li");
-            li.innerHTML = `<button type="button">${time}</button>`
-                + (mark.mine ? ` <button type="button" aria-label="${time} の印を消す">消す</button>` : "");
-            const [jumpButton, deleteButton] = li.querySelectorAll("button");
-            jumpButton.addEventListener("click", () => seek(mark));
-            deleteButton?.addEventListener("click", async () => {
-                deleteButton.disabled = true;
-                try {
-                    await apiDelete(`${path}/${mark.id}`);
-                    marks = marks.filter((m) => m.id !== mark.id);
-                    renderList();
-                    if (container.isConnected) clearError();
-                } catch (e) {
-                    deleteButton.disabled = false;
-                    if (container.isConnected) showError(errorMessage(e));
-                }
-            });
-            return li;
-        }));
+        const state = query(".soundCandidateState", container);
+        state.hidden = candidateState === null;
+        state.textContent = (candidateState === "PENDING" ? "自動の検出を待っています"
+            : candidateState === "FAILED" ? "自動の検出に失敗しました"
+            : `自動の候補 ${candidates.length} 件（未確認 ${unreviewed} 件）`)
+            + (candidates.length ? "。自動の候補は外れが多いので、聞いて答えてください。答えは精度を上げるのに使います。" : "");
+        list.replaceChildren(...[
+            ...marks.map((mark) => ({ positionMs: mark.positionMs, li: markItem(mark) })),
+            ...candidates.filter((c) => c.verdict !== "REJECTED").map((c) => ({ positionMs: c.positionMs, li: candidateItem(c) })),
+        ].sort((a, b) => a.positionMs - b.positionMs).map((item) => item.li));
+
+        query(".soundReviewText", container).textContent = reviewing
+            ? `${formatDuration(reviewing.positionMs / 1000)} の候補は耳キスですか？（未確認 ${unreviewed} 件）`
+            : reviewMessage;
+        reviewButtons.hidden = !reviewing;
+        yesButton.disabled = noButton.disabled = reviewing !== null && answering.has(reviewing.id);
+        lastLine.hidden = !lastAnswer;
+        if (lastAnswer) {
+            const time = formatDuration(lastAnswer.candidate.positionMs / 1000);
+            query("span", lastLine).textContent = lastAnswer.verdict === null ? `${time} の答えを取り消しました`
+                : `${time} を「${lastAnswer.verdict === "CONFIRMED" ? "耳キス" : "ちがう"}」にしました`;
+            undoButton.hidden = lastAnswer.verdict === null;
+            undoButton.disabled = answering.has(lastAnswer.candidate.id);
+        }
+        query(".soundReview", container).hidden = !reviewing && !reviewMessage && !lastAnswer;
         refresh();
     };
     /**
@@ -745,7 +942,7 @@ function myBindSoundMarks(rec, container) {
     const merge = (received) => {
         marks = [...marks.filter((m) => !received.some((r) => r.id === m.id)), ...received]
             .sort((a, b) => a.positionMs - b.positionMs || a.id - b.id);
-        renderList();
+        render();
     };
 
     addButton.addEventListener("click", async () => {
@@ -764,34 +961,59 @@ function myBindSoundMarks(rec, container) {
             refresh();
         }
     });
-    prevButton.addEventListener("click", () => seek(prevMark()));
-    nextButton.addEventListener("click", () => seek(nextMark()));
+    prevButton.addEventListener("click", () => seek(prevSpot()));
+    nextButton.addEventListener("click", () => seek(nextSpot()));
     onlyButton.addEventListener("click", () => {
         if (only) {
             setOnly(false);
             return;
         }
-        if (!active() || !marks.length) return;
+        if (!active() || !spots().length) return;
         const time = video.currentTime;
         // 最後の区間より後ろでオンにしたときは、最初の区間から流す
-        if (!inRange(time)) video.currentTime = (nextRange(time) ?? mySoundMarkRanges(marks)[0]).start;
+        if (!inRange(time)) video.currentTime = (nextRange(time) ?? myMergeSoundRanges(spots())[0]).start;
         setOnly(true);
+    });
+    reviewButton.addEventListener("click", () => {
+        const first = nextUnreviewed(video.currentTime);
+        if (!active() || !first) return;
+        setOnly(false);
+        listen(first);
+    });
+    yesButton.addEventListener("click", () => answerAndNext("CONFIRMED"));
+    noButton.addEventListener("click", () => answerAndNext("REJECTED"));
+    againButton.addEventListener("click", () => {
+        if (reviewing && active()) listen(reviewing);
+    });
+    stopButton.addEventListener("click", () => endReview(""));
+    undoButton.addEventListener("click", () => {
+        if (lastAnswer) answer(lastAnswer.candidate, null);
     });
 
     refresh();
-    // 読み込めなくても、ほかの欄はそのまま使えるので、エラー帯に出すだけにする
+    // 読み込めなくても、ほかの欄はそのまま使えるので、エラー帯に出すだけにする。印と候補は別々に読み、片方が失敗しても、もう片方は出す
     apiGet(`${path}?kind=EAR_KISS`)
         .then(merge)
+        .catch((e) => { if (container.isConnected) showError(errorMessage(e)); });
+    apiGet(`${candidatePath}?kind=EAR_KISS`)
+        .then((data) => {
+            candidateState = data.state;
+            candidates = data.candidates;
+            render();
+        })
         .catch((e) => { if (container.isConnected) showError(errorMessage(e)); });
     // 再生・シークで今の位置が変わると、前後に印があるかも変わる。ドックが別の録画を読み込んだ・閉じたときは
     // emptied だけが来る（位置が 0 のままなら timeupdate は来ない）ので、それでも押せるかを直す
     const events = ["timeupdate", "emptied"];
     for (const type of events) video.addEventListener(type, refresh);
     video.addEventListener("timeupdate", followRanges);
+    video.addEventListener("timeupdate", stopAtEnd);
     return () => {
         setOnly(false);
+        endReview("");
         for (const type of events) video.removeEventListener(type, refresh);
         video.removeEventListener("timeupdate", followRanges);
+        video.removeEventListener("timeupdate", stopAtEnd);
     };
 }
 

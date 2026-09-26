@@ -230,6 +230,8 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 .markBtn { font-size: 11px; min-height: 32px; padding: 5px 10px; margin-right: 6px; }
 td .markBtn { margin-right: 0; }
 .markBtn-favorite[aria-pressed="true"] { color: #b7791f; }
+/* 再生画面の「候補を順に確かめる」。聞いてすぐ押せるよう、答えのボタンと「もう一度」だけを大きくする（「やめる」は押し間違えないよう普通の大きさ） */
+.soundReviewBig { min-height: 48px; padding: 10px 24px; font-size: 16px; }
 
 /* ダッシュボードの「リソース」。カードは項目数（5）が上の KPI（4）と違うため、列数を幅に任せる。 */
 .kpiGrid.resourceGrid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 16px; }
