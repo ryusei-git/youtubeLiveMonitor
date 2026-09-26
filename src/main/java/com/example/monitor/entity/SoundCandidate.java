@@ -34,6 +34,12 @@ import java.time.Instant;
  * 学び直して重みを変えたら版を上げ、新しい版で付け直す。どの版の結果かが分からないと、答えを学び直しに
  * 使うときに、どのモデルが取り違えた音なのかを区別できない。
  *
+ * <h2>版を上げても答えを引き継ぐ（Issue #481）</h2>
+ * 画面と API は今の版の候補だけを出す。版を上げて付け直すと、答えた候補が「未確認」の新しい候補に置き換わって見え、
+ * 聞き直させることになる。そこで付け直しのときに、ほかの版の答えのある候補を今の版へ写す（{@link #carryOver}）。
+ * 元の行は消さない。その版の検出器が何を取り違えたかの記録で、学び直しの正解でもあるため。
+ * 写した行にあとで答え直しても、変わるのは写した行だけで、元の行はそのまま残る。
+ *
  * <h2>{@link OnDelete} の使い分け</h2>
  * 録画が消えれば候補の指す先が無くなるので、{@link SoundMark} と同じく DB 側の {@code ON DELETE CASCADE} で
  * 一緒に消す。答えた人（{@link #reviewedBy}）は {@code ON DELETE SET NULL} にして、利用者を消しても答えは残す。
@@ -106,6 +112,19 @@ public class SoundCandidate {
     private Instant createdAt;
 
     /**
+     * ほかの版から写した候補なら、写した元の候補の {@link #id}。検出器が付けた候補は {@code null}（Issue #481）。
+     *
+     * <p><b>学び直しで答えを数えるときは、この列のある行を除く。</b>写した行は元の行と同じ答えの写しなので、
+     * 含めると同じ答えを二重に数える。ただし写した行にあとで答え直していれば、新しい答えは写した行にだけある
+     * （{@link #reviewedAt} が元の行より新しい）。
+     *
+     * <p>外部キーにしないのは、元の行は消さない決まりで（クラスの説明）、録画を消せば両方とも一緒に消えるため。
+     * 既存の行は {@code null} のままでよいので、null を許す列にしている（NOT NULL の列は、既存の行がある DB への
+     * 追加で失敗する。{@code docs/pitfalls.md}「既存データがある状態で NOT NULL の boolean カラムを追加すると失敗する」）。
+     */
+    private Long carriedFromId;
+
+    /**
      * まだ答えの無い候補を作る。
      *
      * @param recording       録画
@@ -122,6 +141,27 @@ public class SoundCandidate {
         this.score = score;
         this.detectorVersion = detectorVersion;
         this.createdAt = Instant.now();
+    }
+
+    /**
+     * ほかの版の答えのある候補を、今の版の候補として写す（クラスの説明「版を上げても答えを引き継ぐ」）。
+     *
+     * <p>点数は元の版の検出器のものをそのまま写す。今の版の検出器はその位置に候補を出していないこともあり、
+     * 付け直す値が無いため。答えた人と時刻も写す。画面の「自分の答え」と、同じ位置の答えが
+     * 複数の版にあるときに新しい方を選ぶ決まり（{@code SoundDetectionService}）が、写した後も同じに働くため。
+     *
+     * @param source          写す元の候補（答えのあるもの）
+     * @param detectorVersion 今の検出器の版
+     * @return 写した候補（保存前）
+     */
+    public static SoundCandidate carryOver(SoundCandidate source, String detectorVersion) {
+        SoundCandidate copy = new SoundCandidate(
+                source.getRecording(), source.getKind(), source.getPositionMs(), source.getScore(), detectorVersion);
+        copy.verdict = source.getVerdict();
+        copy.reviewedBy = source.getReviewedBy();
+        copy.reviewedAt = source.getReviewedAt();
+        copy.carriedFromId = source.getId();
+        return copy;
     }
 
     /**

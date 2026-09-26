@@ -53,6 +53,19 @@ import java.util.function.Consumer;
  * 答えの無い候補だけを消して作り直し、答えのある候補の近く（{@link #NEAR_ANSWER_MS} 以内）には新しい候補を作らない
  * （同じ音に候補が 2 つ並ぶと、答えたはずの所をもう一度聞かされる）。
  *
+ * <h2>ほかの版の答えを今の版へ写す理由（Issue #481）</h2>
+ * 一覧（{@link #listCandidates}）は今の版の候補だけを返すので、写さないと、版を上げた途端に答えた候補が
+ * 「未確認」の新しい候補に置き換わって見え、答え直させることになる。写すときの決まりと理由:
+ * <ul>
+ *   <li>同じ位置（{@link #NEAR_ANSWER_MS} 以内。新しい候補を作らない範囲と同じく、同じ音とみなす）の答えが複数の版に
+ *       あれば、答えた時刻がいちばん新しいものだけを写す。利用者のいまの判断は最後の答えなので。
+ *       今の版に答えのある候補（写したものを含む）が既にあれば写さない。同じ版で付け直しても二重に写さないため。</li>
+ *   <li>写した候補は、検出器の上限（1 時間あたりの数）の外に置き、数えないし消さない。上限は聞いて答える数を
+ *       抑えるためのもので、答え済みの候補は聞く手間を増やさない。数に入れると、答えた候補が新しい候補を押し出すか、
+ *       答えた候補が画面から消える。</li>
+ *   <li>検出器の新しい候補は、写した候補の近くにも作らない（答えのある候補の近くに作らないのと同じ理由）。</li>
+ * </ul>
+ *
  * <h2>検出をトランザクションの外で行う理由</h2>
  * 検出は数十秒かかる。その間 DB の接続を握ると、接続の少ないプール（5 本）を画面の API と取り合う。
  * 保存（候補の入れ替えと実行記録の完了）だけを 1 つのトランザクションにして、途中の状態を見せない。
@@ -75,7 +88,10 @@ public class SoundDetectionService {
     /** これより長い録画は検出しない（6 時間）。理由はクラスの JavaDoc を参照。 */
     private static final int MAX_DURATION_SECONDS = 6 * 3600;
 
-    /** 答えのある候補から前後これ以内（ミリ秒）には、新しい候補を作らない。 */
+    /**
+     * 答えのある候補（写したものを含む）から前後これ以内（ミリ秒）は同じ音とみなし、新しい候補を作らず、
+     * ほかの版の答えも写さない。
+     */
     private static final long NEAR_ANSWER_MS = 1000;
 
     private final RecordingRepository recordingRepository;
@@ -180,6 +196,7 @@ public class SoundDetectionService {
      * 録画に付いた、今の版の候補を位置の順に返す。今の版の検出が済んだか（{@code state}）も一緒に返す。
      *
      * <p>古い版の候補は返さない。学び直しで版を上げると新しい版で付け直すので、混ぜると同じ音に候補が 2 つ並ぶため。
+     * 古い版の答えは、付け直しで今の版へ写してあるので、ここに出る（Issue #481）。
      *
      * @param recordingId 録画の主キー
      * @param kind        種類（{@code EAR_KISS}）
@@ -349,29 +366,46 @@ public class SoundDetectionService {
     }
 
     /**
-     * 答えの無い候補を消し、新しい候補を入れて、実行記録を完了にする。1 つのトランザクションの中で呼ぶ。
+     * 答えの無い候補を消し、ほかの版の答えを写し、新しい候補を入れて、実行記録を完了にする。1 つのトランザクションの中で呼ぶ。
+     * 写す決まりはクラスの説明「ほかの版の答えを今の版へ写す理由」を参照。
+     *
+     * <p>写した候補は、答えを取り消されていても消さない（上限の外に置き、消さない決まり）。消すと、元の行の答えが
+     * 次の付け直しでまた写り、取り消しが黙って元に戻るため。
+     *
+     * <p>実行記録の候補の数は、検出器が出した数のまま（写した候補は数えない）。
      *
      * @param recording 録画
      * @param version   検出器の版
      * @param finals    検出器が出した候補
      */
     private void saveCandidates(Recording recording, String version, List<EarKissDetector.FinalCandidate> finals) {
-        List<Long> answered = new ArrayList<>();
+        List<Long> kept = new ArrayList<>();
         for (SoundCandidate candidate
                 : soundCandidateRepository.findByRecordingAndKindAndDetectorVersion(recording, KIND, version)) {
-            if (candidate.getVerdict() == null) {
+            if (candidate.getVerdict() == null && candidate.getCarriedFromId() == null) {
                 soundCandidateRepository.delete(candidate);
             } else {
-                answered.add(candidate.getPositionMs());
+                kept.add(candidate.getPositionMs());
+            }
+        }
+        for (SoundCandidate answered : soundCandidateRepository.findAnsweredInOtherVersions(recording, KIND, version)) {
+            if (isFree(kept, answered.getPositionMs())) {
+                soundCandidateRepository.save(SoundCandidate.carryOver(answered, version));
+                kept.add(answered.getPositionMs());
             }
         }
         for (EarKissDetector.FinalCandidate found : finals) {
-            if (answered.stream().noneMatch(position -> Math.abs(position - found.positionMs()) <= NEAR_ANSWER_MS)) {
+            if (isFree(kept, found.positionMs())) {
                 soundCandidateRepository.save(
                         new SoundCandidate(recording, KIND, found.positionMs(), found.score(), version));
             }
         }
         updateRun(recording, version, run -> run.finish(finals.size()));
+    }
+
+    /** 残す候補のどれからも {@link #NEAR_ANSWER_MS} より離れているか（同じ音に候補を 2 つ並べないため）。 */
+    private static boolean isFree(List<Long> kept, long positionMs) {
+        return kept.stream().noneMatch(position -> Math.abs(position - positionMs) <= NEAR_ANSWER_MS);
     }
 
     /**
