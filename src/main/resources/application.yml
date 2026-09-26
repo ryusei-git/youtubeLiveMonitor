@@ -104,6 +104,14 @@ monitor:
   scheduling:
     enabled: true
 
+  # 録画が終わった録画に耳キスの検出を掛ける見回り（SoundDetectionScheduler）。
+  sound-detection:
+    # 既定は monitor.scheduling.enabled と同じにする。確認用の起動（bin/preview.sh）は監視を止めるだけで検出も止まり、
+    # 本番と同じ録画を二重に検出して CPU を取り合わない。検出だけを試すときは -Dmonitor.sound-detection.enabled=true
+    enabled: ${MONITOR_SOUND_DETECTION_ENABLED:${monitor.scheduling.enabled:true}}
+    # 見回りの間隔。1 回で対象の録画を全部（1 本ずつ）処理するので、録画が終わってから候補が付くまでの待ち時間になる
+    interval: PT10M
+
   youtube:
     api-key: ${YOUTUBE_API_KEY:}
     interval-seconds: ${MONITOR_INTERVAL_SECONDS:120}
