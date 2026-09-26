@@ -458,8 +458,13 @@ const myArchiveView = {
     },
 };
 
+/** 再生画面の耳キスの欄が動画に付けた処理を外す関数。再生画面を出していない間は null。 */
+/** @type {(() => void)|null} */
+let myWatchStopSoundMarks = null;
+
 /**
- * 再生画面。録画をドックに読み込み、下に視聴済み・お気に入りのボタン、端末に保存のリンク、詳細と同じチャンネルの録画を出す。
+ * 再生画面。録画をドックに読み込み、下に視聴済み・お気に入りのボタン、端末に保存のリンク、耳キスの欄、
+ * 詳細と同じチャンネルの録画を出す。
  * ボタンはアーカイブのカードと同じもの（common.js の recordingMarkButton）で、押したときの動きも同じ（myToggleMark）。
  * @type {MyView}
  */
@@ -513,6 +518,10 @@ const myWatchView = {
             query(".watchMarks", root).insertAdjacentHTML("afterend", `<p>
                 <a href="/recordings/${escapeHtml(encodeURI(rec.filePath))}" download="${escapeHtml(recordingDownloadName(rec))}">端末に保存（${formatFileSize(rec.fileSizeBytes)}）</a><br>
                 <span class="muted">iPhone では「ファイル」アプリの「ダウンロード」に保存されます。写真に入れるときは、ファイルを開いて共有→「ビデオを保存」。</span></p>`);
+            // 印を付ける・飛ぶにはドックの動画が要るので、耳キスの欄も再生できる録画にだけ出す
+            const soundMarks = document.createElement("section");
+            query(".table-scroll", root).before(soundMarks);
+            myWatchStopSoundMarks = myBindSoundMarks(rec, soundMarks);
         } else {
             showError("この録画は再生できるファイルが残っていません");
         }
@@ -537,7 +546,11 @@ const myWatchView = {
         bindDatetimeCells(root);
         myLoadRelated(rec, query(".videoGrid", root));
     },
-    leave: myDockMinimize,
+    leave() {
+        myWatchStopSoundMarks?.();
+        myWatchStopSoundMarks = null;
+        myDockMinimize();
+    },
 };
 
 /**
@@ -567,6 +580,143 @@ async function myLoadRelated(rec, grid) {
     } catch (e) {
         if (grid.isConnected) showError(errorMessage(e));
     }
+}
+
+/**
+ * 録画に付いた音の印 1 件（GET /api/my/recordings/{id}/sound-marks の要素）。画面で使う項目だけを書く。
+ *
+ * @typedef {object} MySoundMark
+ * @property {number} id 印の主キー。消すときと、二度押しで前の印が返ったことを見分けるときに使う
+ * @property {number} positionMs 録画の先頭からの位置（ミリ秒）
+ * @property {boolean} mine ログイン中の利用者が付けた印か。消せるのは本人の印だけ
+ */
+
+/**
+ * 印から飛ぶ先（秒）。印の 3 秒前にする。
+ * 印は音を聞いてから押すので、音より少し後ろに付く。印ちょうどへ飛ぶと音が過ぎた後から流れるため、
+ * 少し手前から流して、飛んだ先で音をもう一度聞けるようにする。
+ *
+ * @param {MySoundMark} mark 印
+ * @returns {number} 再生位置（秒）
+ */
+function mySoundMarkSeekTime(mark) {
+    return Math.max(0, mark.positionMs / 1000 - 3);
+}
+
+/**
+ * 再生画面の耳キスの欄（#459）。聞きながら「ここは耳キス」の印を付け、印の一覧と前後の印へ飛ぶボタンを出す。
+ * 印は全員で共有し、消せるのは付けた本人だけ（API も本人の印しか消さない）。
+ * 使うのはこの画面だけなので common.js へは移さない（MySubscribedChannel と同じ考え方）。
+ *
+ * 印を付ける・飛ぶのは、ドックが今この録画を読み込んでいるときだけにする。別の録画を読み込んでいると、
+ * その録画の再生位置をこの録画の印として送ってしまうため。
+ *
+ * @param {Recording} rec 再生画面の録画
+ * @param {HTMLElement} container 欄を描く入れ物
+ * @returns {() => void} 動画に付けた処理を外す関数。動画要素はドックの 1 つを使い回すので、画面を離れるときに呼ぶ
+ */
+function myBindSoundMarks(rec, container) {
+    container.innerHTML = `<h2>耳キス <span class="muted soundMarkCount"></span></h2>
+        <p class="muted">聞こえたら押してください。声や囁きの「ちゅ」も含みます。印はほかの人とも共有されます。</p>
+        <p class="inline">
+            <button type="button" class="soundMarkAdd">ここは耳キス</button>
+            <button type="button" class="soundMarkPrev">前の耳キスへ</button>
+            <button type="button" class="soundMarkNext">次の耳キスへ</button>
+            <span class="muted soundMarkStatus" role="status"></span>
+        </p>
+        <ul></ul>`;
+    const video = myDockVideo();
+    const addButton = /** @type {HTMLButtonElement} */ (query(".soundMarkAdd", container));
+    const prevButton = /** @type {HTMLButtonElement} */ (query(".soundMarkPrev", container));
+    const nextButton = /** @type {HTMLButtonElement} */ (query(".soundMarkNext", container));
+    const list = query("ul", container);
+    const path = `/api/my/recordings/${rec.id}/sound-marks`;
+    /** @type {MySoundMark[]} */
+    let marks = [];
+    // サーバーの二度押しの判定は「探してから保存」なので、同時に届いた 2 つの要求はどちらも印を作りうる。送信中は押させない
+    let sending = false;
+
+    const active = () => myDockRecording?.id === rec.id;
+    // 前後とも、印の位置ではなく飛ぶ先で比べる。印の位置で比べると、飛んだ直後（印の 3 秒前）に「次」を押したとき
+    // 同じ印が選ばれ、先へ進めない。飛んだ先にいるときにその印を選び直さないよう、次は 0.5 秒、前は 1 秒の幅を取る。
+    // 前の幅が広いのは、印を聞き終えた後に押せば、その印を聞き直せるようにするため（曲の頭出しと同じ）
+    const nextMark = () => marks.find((m) => mySoundMarkSeekTime(m) >= video.currentTime + 0.5);
+    const prevMark = () => marks.filter((m) => mySoundMarkSeekTime(m) <= video.currentTime - 1).at(-1);
+    const refresh = () => {
+        addButton.disabled = sending || !active();
+        prevButton.disabled = !active() || !prevMark();
+        nextButton.disabled = !active() || !nextMark();
+    };
+    /** @param {MySoundMark|undefined} mark 飛ぶ先の印 */
+    const seek = (mark) => {
+        if (mark && active()) video.currentTime = mySoundMarkSeekTime(mark);
+    };
+
+    const renderList = () => {
+        query(".soundMarkCount", container).textContent = `印 ${marks.length} 件`;
+        list.replaceChildren(...marks.map((mark) => {
+            const time = formatDuration(mark.positionMs / 1000);
+            const li = document.createElement("li");
+            li.innerHTML = `<button type="button">${time}</button>`
+                + (mark.mine ? ` <button type="button" aria-label="${time} の印を消す">消す</button>` : "");
+            const [jumpButton, deleteButton] = li.querySelectorAll("button");
+            jumpButton.addEventListener("click", () => seek(mark));
+            deleteButton?.addEventListener("click", async () => {
+                deleteButton.disabled = true;
+                try {
+                    await apiDelete(`${path}/${mark.id}`);
+                    marks = marks.filter((m) => m.id !== mark.id);
+                    renderList();
+                    if (container.isConnected) clearError();
+                } catch (e) {
+                    deleteButton.disabled = false;
+                    if (container.isConnected) showError(errorMessage(e));
+                }
+            });
+            return li;
+        }));
+        refresh();
+    };
+    /**
+     * 受け取った印を一覧に入れる。同じ id の印は置き換える（二度押しでは前の印が返るので、同じ印を 2 つ並べない）。
+     * 読み込みにも使うのは、読み込みより先に付けた印が、読み込んだ一覧で消えないようにするため
+     * @param {MySoundMark[]} received 読み込んだ・付けた印
+     */
+    const merge = (received) => {
+        marks = [...marks.filter((m) => !received.some((r) => r.id === m.id)), ...received]
+            .sort((a, b) => a.positionMs - b.positionMs || a.id - b.id);
+        renderList();
+    };
+
+    addButton.addEventListener("click", async () => {
+        if (!active()) return;
+        sending = true;
+        refresh();
+        try {
+            const mark = await apiPost(path, { kind: "EAR_KISS", positionMs: Math.round(video.currentTime * 1000) });
+            merge([mark]);
+            query(".soundMarkStatus", container).textContent = `${formatDuration(mark.positionMs / 1000)} に印を付けました`;
+            if (container.isConnected) clearError();
+        } catch (e) {
+            if (container.isConnected) showError(errorMessage(e));
+        } finally {
+            sending = false;
+            refresh();
+        }
+    });
+    prevButton.addEventListener("click", () => seek(prevMark()));
+    nextButton.addEventListener("click", () => seek(nextMark()));
+
+    refresh();
+    // 読み込めなくても、ほかの欄はそのまま使えるので、エラー帯に出すだけにする
+    apiGet(`${path}?kind=EAR_KISS`)
+        .then(merge)
+        .catch((e) => { if (container.isConnected) showError(errorMessage(e)); });
+    // 再生・シークで今の位置が変わると、前後に印があるかも変わる。ドックが別の録画を読み込んだ・閉じたときは
+    // emptied だけが来る（位置が 0 のままなら timeupdate は来ない）ので、それでも押せるかを直す
+    const events = ["timeupdate", "emptied"];
+    for (const type of events) video.addEventListener(type, refresh);
+    return () => { for (const type of events) video.removeEventListener(type, refresh); };
 }
 
 /**
