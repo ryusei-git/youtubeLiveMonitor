@@ -1,6 +1,10 @@
 package com.example.monitor.sound;
 
+import com.example.monitor.sound.EarKissDetector.FinalCandidate;
+import com.example.monitor.sound.EarKissDetector.MajorPoint;
 import com.example.monitor.sound.EarKissDetector.Result;
+import com.example.monitor.sound.EarKissDetector.Segment;
+import com.example.monitor.sound.EarKissDetector.Selection;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -24,12 +28,12 @@ import static org.assertj.core.api.Assertions.within;
 import static org.assertj.core.api.SoftAssertions.assertSoftly;
 
 /**
- * 耳キスの検出器が、理論調査の参照実装（Python。Issue #466）と同じ値を出すことを、合成音の正解データで確かめる。
- * 検出器を直したり重みを変えたりしたときに、計算が黙って変わるのを防ぐため。
+ * 耳キスの検出器が、理論調査の参照実装（Python。Issue #466・#480）と同じ値を出すことを、合成音の正解データと
+ * 選び方の表で確かめる。検出器を直したり重みを変えたりしたときに、計算が黙って変わるのを防ぐため。
  *
  * <p><b>途中の値まで比べ、段ごとにテストを分けている理由。</b>最終の候補だけを比べると、途中の計算が変わっても
- * 結果がたまたま同じなら気づけない。背景 → 立ち上がり → 候補 → 目立つ候補 → 区間 → 最終の候補の順に分けておけば、
- * 食い違ったときに、最初にずれた段がテストの名前で分かる。1 つのテストの中では食い違いをまとめて出し、
+ * 結果がたまたま同じなら気づけない。背景 → 立ち上がり → 候補 → 目立つ候補 → 区間（大きさの基準・G・門）→ 最終の候補の
+ * 順に分けておけば、食い違ったときに、最初にずれた段がテストの名前で分かる。1 つのテストの中では食い違いをまとめて出し、
  * 失敗の文言には期待値の JSON の中の場所（例 {@code majors[3].features.s3}）・期待値・実際の値が出る。
  *
  * <p><b>正解データ</b>（{@code src/test/resources/earkiss/}。形式・比べ方・音の中身は同じ場所の README.md）
@@ -39,26 +43,31 @@ import static org.assertj.core.api.SoftAssertions.assertSoftly;
  *       検出器が正しくても落ちるようになる。</li>
  *   <li>期待値は参照実装が計算したもの。<b>落ちたときに、検出器が出した値で期待値を書き換えない</b>
  *       （それでは突き合わせにならない）。検出器の誤りなら検出器を直し、重みや仕様を変えたのなら、
- *       参照実装（Issue #466 の結論の次のコメントに全文がある）で期待値を作り直す。</li>
- *   <li>整数（フレーム・耳・数・細かい包絡の値と位置）は完全一致を求める。この PCM では、どの判定もしきい値から
- *       十分離れていて（いちばん近い立ち上がりの判定でも 0.0149dB）、double の計算の差でほかの分かれ道に進まないため。</li>
- *   <li>移植でやりがちな誤りのうち、この正解データで見つけられないものが 6 通りある（どれも値がちょうど等しいときだけ
+ *       参照実装（Issue #480 の結論の次の 2 つのコメントに全文がある）で期待値を作り直す。</li>
+ *   <li>整数（フレーム・耳・数・細かい包絡の値と位置）と真偽は完全一致を求める。この PCM では、どの判定もしきい値から
+ *       十分離れていて（いちばん近い立ち上がりの判定でも 0.228dB。G と門の −10dB の差は 2.22dB）、double の計算の差で
+ *       ほかの分かれ道に進まないため。</li>
+ *   <li>移植でやりがちな誤りのうち、この正解データで見つけられないものが v1 の分に 6 通りある（どれも値がちょうど等しいときだけ
  *       結果が変わるもの。例: 丸めを {@code Math.round} にしても、丸める前の値が .5 ちょうどにならない限り同じ）。
  *       一覧は README.md。</li>
  * </ul>
+ *
+ * <p><b>選び方の表</b>（{@code ear-kiss-selection-cases.json}）は、音からは作れない境目（G がちょうど −10dB・
+ * G が同じ 2 区間・p がちょうど 0.7・目立つ候補が 0〜2 個）を、目立つ候補の値を直接与えて確かめる。音で作っても、
+ * 参照実装との 1e-14 ほどの差でどちらにも転ぶため。これが無いと、v2 の移植の誤り 37 通りのうち 7 通り
+ * （門の比べを {@code >} にする・G が同じ区間で後ろを残す など）を見逃す（#480）。
  */
 @DisplayName("EarKissDetector")
 class EarKissDetectorTest {
 
     /**
-     * 実数を比べるときに許す絶対誤差（Issue #466 で決めた値）。
+     * 実数を比べるときに許す絶対誤差（Issue #466 で決め、#480 でも同じ値にした）。
      *
      * <p>double で正しく書けば、参照実装（numpy）との差は FFT の書き方や足す順番の違いから来る丸めの差だけで、
-     * この正解データで 1e-12 ほど（#466 の実測で最大 9.4e-13。この検出器では 4.5e-14）。
-     * 一方、FFT に float が混ざると 1e-6 前後ずれる（#466 の実測で背景 1.6e-6・特徴 2.6e-6。
-     * この検出器の FFT の入力と出力を float に丸めると、背景 1.6e-6・特徴 2.5e-6）。
+     * この正解データで 1e-12 ほど（#480 の実測で最大 3.0e-12。この検出器では 2.6e-13 で、ref と G は差 0）。
+     * 一方、FFT に float が混ざると 1e-8 以上ずれる（#480 の実測で ref 1.4e-8・G 4.6e-8・特徴 2.7e-4）。
      * 1e-9 はその間にあり、正しく double で書けば通り、float が混ざれば落ちる。
-     * 1e-6 まで緩めると、float が混ざったことをほぼ見逃す。
+     * 1e-6 まで緩めると、ref と G では float が混ざったことを見逃す。
      */
     private static final double TOLERANCE = 1e-9;
 
@@ -144,31 +153,73 @@ class EarKissDetectorTest {
         }
 
         @Test
-        @DisplayName("正常系：目立つ候補をつないだ区間が参照実装と一致する")
+        @DisplayName("正常系：大きさの基準と、目立つ候補をつないだ区間（G・門・上限を含む）が参照実装と一致する")
         void testMethod06() {
-            compare(root -> root.each("segments", actual.segments(), (item, segment) -> {
-                item.integer("startFrame", segment.startFrame());
-                item.integer("endFrame", segment.endFrame());
-                item.integer("count", segment.count());
-                item.integer("bestFrame", segment.bestFrame());
-                item.real("bestP", segment.bestP());
-                item.bool("enoughEvents", segment.enoughEvents());
-                item.bool("kept", segment.kept());
-            }));
+            compare(root -> {
+                root.real("loudnessRef", actual.loudnessRef());
+                root.each("segments", actual.segments(), EarKissDetectorTest::segment);
+            });
         }
 
         @Test
         @DisplayName("正常系：最終の候補が参照実装と一致する")
         void testMethod07() {
-            compare(root -> root.each("final", actual.finals(), (item, candidate) -> {
-                item.integer("frame", candidate.frame());
-                item.integer("ear", candidate.ear());
-                item.real("p", candidate.score());
-                item.integer("count", candidate.count());
-                item.integer("startFrame", candidate.startFrame());
-                item.integer("endFrame", candidate.endFrame());
-            }));
+            compare(root -> root.each("final", actual.finals(), EarKissDetectorTest::finalCandidate));
         }
+    }
+
+    @Nested
+    @DisplayName("select()")
+    class Select {
+
+        @Test
+        @DisplayName("正常系：選び方の表の全件で、大きさの基準・区間・G・門・上限・最終の候補が参照実装と一致する")
+        void testMethod01() throws IOException {
+            JsonNode table = JsonMapper.shared().readTree(fixture("ear-kiss-selection-cases.json"));
+            EarKissModel model = EarKissModel.load();
+            assertThat(model.version())
+                    .as("選び方の表の期待値の計算に使った重みの版（重みを変えたら、参照実装で表を作り直す）")
+                    .isEqualTo(table.required("model").stringValue());
+            EarKissDetector detector = new EarKissDetector(model);
+            assertSoftly(softly -> {
+                for (JsonNode example : table.required("cases").values()) {
+                    List<MajorPoint> majors = example.required("majors").values().stream()
+                            .map(m -> new MajorPoint(m.required("frame").intValue(), m.required("ear").intValue(),
+                                    m.required("p").doubleValue(), m.required("D").doubleValue()))
+                            .toList();
+                    Selection selection = detector.select(majors, example.required("bandFrames").intValue());
+                    Item item = new Item(softly, "cases[" + example.required("name").stringValue() + "]", example);
+                    item.real("loudnessRef", selection.loudnessRef());
+                    item.each("segments", selection.segments(), EarKissDetectorTest::segment);
+                    item.each("final", selection.finals(), EarKissDetectorTest::finalCandidate);
+                }
+            });
+        }
+    }
+
+    /** 区間 1 つを、期待値の {@code segments[]} の 1 件と比べる（音の正解データと選び方の表で同じ形）。 */
+    private static void segment(Item item, Segment segment) {
+        item.integer("startFrame", segment.startFrame());
+        item.integer("endFrame", segment.endFrame());
+        item.integer("count", segment.count());
+        item.integer("bestFrame", segment.bestFrame());
+        item.real("bestP", segment.bestP());
+        item.bool("enoughEvents", segment.enoughEvents());
+        item.real("G", segment.g());
+        item.integer("loudestFrame", segment.loudestFrame());
+        item.bool("passedGate", segment.passedGate());
+        item.bool("kept", segment.kept());
+    }
+
+    /** 最終の候補 1 つを、期待値の {@code final[]} の 1 件と比べる（{@code timeSec} は {@code frame / 200} なので比べない）。 */
+    private static void finalCandidate(Item item, FinalCandidate candidate) {
+        item.integer("frame", candidate.frame());
+        item.integer("ear", candidate.ear());
+        item.real("p", candidate.score());
+        item.real("G", candidate.g());
+        item.integer("count", candidate.count());
+        item.integer("startFrame", candidate.startFrame());
+        item.integer("endFrame", candidate.endFrame());
     }
 
     private static byte[] fixture(String name) throws IOException {
@@ -208,9 +259,15 @@ class EarKissDetectorTest {
             softly.assertThat(actualValue).as(label(field)).isEqualTo(node.required(field).booleanValue());
         }
 
+        /** 実数。期待値が {@code null}（大きさの基準が無いとき）なら、実際の値が NaN（無い）であることを確かめる。 */
         void real(String field, double actualValue) {
+            JsonNode expectedValue = node.required(field);
+            if (expectedValue.isNull()) {
+                softly.assertThat(actualValue).as(label(field) + "（無い）").isNaN();
+                return;
+            }
             softly.assertThat(actualValue).as(label(field))
-                    .isCloseTo(node.required(field).doubleValue(), within(TOLERANCE));
+                    .isCloseTo(expectedValue.doubleValue(), within(TOLERANCE));
         }
 
         /** 整数の配列。数と並びまで一致させる。 */
