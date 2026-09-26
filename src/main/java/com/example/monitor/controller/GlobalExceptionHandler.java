@@ -9,6 +9,7 @@ import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.MonitoringInProgressException;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
+import com.example.monitor.exception.SoundMarkNotFoundException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -174,6 +175,17 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(DeviceDownloadNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleDeviceDownloadNotFound(DeviceDownloadNotFoundException e) {
+        return clientError(HttpStatus.NOT_FOUND, e);
+    }
+
+    /**
+     * 消せない（無い・別の録画のもの・他人のもの）音の印の指定を 404 Not Found として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(SoundMarkNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleSoundMarkNotFound(SoundMarkNotFoundException e) {
         return clientError(HttpStatus.NOT_FOUND, e);
     }
 
