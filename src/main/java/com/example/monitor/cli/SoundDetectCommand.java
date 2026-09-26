@@ -29,9 +29,12 @@ import java.util.concurrent.Callable;
  *
  * <p><b>DB には保存しない。</b>管理者が検出器の結果をその場で確かめるためのもの（保存と自動の見回りは Issue #469）。
  * 時刻はミリ秒まで出す。候補は 5ms（帯域フレーム 1 つ）単位で決まり、参照実装の一覧と突き合わせるのに秒では粗いため。
+ * 点数 p と一緒に G（dB）も出す。v2 では、どの候補を残すか（門と上限の並び）を G が決めるため（Issue #480）。
+ * どちらも小数 6 桁（参照実装の一覧との照合が 1e-6 のため）。
  *
- * <p>{@code --from}・{@code --to} で範囲を絞ると、背景・前後 3 秒の特徴・候補の上限（1 時間あたり 40 件）が
- * その範囲だけで決まるので、録画全体で探したときと端の近くの結果が変わりうる。
+ * <p>{@code --from}・{@code --to} で範囲を絞ると、背景・前後 3 秒の特徴・大きさの基準（目立つ候補の D の 99 パーセント点）・
+ * 候補の上限（1 時間あたり 40 件）がその範囲だけで決まるので、録画全体で探したときと結果が変わりうる
+ * （大きさの基準は範囲の中の音で決まるので、G と門の結果は端の近くに限らず変わる）。
  */
 @Component
 @Command(
@@ -90,7 +93,8 @@ public class SoundDetectCommand implements Callable<Integer> {
         // 範囲を絞ったときも、録画の先頭からの時刻で出す
         long offsetMs = Math.round(from * 1000);
         for (EarKissDetector.FinalCandidate candidate : result.finals()) {
-            System.out.printf("%s %.6f%n", formatPosition(offsetMs + candidate.positionMs()), candidate.score());
+            System.out.printf("%s p=%.6f G=%.6f%n", formatPosition(offsetMs + candidate.positionMs()), candidate.score(),
+                    candidate.g());
         }
         System.out.printf("候補 %d 件（%s・音声 %.1f 分・処理 %.1f 秒）%n", result.finals().size(), model.version(),
                 result.bandFrames() / 200.0 / 60, elapsedSeconds);

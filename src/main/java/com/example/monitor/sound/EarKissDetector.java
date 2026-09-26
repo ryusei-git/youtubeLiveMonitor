@@ -10,16 +10,37 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 録画の音声から「耳キスの候補」（時刻と点数）を探す。版 {@code ear-kiss-linear12-v1} の検出器。
+ * 録画の音声から「耳キスの候補」（時刻と点数）を探す。版 {@code ear-kiss-linear12-v2} の検出器。
  *
  * <h2>方式の出どころ</h2>
- * 方式は Issue #460 の調査で決めた「12 特徴の線形モデル」、計算の細部は Issue #466 の結論の
- * 「4. 食い違い対策の仕様」がそのまま正本（#460 の「4.」を置き換えたもの）。丸め・同じ値のときの選び方・
- * 中央値とパーセンタイルの取り方・範囲の端・足す順番まで、参照実装（Python。#466 のコメントに全文がある）と
- * 1 対 1 にしてある。仕様の読み方で迷ったら参照実装の計算を正とする。
- * 突き合わせの許してよい誤差は、整数（フレーム・耳・数）が完全一致、実数が絶対誤差 1e-9。
+ * 方式は Issue #460 の調査で決めた「12 特徴の線形モデル」に、Issue #479 で見つけた「大きさの門」を足したもの。
+ * 計算の細部は Issue #466 の結論の「4. 食い違い対策の仕様」（#460 の「4.」を置き換えたもの）と、その「10. 最終の候補」を
+ * 置き換えた Issue #480 の結論の「10-1〜10-7」がそのまま正本。丸め・同じ値のときの選び方・中央値とパーセンタイルの取り方・
+ * 範囲の端・足す順番まで、参照実装（Python。#466・#480 のコメントに全文がある）と 1 対 1 にしてある。
+ * 仕様の読み方で迷ったら参照実装の計算を正とする。
+ * 突き合わせの許してよい誤差は、整数（フレーム・耳・数）と真偽が完全一致、実数が絶対誤差 1e-9。
  * 1e-9 は、double で素直に書けば通り、float が混ざると落ちる大きさとして決めたもの（この実装の正解データでの差は
- * 最大 4e-14。録画 #23・#39 の全体でも、候補と目立つ候補のフレーム・耳が参照実装と全部同じで、p の差は 2e-14 未満）。
+ * 最大 2.6e-13 で、ref と G は差 0。録画 #23 の全体でも、候補・目立つ候補・区間のフレーム・耳・真偽が参照実装と全部同じで、
+ * 差は p 1.5e-14・G 1.4e-14・ref 3.6e-15 まで）。
+ *
+ * <h2>大きさの門（v2）</h2>
+ * 目立つ候補・12 特徴・p・区間の作り方は v1 のまま。v1 は区間の代表を p の高い順に上限まで出していたが、v2 は区間ごとに
+ * G（代表の前後 2 秒の目立つ候補の D の最大 − 録画の全目立つ候補の D の 99 パーセント点。dB）を求め、G が −10dB 以上の
+ * 区間だけを、G の高い順に上限まで出す。
+ * <ul>
+ *   <li>門を足した理由: 利用者の答え 587 件で、配信者を 1 人ずつ抜いて採点する（学習に使った配信者で測ると甘くなるため）と、
+ *       答えを分けていたのは音の大きさだった。G は答えで学ばせていないのに AUC 0.802 で、v1 の p（0.566）とも、
+ *       12 特徴を答えで学び直したもの（0.551）とも、はっきり差があった（Issue #479。配信者を復元抽出した 2000 回すべてで
+ *       v1 を上回った）。−10dB は、答えた耳キスの 96% を残して「ちがう」の 49% を外す値で、利用者が決めた（#459）。</li>
+ *   <li>録画ごとの 99 パーセント点との差にする理由: D は録音の音量で変わる。録画の中の大きい音との差にすれば、
+ *       録画をまたいで同じ門を使える（#479）。</li>
+ *   <li>前後 2 秒（±400 フレーム）にする理由: 画面は候補の ±2 秒を再生して答えてもらう（{@code my-app.js} の
+ *       {@code mySoundCandidateRange}）ので、答えは「その 4 秒に耳キスがあるか」になる。#479 の採点もこの窓で計った。
+ *       画面の範囲を変えるなら、版を上げてこの値も変える。</li>
+ *   <li>保存する点数（{@link FinalCandidate} の {@code score}）は p のままにする。付け直しでは、答えのある前の版の候補を
+ *       点数ごと今の版へ写す（Issue #481）ので、新しい候補も p にしておけば、同じ版の一覧で点数の目盛り（耳キスらしさの
+ *       確率 0〜1）がそろい、保存の形も変えずに済む。G は目立つ候補の D から、いつでも計算し直せる。</li>
+ * </ul>
  *
  * <h2>本番に Python を足さない理由</h2>
  * 試作と参照実装は Python（numpy）だが、本番は Java だけで動かす（Issue #465 の決まり）。Python を足すと、
@@ -138,17 +159,112 @@ public final class EarKissDetector {
     }
 
     /**
-     * 検出の結果。フレームの番号はどれも入力の先頭から数える（帯域フレーム p は 5ms ごと、細かいフレーム q は 1ms ごと）。
-     * 耳は 0 = 左、1 = 右。形は Issue #466 の正解データ（{@code ear-kiss-fixture-expected.json}）に合わせてある。
+     * 目立つ候補から、区間・大きさの基準 ref・最終の候補を選ぶ（Issue #480 の結論の「10-1〜10-7」）。
+     * 区間 → 代表 → ref と G → 門 → 上限 → 時刻順、の順に決める。
      *
-     * @param bandFrames 帯域フレームの数 T
-     * @param fineFrames 細かいフレームの数 Q
-     * @param bgBlocks   100 フレームごとのブロックの背景。ブロック j がフレーム 100j〜100j+99 の背景
-     * @param onsets     立ち上がりの条件を満たしたフレーム（つなぐ前）
-     * @param candidates 候補（40ms 以内をつないで、最初と最後の 0.5 秒を除いた後）。フレームの小さい順
-     * @param majors     目立つ候補。フレームの小さい順
-     * @param segments   p がしきい値以上の目立つ候補をつないだ区間すべて
-     * @param finals     最終の候補（時刻順）
+     * <ul>
+     *   <li>区間と代表は v1 のまま（p がしきい値以上の目立つ候補を、直前のしきい値以上の目立つ候補から joinGapFrames 以内なら
+     *       つなぎ、p が最大の目立つ候補を代表にする）。単独の耳キスを出さないのは、聞いて答える数を抑えるため
+     *       （単独まで出すと候補が約 3 倍になる。#466）。</li>
+     *   <li>G の窓には、p や区間に関わらず目立つ候補をすべて入れる。答えは「再生した 4 秒に耳キスがあるか」で、
+     *       #479 の採点もその 4 秒の目立つ候補すべてで計ったため。</li>
+     *   <li>上限は、門を通った区間だけを G の高い順に残す（門に落ちた区間は枠を使わない）。録画の中の選び分けでも、
+     *       G は p より答えに合っていた（#479 で録画の中の AUC 0.784、v1 の p は 0.561）。</li>
+     * </ul>
+     *
+     * <p><b>音の計算から切り離している理由。</b>選び方の境目には、音からは作れないものがある（G がちょうど −10dB・
+     * G が同じ 2 区間・p がちょうど 0.7。音で作っても、参照実装との 1e-14 ほどの差でどちらにも転ぶ）。目立つ候補の
+     * （フレーム・耳・p・D）の列と T だけで決まる関数にしておけば、値を直接与える「選び方の表」
+     * （テストの {@code ear-kiss-selection-cases.json}）で、この境目を確かめられる。#480 で数えた v2 の移植の誤り 37 通りのうち
+     * 7 通りは、表でしか見つからない。
+     *
+     * @param majors     目立つ候補（フレームの小さい順・重複なし）
+     * @param bandFrames 帯域フレームの数 T（上限の数にだけ使う）
+     * @return 大きさの基準・区間すべて・最終の候補
+     */
+    Selection select(List<MajorPoint> majors, int bandFrames) {
+        EarKissModel.CandidateRule rule = model.candidate();
+        EarKissModel.LoudnessGate gate = model.loudnessGate();
+        List<List<MajorPoint>> groups = new ArrayList<>();
+        for (MajorPoint m : majors) {
+            if (m.p() < rule.threshold()) {
+                continue;
+            }
+            if (!groups.isEmpty() && m.frame() - groups.getLast().getLast().frame() <= rule.joinGapFrames()) {
+                groups.getLast().add(m);
+            } else {
+                groups.add(new ArrayList<>(List.of(m)));
+            }
+        }
+
+        double ref = loudnessReference(majors, gate.referencePercentile());
+        int[] frames = majors.stream().mapToInt(MajorPoint::frame).toArray();
+        int n = groups.size();
+        MajorPoint[] bests = new MajorPoint[n];
+        MajorPoint[] loudests = new MajorPoint[n];
+        double[] g = new double[n];
+        List<Integer> ranked = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            List<MajorPoint> group = groups.get(i);
+            MajorPoint best = group.getFirst();
+            for (MajorPoint m : group) {
+                if (m.p() > best.p()) {
+                    best = m;   // 同じ値なら先
+                }
+            }
+            // 窓は整数のフレームで比べ、両端を含む（秒に直すと 400 ちょうどが 2.000000000000001 秒になって外れる。#480）
+            int j = lowerBound(frames, best.frame() - gate.windowFrames());
+            MajorPoint loudest = majors.get(j);   // 代表自身が窓に入るので空にならない
+            for (j++; j < frames.length && frames[j] <= best.frame() + gate.windowFrames(); j++) {
+                if (majors.get(j).d() > loudest.d()) {
+                    loudest = majors.get(j);   // 同じ値なら先
+                }
+            }
+            bests[i] = best;
+            loudests[i] = loudest;
+            g[i] = loudest.d() - ref;
+            if (group.size() >= rule.minEvents() && g[i] >= gate.minDb()) {
+                ranked.add(i);
+            }
+        }
+        long limit = (rule.maxPerHour() * (long) bandFrames + FRAMES_PER_HOUR - 1) / FRAMES_PER_HOUR;
+        ranked.sort((a, b) -> g[a] != g[b]
+                ? Double.compare(g[b], g[a])
+                : Integer.compare(bests[a].frame(), bests[b].frame()));
+        boolean[] kept = new boolean[n];
+        for (int i = 0; i < ranked.size() && i < limit; i++) {
+            kept[ranked.get(i)] = true;
+        }
+
+        List<Segment> segments = new ArrayList<>(n);
+        List<FinalCandidate> finals = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            List<MajorPoint> group = groups.get(i);
+            MajorPoint best = bests[i];
+            int start = group.getFirst().frame();
+            int end = group.getLast().frame();
+            segments.add(new Segment(start, end, group.size(), best.frame(), best.p(), group.size() >= rule.minEvents(),
+                    g[i], loudests[i].frame(), g[i] >= gate.minDb(), kept[i]));
+            if (kept[i]) {
+                finals.add(new FinalCandidate(best.frame(), best.ear(), best.p(), g[i], group.size(), start, end));
+            }
+        }
+        return new Selection(ref, segments, finals);
+    }
+
+    /**
+     * 検出の結果。フレームの番号はどれも入力の先頭から数える（帯域フレーム p は 5ms ごと、細かいフレーム q は 1ms ごと）。
+     * 耳は 0 = 左、1 = 右。形は Issue #480 の正解データ（{@code ear-kiss-fixture-expected.json}）に合わせてある。
+     *
+     * @param bandFrames  帯域フレームの数 T
+     * @param fineFrames  細かいフレームの数 Q
+     * @param bgBlocks    100 フレームごとのブロックの背景。ブロック j がフレーム 100j〜100j+99 の背景
+     * @param onsets      立ち上がりの条件を満たしたフレーム（つなぐ前）
+     * @param candidates  候補（40ms 以内をつないで、最初と最後の 0.5 秒を除いた後）。フレームの小さい順
+     * @param majors      目立つ候補。フレームの小さい順
+     * @param loudnessRef 大きさの基準 ref（全目立つ候補の D の 99 パーセント点。dB）。目立つ候補が無ければ {@link Double#NaN}
+     * @param segments    p がしきい値以上の目立つ候補をつないだ区間すべて（時刻順）
+     * @param finals      最終の候補（時刻順）
      */
     public record Result(
             int bandFrames,
@@ -157,6 +273,7 @@ public final class EarKissDetector {
             int[] onsets,
             List<Candidate> candidates,
             List<Major> majors,
+            double loudnessRef,
             List<Segment> segments,
             List<FinalCandidate> finals) {
     }
@@ -204,16 +321,21 @@ public final class EarKissDetector {
     /**
      * p がしきい値以上の目立つ候補をつないだ区間。
      *
+     * <p>G は、数が足りない（1 個だけの）区間でも求める。どの区間も同じ形にして、場合分けを減らすため（#480）。
+     *
      * @param startFrame   区間の最初の目立つ候補のフレーム
      * @param endFrame     区間の最後の目立つ候補のフレーム
      * @param count        つながった数
-     * @param bestFrame    p が最大の目立つ候補のフレーム（同じ値なら先）
-     * @param bestP        その p
+     * @param bestFrame    代表（p が最大の目立つ候補。同じ値なら先）のフレーム
+     * @param bestP        代表の p
      * @param enoughEvents つながった数が足りる（最終の候補になりうる）
-     * @param kept         上限で外されずに最終の候補に残った
+     * @param g            G = 代表の前後 windowFrames（両端を含む）の目立つ候補の D の最大 − 大きさの基準 ref（dB）
+     * @param loudestFrame その D が最大の目立つ候補のフレーム（同じ値なら先）
+     * @param passedGate   G が門の値（−10dB）以上
+     * @param kept         数が足りて門を通り、上限で外されずに最終の候補に残った
      */
     public record Segment(int startFrame, int endFrame, int count, int bestFrame, double bestP,
-                          boolean enoughEvents, boolean kept) {
+                          boolean enoughEvents, double g, int loudestFrame, boolean passedGate, boolean kept) {
     }
 
     /**
@@ -221,12 +343,13 @@ public final class EarKissDetector {
      *
      * @param frame      代表の帯域フレーム
      * @param ear        代表の大きい方の耳
-     * @param score      代表の p
+     * @param score      代表の p（G ではない理由はクラスの説明）
+     * @param g          区間の G（dB）
      * @param count      区間のつながった数
      * @param startFrame 区間の最初のフレーム
      * @param endFrame   区間の最後のフレーム
      */
-    public record FinalCandidate(int frame, int ear, double score, int count, int startFrame, int endFrame) {
+    public record FinalCandidate(int frame, int ear, double score, double g, int count, int startFrame, int endFrame) {
 
         /**
          * @return 入力の先頭からの位置（ミリ秒）。帯域フレームは 5ms ごと
@@ -234,6 +357,27 @@ public final class EarKissDetector {
         public long positionMs() {
             return frame * 5L;
         }
+    }
+
+    /**
+     * 選び方（{@code select}）が目立つ候補から使う値。12 特徴や途中の値は使わない。
+     *
+     * @param frame 山の帯域フレーム
+     * @param ear   大きい方の耳
+     * @param p     耳キスらしさの確率
+     * @param d     山の D（大きい方の耳の 1〜16kHz の dB）
+     */
+    record MajorPoint(int frame, int ear, double p, double d) {
+    }
+
+    /**
+     * 選び方（{@code select}）の結果。
+     *
+     * @param loudnessRef 大きさの基準 ref（dB）。目立つ候補が無ければ {@link Double#NaN}
+     * @param segments    区間すべて（時刻順）
+     * @param finals      最終の候補（時刻順）
+     */
+    record Selection(double loudnessRef, List<Segment> segments, List<FinalCandidate> finals) {
     }
 
     /** 1 回の検出の途中の状態。 */
@@ -472,7 +616,8 @@ public final class EarKissDetector {
             int t = bandFrames;
             if (t < 2 * EDGE_FRAMES + 1) {
                 // 最初と最後の 0.5 秒を除くと何も残らない
-                return new Result(t, fineFrames, new double[0], new int[0], List.of(), List.of(), List.of(), List.of());
+                return new Result(t, fineFrames, new double[0], new int[0], List.of(), List.of(), Double.NaN,
+                        List.of(), List.of());
             }
             double[] background = background(d, t);
 
@@ -513,11 +658,10 @@ public final class EarKissDetector {
                 majors.add(major(k, p, bg));
             }
 
-            List<Segment> segments = new ArrayList<>();
-            List<FinalCandidate> finals = new ArrayList<>();
-            choose(majors, t, segments, finals);
+            Selection selection = select(majors.stream()
+                    .map(m -> new MajorPoint(m.frame(), m.ear(), m.p(), d[m.frame()])).toList(), t);
             return new Result(t, fineFrames, background, onsets.stream().mapToInt(Integer::intValue).toArray(),
-                    candidates, majors, segments, finals);
+                    candidates, majors, selection.loudnessRef(), selection.segments(), selection.finals());
         }
 
         /** ±60 フレーム（0.3 秒。端を含む）の候補の中で、D がいちばん高い（同じ高さなら両方残す）。 */
@@ -544,62 +688,6 @@ public final class EarKissDetector {
             MajorDebug debug = new MajorDebug(local.hfL(), local.hfR(), bg, local.fineQ0(), local.finePeak(),
                     local.fineTop(), local.burstFirst(), local.burstLast(), local.subPeaks());
             return new Major(p, ears[p], x, logit, probability, debug);
-        }
-
-        /**
-         * 目立つ候補をつないで区間を作り、最終の候補を選ぶ（Issue #466 の結論の「1.」）。
-         * p がしきい値以上の目立つ候補を、直前の（しきい値以上の）目立つ候補から joinGapFrames 以内ならつなぐ
-         * （区間の先頭からではなく直前から測る）。minEvents 個以上の区間ごとに p 最大（同じ値なら先）を代表にし、
-         * 代表が 1 時間あたり maxPerHour（切り上げ）を超えたら、p の高い順（同じ値なら先）に残して時刻順に出す。
-         * 単独の耳キスを出さないのは、聞いて答える数を抑えるため（単独まで出すと候補が約 3 倍になる。#466）。
-         */
-        private void choose(List<Major> majors, int t, List<Segment> segments, List<FinalCandidate> finals) {
-            EarKissModel.CandidateRule rule = model.candidate();
-            List<List<Major>> groups = new ArrayList<>();
-            for (Major m : majors) {
-                if (m.p() < rule.threshold()) {
-                    continue;
-                }
-                if (!groups.isEmpty() && m.frame() - groups.getLast().getLast().frame() <= rule.joinGapFrames()) {
-                    groups.getLast().add(m);
-                } else {
-                    groups.add(new ArrayList<>(List.of(m)));
-                }
-            }
-            List<Major> bests = new ArrayList<>(groups.size());
-            List<Integer> ranked = new ArrayList<>();
-            for (int i = 0; i < groups.size(); i++) {
-                List<Major> group = groups.get(i);
-                Major best = group.getFirst();
-                for (Major m : group) {
-                    if (m.p() > best.p()) {
-                        best = m;
-                    }
-                }
-                bests.add(best);
-                if (group.size() >= rule.minEvents()) {
-                    ranked.add(i);
-                }
-            }
-            long limit = (rule.maxPerHour() * (long) t + FRAMES_PER_HOUR - 1) / FRAMES_PER_HOUR;
-            ranked.sort((a, b) -> bests.get(a).p() != bests.get(b).p()
-                    ? Double.compare(bests.get(b).p(), bests.get(a).p())
-                    : Integer.compare(bests.get(a).frame(), bests.get(b).frame()));
-            boolean[] kept = new boolean[groups.size()];
-            for (int i = 0; i < ranked.size() && i < limit; i++) {
-                kept[ranked.get(i)] = true;
-            }
-            for (int i = 0; i < groups.size(); i++) {
-                List<Major> group = groups.get(i);
-                Major best = bests.get(i);
-                int start = group.getFirst().frame();
-                int end = group.getLast().frame();
-                segments.add(new Segment(start, end, group.size(), best.frame(), best.p(),
-                        group.size() >= rule.minEvents(), kept[i]));
-                if (kept[i]) {
-                    finals.add(new FinalCandidate(best.frame(), best.ear(), best.p(), group.size(), start, end));
-                }
-            }
         }
     }
 
@@ -658,6 +746,29 @@ public final class EarKissDetector {
             median[j] = n % 2 == 1 ? around[n / 2] : (around[n / 2 - 1] + around[n / 2]) / 2;
         }
         return median;
+    }
+
+    /**
+     * 大きさの基準 ref。目立つ候補すべて（p に関わらない）の D の {@code percentile} パーセント点。
+     *
+     * <p>位置は numpy の {@code percentile} の既定（線形補間）と同じ {@code pos = (n − 1) × percentile / 100}。
+     * 式は参照実装（#480）と同じ {@code v[i] + (pos − i) × (v[i + 1] − v[i])} にそろえる（numpy は補間の割合が 0.5 以上だと
+     * 上側から引く書き方をするので、最後の 1 桁が違うことがある）。
+     * 目立つ候補の数に下限は置かない。区間があれば 2 個以上あって式は決まり、少ないと ref が録画の中の最大の音に近づくだけで、
+     * 「録画の中の大きい音から 10dB 以内の区間を残す」という門の意味は変わらないため（#480）。
+     *
+     * @return ref。目立つ候補が無ければ {@link Double#NaN}（区間も無いので G も求めない）
+     */
+    private static double loudnessReference(List<MajorPoint> majors, double percentile) {
+        int n = majors.size();
+        if (n == 0) {
+            return Double.NaN;
+        }
+        double[] v = majors.stream().mapToDouble(MajorPoint::d).sorted().toArray();
+        double pos = (n - 1) * (percentile / 100.0);
+        int i = (int) Math.floor(pos);
+        // 目立つ候補が 1 個なら v[i + 1] が無い
+        return i >= n - 1 ? v[n - 1] : v[i] + (pos - i) * (v[i + 1] - v[i]);
     }
 
     /**
