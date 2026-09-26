@@ -604,6 +604,29 @@ function mySoundMarkSeekTime(mark) {
 }
 
 /**
+ * 「印の所だけ再生」で流す区間（秒）。印ごとに、印から飛ぶ先（{@link mySoundMarkSeekTime}。3 秒前）から 4 秒後までを取る。
+ * 前を広めに取るのは、印は音を聞いてから押すので、音は印より少し前にあるため。
+ * 重なる区間と、間が 2 秒以下の区間は 1 つにまとめる。2 秒ほどを飛ばしても聞く時間はほとんど減らず、
+ * 飛ぶたびに音が途切れるだけになるため。
+ *
+ * @param {MySoundMark[]} marks 印（並びは問わない）
+ * @returns {{start: number, end: number}[]} 区間。前から順
+ */
+function mySoundMarkRanges(marks) {
+    /** @type {{start: number, end: number}[]} */
+    const ranges = [];
+    for (const mark of [...marks].sort((a, b) => a.positionMs - b.positionMs)) {
+        const start = mySoundMarkSeekTime(mark);
+        const end = mark.positionMs / 1000 + 4;
+        const last = ranges.at(-1);
+        // 印を前から順に見るので、後の印の終わりが前の区間の終わりより前に来ることはない。まとめるときは終わりを延ばすだけでよい
+        if (last && start - last.end <= 2) last.end = end;
+        else ranges.push({ start, end });
+    }
+    return ranges;
+}
+
+/**
  * 再生画面の耳キスの欄（#459）。聞きながら「ここは耳キス」の印を付け、印の一覧と前後の印へ飛ぶボタンを出す。
  * 印は全員で共有し、消せるのは付けた本人だけ（API も本人の印しか消さない）。
  * 使うのはこの画面だけなので common.js へは移さない（MySubscribedChannel と同じ考え方）。
@@ -611,9 +634,13 @@ function mySoundMarkSeekTime(mark) {
  * 印を付ける・飛ぶのは、ドックが今この録画を読み込んでいるときだけにする。別の録画を読み込んでいると、
  * その録画の再生位置をこの録画の印として送ってしまうため。
  *
+ * 「印の所だけ再生」（#467）は、印の前後の区間（{@link mySoundMarkRanges}）だけを続けて流す。オンの間は、
+ * 手で区間の外へ動かしても次の区間へ飛ぶ（「印の所だけ」を守るため。区間の外を聞きたいときはオフにしてもらう）。
+ *
  * @param {Recording} rec 再生画面の録画
  * @param {HTMLElement} container 欄を描く入れ物
- * @returns {() => void} 動画に付けた処理を外す関数。動画要素はドックの 1 つを使い回すので、画面を離れるときに呼ぶ
+ * @returns {() => void} 動画に付けた処理を外し、「印の所だけ再生」をオフにする関数。動画要素はドックの 1 つを使い回すので、
+ *   画面を離れるときに呼ぶ（外さないと、ほかの画面のミニプレーヤーでも再生が区間へ飛び続ける）
  */
 function myBindSoundMarks(rec, container) {
     container.innerHTML = `<h2>耳キス <span class="muted soundMarkCount"></span></h2>
@@ -622,6 +649,7 @@ function myBindSoundMarks(rec, container) {
             <button type="button" class="soundMarkAdd">ここは耳キス</button>
             <button type="button" class="soundMarkPrev">前の耳キスへ</button>
             <button type="button" class="soundMarkNext">次の耳キスへ</button>
+            <button type="button" class="soundMarkOnly" aria-pressed="false">印の所だけ再生</button>
             <span class="muted soundMarkStatus" role="status"></span>
         </p>
         <ul></ul>`;
@@ -629,12 +657,15 @@ function myBindSoundMarks(rec, container) {
     const addButton = /** @type {HTMLButtonElement} */ (query(".soundMarkAdd", container));
     const prevButton = /** @type {HTMLButtonElement} */ (query(".soundMarkPrev", container));
     const nextButton = /** @type {HTMLButtonElement} */ (query(".soundMarkNext", container));
+    const onlyButton = /** @type {HTMLButtonElement} */ (query(".soundMarkOnly", container));
     const list = query("ul", container);
     const path = `/api/my/recordings/${rec.id}/sound-marks`;
     /** @type {MySoundMark[]} */
     let marks = [];
     // サーバーの二度押しの判定は「探してから保存」なので、同時に届いた 2 つの要求はどちらも印を作りうる。送信中は押させない
     let sending = false;
+    // 「印の所だけ再生」がオンか
+    let only = false;
 
     const active = () => myDockRecording?.id === rec.id;
     // 前後とも、印の位置ではなく飛ぶ先で比べる。印の位置で比べると、飛んだ直後（印の 3 秒前）に「次」を押したとき
@@ -642,10 +673,39 @@ function myBindSoundMarks(rec, container) {
     // 前の幅が広いのは、印を聞き終えた後に押せば、その印を聞き直せるようにするため（曲の頭出しと同じ）
     const nextMark = () => marks.find((m) => mySoundMarkSeekTime(m) >= video.currentTime + 0.5);
     const prevMark = () => marks.filter((m) => mySoundMarkSeekTime(m) <= video.currentTime - 1).at(-1);
+    /** @param {boolean} on オンにするか */
+    const setOnly = (on) => {
+        only = on;
+        onlyButton.setAttribute("aria-pressed", String(on));
+    };
     const refresh = () => {
+        // ドックが閉じた・別の録画を読み込んだ（どちらも emptied で来る）ときと、印が無くなったときは、この録画の区間を流せないのでオフにする
+        if (!active() || !marks.length) setOnly(false);
         addButton.disabled = sending || !active();
         prevButton.disabled = !active() || !prevMark();
         nextButton.disabled = !active() || !nextMark();
+        onlyButton.disabled = !active() || !marks.length;
+    };
+    // 区間の中かは、先頭の 0.1 秒前から見る。先頭へ飛んだ直後の位置が先頭よりわずかでも前に出ると、区間の外とみなして
+    // 先頭へ飛び直し続け、再生が進まなくなるため。Chrome は先頭ちょうどを返す（確認済み）が、位置を内部の刻み
+    // （フレームや時間の単位）に丸めて返すブラウザでは前に出うる。iPhone の Safari では確かめていない
+    /** @param {number} time 再生位置（秒） */
+    const inRange = (time) => mySoundMarkRanges(marks).some((r) => r.start - 0.1 <= time && time <= r.end);
+    /** @param {number} time 再生位置（秒） */
+    const nextRange = (time) => mySoundMarkRanges(marks).find((r) => r.start > time);
+    // オンの間、区間の外にいたら次の区間の先頭へ飛び、次が無ければ止めてオフに戻す。最後の区間が録画の終わりを
+    // またぐと、区間の中のまま再生が終わる（その後は timeupdate が来ない）ので、終わったときは区間の外と同じに扱う
+    const followRanges = () => {
+        const time = video.currentTime;
+        if (!only || !active() || (inRange(time) && !video.ended)) return;
+        const next = nextRange(time);
+        if (next) {
+            video.currentTime = next.start;
+            return;
+        }
+        video.pause();
+        setOnly(false);
+        query(".soundMarkStatus", container).textContent = "最後の印まで再生しました";
     };
     /** @param {MySoundMark|undefined} mark 飛ぶ先の印 */
     const seek = (mark) => {
@@ -706,6 +766,17 @@ function myBindSoundMarks(rec, container) {
     });
     prevButton.addEventListener("click", () => seek(prevMark()));
     nextButton.addEventListener("click", () => seek(nextMark()));
+    onlyButton.addEventListener("click", () => {
+        if (only) {
+            setOnly(false);
+            return;
+        }
+        if (!active() || !marks.length) return;
+        const time = video.currentTime;
+        // 最後の区間より後ろでオンにしたときは、最初の区間から流す
+        if (!inRange(time)) video.currentTime = (nextRange(time) ?? mySoundMarkRanges(marks)[0]).start;
+        setOnly(true);
+    });
 
     refresh();
     // 読み込めなくても、ほかの欄はそのまま使えるので、エラー帯に出すだけにする
@@ -716,7 +787,12 @@ function myBindSoundMarks(rec, container) {
     // emptied だけが来る（位置が 0 のままなら timeupdate は来ない）ので、それでも押せるかを直す
     const events = ["timeupdate", "emptied"];
     for (const type of events) video.addEventListener(type, refresh);
-    return () => { for (const type of events) video.removeEventListener(type, refresh); };
+    video.addEventListener("timeupdate", followRanges);
+    return () => {
+        setOnly(false);
+        for (const type of events) video.removeEventListener(type, refresh);
+        video.removeEventListener("timeupdate", followRanges);
+    };
 }
 
 /**

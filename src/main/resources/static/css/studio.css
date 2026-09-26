@@ -221,11 +221,11 @@ td button { font-size: 11px; min-height: 32px; padding: 5px 10px; }
 .channelWithIcon { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .channelIcon { width: 24px; height: 24px; border-radius: 50%; flex: 0 0 24px; object-fit: cover; background: var(--border); }
 
-/* アーカイブ一覧の表示切り替えと印。押された状態は、選択中のメニューと同じ淡い紫で示す。 */
+/* アーカイブ一覧の表示切り替えと印、再生画面の「印の所だけ再生」。押された状態は、選択中のメニューと同じ淡い紫で示す。 */
 .viewToggle { display: inline-flex; }
 .viewToggle button:first-child { border-radius: 8px 0 0 8px; }
 .viewToggle button:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
-.viewToggle button[aria-pressed="true"], .markBtn[aria-pressed="true"] { background: #eee9fc; border-color: #c0b4e6; color: #5839b6; }
+.viewToggle button[aria-pressed="true"], .markBtn[aria-pressed="true"], .soundMarkOnly[aria-pressed="true"] { background: #eee9fc; border-color: #c0b4e6; color: #5839b6; }
 /* 印のボタンは空白なしで差し込まれるので、並びの間隔はボタン側に持たせる（.cardActions を変えると他画面のカードまで変わる） */
 .markBtn { font-size: 11px; min-height: 32px; padding: 5px 10px; margin-right: 6px; }
 td .markBtn { margin-right: 0; }
