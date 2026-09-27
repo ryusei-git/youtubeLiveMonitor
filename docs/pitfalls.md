@@ -162,6 +162,18 @@ restart しなくても壊れはしない（変更が反映されないだけ）
 **build → `bin/service.sh restart` の両方を行う**。
 （画面ファイルを直したときに `restart` だけでは反映されないのと対になる注意点。）
 
+### ファイルの権限を POSIX の属性で指定すると、Windows では起動もテストもできない（実際に発生した）
+
+本番は Linux だが、作業端末は Windows 11（Git Bash）で、`./gradlew build` と確認用の起動はそこで行う。
+#441 の `RememberMeKeyFile` は鍵ファイルを `Files.createFile(file, PosixFilePermissions.asFileAttribute(...))` で作っていた。
+Windows（NTFS）はこの初期属性を受け付けず `UnsupportedOperationException: 'posix:permissions' not supported as initial attribute`
+を投げるので、`SecurityConfig.filterChain()` の Bean を作れず**アプリが起動しない**。テストでも Spring のコンテキストを作れず、
+`SecurityConfigTest` と `AppUserManagementControllerTest` の計 8 クラスが落ちて `./gradlew build` が通らなかった。
+
+本人だけが読めるファイルを書くときは `PosixFilePermissions` を直接使わず、`OwnerOnlyFiles.writeAtomically()` を使う。
+Linux では作る時点で 600、Windows では中身を書く前に所有者だけの ACL にし、一時ファイルから `ATOMIC_MOVE` で置き換える
+（作成と書き込みを別々にすると、その間で落ちたときに空のファイルが残り、次の起動で読めない）。
+
 ### ログ設定は `logback-spring.xml` のみ
 
 `application.yml` にも書くと二重管理になる。
