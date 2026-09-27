@@ -1794,6 +1794,8 @@ const studioPages = {
     "notifications": "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
     // 動画ダウンロード（/my/download）。下向きの矢印と受け皿
     "download": "M12 4v11 M7 10l5 5 5-5 M5 20h14",
+    // 検索（/my/search）。虫めがね
+    "search": "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M16 16l5 5",
 };
 
 /**

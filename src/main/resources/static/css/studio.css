@@ -286,3 +286,43 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
     #playerDock.is-mini .dockBar { gap: 6px; }
     #playerDock.is-mini .dockBar button { min-height: 34px; padding: 5px 9px; font-size: 12px; }
 }
+
+/* 利用者の検索（/my/search、#489）。並び方（左にサムネイル・右に情報）だけを YouTube に近づけ、色と部品はこのサービスのものを使う
+   （YouTube API Services の規約で、YouTube に似せすぎないことが求められているため）。 */
+#searchForm { padding: 16px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
+#searchForm .inline { margin: 0 0 12px; }
+.searchMain input[type="search"] { flex: 1 1 240px; }
+#searchForm .searchMore { margin: 4px 0 0; }
+#searchForm input[type="number"] { width: 7em; }
+.searchMore h2 small { font-weight: 400; margin-left: 8px; }
+.searchSummary { font-size: 13px; }
+.searchResults { display: flex; flex-direction: column; gap: 18px; }
+.searchResult { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: 16px; }
+.searchThumb { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #eae8f1; }
+.searchThumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.searchThumb .duration, .searchBadge { position: absolute; right: 8px; bottom: 8px; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; background: #17131dde; color: #fff; }
+.searchBadge.is-live { background: var(--navy-800); }
+.searchInfo { min-width: 0; }
+.searchInfo p { margin: 4px 0; font-size: 12px; }
+.searchTitle { margin: 0 0 4px; font-size: 16px; line-height: 1.45; font-weight: 650; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.searchTitle a { color: var(--text); text-decoration: none; }
+.searchTitle a:hover { color: var(--link); text-decoration: underline; }
+.searchDescription { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.searchMarks .statusLamp { margin-right: 6px; }
+.searchAttribution { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; }
+/* 視聴画面。プレーヤーは本文の幅いっぱいの 16:9。規約で 200px 以上が求められているため、狭くても下回らないようにする */
+.searchPlayer iframe { display: block; width: 100%; min-width: 200px; min-height: 200px; aspect-ratio: 16 / 9; border: 0; border-radius: 12px; background: #111; }
+.searchPlayerHint { font-size: 12px; margin: 8px 0 12px; }
+.searchWatchActions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* リンクもボタンと同じ見た目にし、押せるものが並んでいると分かるようにする */
+.searchWatchActions a { display: inline-flex; align-items: center; min-height: 38px; padding: 8px 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; color: var(--text); font-weight: 600; text-decoration: none; white-space: nowrap; }
+.searchWatchActions a:hover { background: #f0edf9; border-color: #c0b4e6; color: #5035ad; }
+.searchWatchDescription { white-space: pre-wrap; overflow-wrap: anywhere; margin: 16px 0 8px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.searchWatchDescription.is-open { display: block; }
+@media (max-width: 760px) {
+    /* スマホではサムネイルを上、情報を下にする */
+    .searchResult { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    /* 縦並びでは flex-basis が高さになるため、検索欄に PC 用の幅を継承しない（アーカイブの検索欄と同じ） */
+    .searchMain input[type="search"] { flex: none; }
+    .searchTitle { font-size: 14px; }
+}
