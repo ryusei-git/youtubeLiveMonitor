@@ -14,6 +14,7 @@ import com.example.monitor.exception.SoundDetectionConflictException;
 import com.example.monitor.exception.SoundDetectionNotFoundException;
 import com.example.monitor.exception.SoundMarkNotFoundException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
+import com.example.monitor.exception.YouTubeApiUnavailableException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -99,6 +100,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(SearchQuotaExceededException.class)
     public ResponseEntity<Map<String, String>> handleSearchQuotaExceeded(SearchQuotaExceededException e) {
         return clientError(HttpStatus.TOO_MANY_REQUESTS, e);
+    }
+
+    /**
+     * YouTube Data API を使えない状態（キー未設定・API の失敗）を 503 Service Unavailable として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(YouTubeApiUnavailableException.class)
+    public ResponseEntity<Map<String, String>> handleYouTubeApiUnavailable(YouTubeApiUnavailableException e) {
+        return clientError(HttpStatus.SERVICE_UNAVAILABLE, e);
     }
 
     /**

@@ -8,6 +8,8 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -37,6 +39,18 @@ public interface MonitoredChannelRepository extends JpaRepository<MonitoredChann
      * @return 登録済みなら {@code true}
      */
     boolean existsByYoutubeChannelId(String youtubeChannelId);
+
+    /**
+     * 渡したチャンネル識別子のうち、登録済みのものだけを返す。
+     *
+     * <p>YouTube の検索結果（最大 100 件）に「登録済み」の印を付けるために使う。
+     * {@link #existsByYoutubeChannelId} を 1 件ずつ呼ぶと、結果の件数だけ問い合わせが走るため。
+     *
+     * @param youtubeChannelIds 調べるチャンネル識別子
+     * @return そのうち登録済みの識別子
+     */
+    @Query("SELECT c.youtubeChannelId FROM MonitoredChannel c WHERE c.youtubeChannelId IN :ids")
+    List<String> findRegisteredYoutubeChannelIds(@Param("ids") Collection<String> youtubeChannelIds);
 
     /**
      * 配信状態を「正しく判定できた」ときの観測結果を記録する。
