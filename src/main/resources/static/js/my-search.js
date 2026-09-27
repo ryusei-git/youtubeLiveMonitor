@@ -1,0 +1,502 @@
+// @ts-check
+/*
+ * 利用者画面の「検索」（/my/search）と、検索から開く視聴画面（/my/search/watch/{videoId}）（#489。API は #487）。
+ *
+ * my-app.js は別の作業が並行して触るため、画面はこのファイルに分け、my-app.js の myRoutes には行を足すだけにしている。
+ * jsconfig.json はすべての js を 1 つのスコープで型検査するので、グローバルの名前は mySearch で始める。
+ *
+ * 並び方（左にサムネイル・右に情報、視聴画面は大きなプレーヤーと下に情報）だけを YouTube に近づけ、
+ * 配色・ロゴ・赤い再生ボタンは真似しない。YouTube API Services の規約で、似せすぎないことが求められているため（#485）。
+ */
+
+/**
+ * 検索と視聴の画面の下に出す、YouTube API サービスを使っている旨とリンク。規約（III.A.2）で、API のデータを出す画面に
+ * YouTube 利用規約と Google プライバシーポリシーへのリンクを置くことが求められているため。
+ */
+const mySearchAttribution = `<footer class="searchAttribution muted">YouTube API サービスを使っています。
+    <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 利用規約</a>・
+    <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google プライバシーポリシー</a></footer>`;
+
+/** 視聴画面の「検索結果に戻る」の行き先。視聴画面を再読み込みしても戻れるよう、タブの中だけ残る sessionStorage に置く。 */
+const MY_SEARCH_LAST_URL_KEY = "mySearchLastUrl";
+
+/**
+ * URL の条件のうち、そのまま検索 API に渡すもの。フォームの name・URL・API のキーを揃えておけば、
+ * 条件を 1 つ足すときにフォームへ欄を置くだけで済む。
+ */
+const MY_SEARCH_PASSTHROUGH = ["q", "order", "duration", "eventType", "categoryId", "definition", "caption", "license",
+    "safeSearch", "publishedAfter", "publishedBefore", "minViews", "maxViews", "minLikes", "maxSubscribers",
+    "maxChannelVideos", "excludeShorts", "titleIncludes", "titleExcludes", "withinHours", "excludeSaved"];
+
+/** 詳しい条件の欄の name。畳んだ「詳しい条件」に、指定中の数を添えるのと、URL に条件があれば開くのに使う。 */
+const MY_SEARCH_DETAIL_FIELDS = ["channel", "categoryId", "definition", "caption", "license", "safeSearch",
+    "minMinutes", "maxMinutes", "minViews", "maxViews", "minLikes", "maxSubscribers", "maxChannelVideos",
+    "excludeShorts", "titleIncludes", "titleExcludes", "withinHours", "registered", "excludeSaved"];
+
+/**
+ * 入力されたチャンネルの URL か ID から、チャンネル ID（UC で始まる 24 文字）を取り出す。
+ * search.list の channelId は本来の ID しか受け付けず、ハンドル（@foo）は別物で、画面からは ID に直せないため
+ * （docs/pitfalls.md「YouTube の『ハンドル』（@foo）は本来のチャンネルIDと別物」）。
+ *
+ * @param {string} input 入力
+ * @returns {string|null} チャンネル ID。読み取れなければ null
+ */
+function mySearchChannelId(input) {
+    return input.match(/UC[\w-]{22}/)?.[0] ?? null;
+}
+
+/**
+ * URL の条件を検索 API のクエリにする。URL を正本にするのは、戻る・再読み込みで同じクエリになり、
+ * サーバーの 6 時間の使い回しに当たって検索の回数を使わないようにするため（「1 週間以内」の起点も URL に残す）。
+ *
+ * @param {URLSearchParams} url 画面の URL の条件
+ * @returns {URLSearchParams} API のクエリ
+ */
+function mySearchApiParams(url) {
+    const params = new URLSearchParams();
+    for (const key of MY_SEARCH_PASSTHROUGH) {
+        const value = url.get(key);
+        if (value) params.set(key, value);
+    }
+    const channelId = mySearchChannelId(url.get("channel") || "");
+    if (channelId) params.set("channelId", channelId);
+    // 画面は分で入れる（秒で考える人はいない）。API は秒で受け取る
+    for (const [from, to] of [["minMinutes", "minDurationSec"], ["maxMinutes", "maxDurationSec"]]) {
+        const minutes = Number(url.get(from));
+        if (url.get(from) && Number.isFinite(minutes)) params.set(to, String(Math.round(minutes * 60)));
+    }
+    if (url.get("registered") === "only") params.set("onlyRegistered", "true");
+    if (url.get("registered") === "exclude") params.set("excludeRegistered", "true");
+    return params;
+}
+
+/**
+ * 投稿日の選択から publishedAfter・publishedBefore を決める。検索した時点で 1 度だけ決めて URL に残す
+ * （開くたびに「今」から数え直すと、クエリが毎回変わってサーバーの使い回しに当たらないため）。
+ *
+ * @param {string} posted 投稿日の選択
+ * @param {string} from 期間の開始日（yyyy-MM-dd）
+ * @param {string} to 期間の終了日（yyyy-MM-dd）
+ * @returns {{publishedAfter?: string, publishedBefore?: string}} ISO-8601（UTC）
+ */
+function mySearchPublishedRange(posted, from, to) {
+    /** @type {Record<string, number>} */
+    const hours = { day: 24, week: 24 * 7, month: 24 * 30, year: 24 * 365 };
+    if (hours[posted]) {
+        // 分より細かい所を切り捨てる。同じ分の中で検索し直したときも同じクエリになるように
+        const after = new Date(Date.now() - hours[posted] * 3_600_000);
+        after.setSeconds(0, 0);
+        return { publishedAfter: after.toISOString() };
+    }
+    if (posted !== "custom") return {};
+    /** @type {{publishedAfter?: string, publishedBefore?: string}} */
+    const range = {};
+    // 日付はこの端末の時刻の 0 時で区切る。終了日はその日を含めたいので、翌日の 0 時より前にする
+    if (from) range.publishedAfter = new Date(`${from}T00:00:00`).toISOString();
+    if (to) {
+        const end = new Date(`${to}T00:00:00`);
+        end.setDate(end.getDate() + 1);
+        range.publishedBefore = end.toISOString();
+    }
+    return range;
+}
+
+/**
+ * 投稿からの経過を「3 日前」のように出す。YouTube の検索結果と同じく、日時より「どれだけ新しいか」が一目で分かるため。
+ *
+ * @param {string|null} iso 投稿日時
+ * @returns {string} 経過。読めなければ空
+ */
+function mySearchTimeAgo(iso) {
+    const time = iso ? new Date(iso).getTime() : NaN;
+    if (Number.isNaN(time)) return "";
+    const minutes = Math.max(0, Math.floor((Date.now() - time) / 60_000));
+    /** @type {Array<[number, string]>} */
+    const units = [[60 * 24 * 365, "年"], [60 * 24 * 30, "か月"], [60 * 24 * 7, "週間"], [60 * 24, "日"], [60, "時間"], [1, "分"]];
+    for (const [size, label] of units) {
+        if (minutes >= size) return `${Math.floor(minutes / size)} ${label}前`;
+    }
+    return "たった今";
+}
+
+/**
+ * @param {number|null|undefined} count 再生回数
+ * @returns {string} 「再生回数 1,234 回」。取れていなければ空
+ */
+function mySearchViews(count) {
+    return count === null || count === undefined ? "" : `再生回数 ${count.toLocaleString("ja-JP")} 回`;
+}
+
+/**
+ * チャンネルのアイコンと名前。名前は YouTube のチャンネルへのリンクにする（規約で、埋め込みや結果にはチャンネル名を
+ * YouTube へのリンクとして出すことが求められているため）。
+ *
+ * @param {any} item 検索結果の 1 件か動画の詳細
+ * @returns {string} 差し込む HTML
+ */
+function mySearchChannel(item) {
+    const url = `https://www.youtube.com/channel/${encodeURIComponent(item.channelId)}`;
+    return `<span class="channelWithIcon">${channelIcon(item.channelIconUrl)}${externalLink(item.channelTitle, url)}</span>`;
+}
+
+/**
+ * 検索結果の 1 件。タイトルとサムネイルは API の値をそのまま出す（規約 III.C.5。書き換えない）。
+ *
+ * @param {any} item 検索結果の 1 件
+ * @returns {HTMLElement} 差し込む要素
+ */
+function mySearchResult(item) {
+    const watch = `/my/search/watch/${encodeURIComponent(item.videoId)}`;
+    const badge = item.liveBroadcastContent === "live" ? '<span class="searchBadge is-live">ライブ</span>'
+        : item.liveBroadcastContent === "upcoming" ? '<span class="searchBadge">配信予定</span>'
+        : item.durationSeconds ? `<span class="duration">${formatDuration(item.durationSeconds)}</span>` : "";
+    const marks = [item.saved ? "保存済み" : "", item.registered ? "監視中" : ""].filter(Boolean)
+        .map((label) => `<span class="statusLamp">${label}</span>`).join("");
+    const result = document.createElement("article");
+    result.className = "searchResult";
+    result.innerHTML = `<a class="searchThumb" href="${watch}" tabindex="-1" aria-hidden="true">
+            <img src="${escapeHtml(item.thumbnailUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer">${badge}</a>
+        <div class="searchInfo">
+          <h3 class="searchTitle"><a href="${watch}">${escapeHtml(item.title)}</a></h3>
+          <p class="muted">${[mySearchViews(item.viewCount), mySearchTimeAgo(item.publishedAt)].filter(Boolean).join("・")}</p>
+          <p class="muted">${mySearchChannel(item)}</p>
+          <p class="searchDescription muted">${escapeHtml(item.description)}</p>
+          ${marks ? `<p class="searchMarks">${marks}</p>` : ""}
+        </div>`;
+    return result;
+}
+
+/**
+ * 検索画面。条件は URL（/my/search?...）に残す。「戻る」「進む」はルーターが拾って画面ごと描き直し、描き直した画面が
+ * URL から条件を戻して検索し直す（アーカイブと同じ。同じ条件はサーバーが使い回すので回数は使わない）。
+ * @type {MyView}
+ */
+const mySearchView = {
+    title: "検索",
+    nav: "/my/search",
+    render(root, _match, params) {
+        root.innerHTML = `<h1>検索</h1>
+            <p class="pageDescription">YouTube の動画を探して、この画面で再生できます。検索できる回数は 1 日に限りがあります（同じ条件で 6 時間以内に探し直したときは数えません）。</p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <form id="searchForm">
+              <div class="inline searchMain">
+                <input type="search" name="q" placeholder="キーワード" aria-label="キーワード">
+                <button type="submit">検索</button>
+              </div>
+              <div class="inline">
+                <select name="order" aria-label="並び順">
+                  <option value="relevance">関連度順</option><option value="date">新しい順</option>
+                  <option value="viewCount">再生回数順</option><option value="rating">評価順</option>
+                </select>
+                <select name="duration" aria-label="長さ">
+                  <option value="">長さ：指定なし</option><option value="short">4 分未満</option>
+                  <option value="medium">4〜20 分</option><option value="long">20 分以上</option>
+                </select>
+                <select name="posted" aria-label="投稿日">
+                  <option value="">投稿日：指定なし</option><option value="day">24 時間以内</option>
+                  <option value="week">1 週間以内</option><option value="month">1 か月以内</option>
+                  <option value="year">1 年以内</option><option value="custom">期間を指定</option>
+                </select>
+                <label class="searchPeriod" hidden><input type="date" name="from" aria-label="期間の開始日"> 〜 <input type="date" name="to" aria-label="期間の終了日"></label>
+                <select name="eventType" aria-label="ライブ">
+                  <option value="">ライブ：指定なし</option><option value="live">ライブ中</option>
+                  <option value="upcoming">配信予定</option><option value="completed">配信済み</option>
+                </select>
+              </div>
+              <details class="utilityPanel searchMore">
+                <summary aria-expanded="false">詳しい条件<small class="filterCount"></small></summary>
+                <h2>公式の条件</h2>
+                <div class="inline">
+                  <input type="text" name="channel" placeholder="チャンネルの URL か ID（UC…）" aria-label="チャンネルを限定（URL か ID）" size="36">
+                  <select name="categoryId" aria-label="カテゴリ">
+                    <option value="">カテゴリ：指定なし</option><option value="10">音楽</option><option value="20">ゲーム</option>
+                    <option value="24">エンタメ</option><option value="22">ブログ</option><option value="1">映画とアニメ</option>
+                    <option value="17">スポーツ</option><option value="27">教育</option><option value="28">科学と技術</option>
+                    <option value="25">ニュース</option>
+                  </select>
+                  <select name="safeSearch" aria-label="セーフサーチ">
+                    <option value="moderate">セーフサーチ：標準</option><option value="strict">セーフサーチ：厳しく</option>
+                    <option value="none">セーフサーチ：なし</option>
+                  </select>
+                  <label><input type="checkbox" name="definition" value="hd"> HD のみ</label>
+                  <label><input type="checkbox" name="caption" value="true"> 字幕付きのみ</label>
+                  <label><input type="checkbox" name="license" value="creativeCommon"> クリエイティブ・コモンズのみ</label>
+                </div>
+                <h2>このサービスの条件 <small class="muted">このサービスで絞り込みます</small></h2>
+                <div class="inline">
+                  <label>長さ（分）<input type="number" name="minMinutes" min="0" aria-label="長さの最小（分）"> 〜 <input type="number" name="maxMinutes" min="0" aria-label="長さの最大（分）"></label>
+                  <label>再生回数 <input type="number" name="minViews" min="0" aria-label="再生回数の最小"> 〜 <input type="number" name="maxViews" min="0" aria-label="再生回数の最大"></label>
+                  <label>高評価 <input type="number" name="minLikes" min="0" aria-label="高評価の最小"> 以上</label>
+                  <label>登録者 <input type="number" name="maxSubscribers" min="0" aria-label="チャンネルの登録者の上限"> 人以下</label>
+                  <label>チャンネルの動画 <input type="number" name="maxChannelVideos" min="0" aria-label="チャンネルの動画の数の上限"> 本以下</label>
+                  <label>投稿から <input type="number" name="withinHours" min="1" aria-label="投稿から何時間以内"> 時間以内</label>
+                </div>
+                <div class="inline">
+                  <input type="text" name="titleIncludes" placeholder="タイトルに含む" aria-label="タイトルに含む">
+                  <input type="text" name="titleExcludes" placeholder="タイトルに含まない（カンマ区切り）" aria-label="タイトルに含まない（カンマ区切り）">
+                  <select name="registered" aria-label="監視中のチャンネル">
+                    <option value="">監視中のチャンネル：指定なし</option><option value="only">監視中のチャンネルだけ</option>
+                    <option value="exclude">監視中のチャンネルを除く</option>
+                  </select>
+                  <label><input type="checkbox" name="excludeShorts" value="true"> Shorts（3 分以下）を除く</label>
+                  <label><input type="checkbox" name="excludeSaved" value="true"> 保存済みを除く</label>
+                  <button type="reset">条件をクリア</button>
+                </div>
+              </details>
+            </form>
+            <div class="inline searchSummary" hidden>
+              <span class="resultCount"></span>
+              <span class="statusLamp filteredMark" hidden>このサービスの条件で絞り込み済み</span>
+              <span class="quotaLeft muted"></span>
+            </div>
+            <div class="searchResults"></div>
+            <p><button type="button" class="moreBtn" hidden>もっと見る</button></p>
+            ${mySearchAttribution}`;
+        const form = formEl("searchForm");
+        const fields = /** @type {NodeListOf<HTMLInputElement|HTMLSelectElement>} */ (form.querySelectorAll("[name]"));
+        const posted = /** @type {HTMLSelectElement} */ (query("[name=posted]", form));
+        const period = /** @type {HTMLElement} */ (query(".searchPeriod", form));
+        const more = /** @type {HTMLDetailsElement} */ (query(".searchMore", form));
+        const results = query(".searchResults", root);
+        const summary = /** @type {HTMLElement} */ (query(".searchSummary", root));
+        const moreButton = /** @type {HTMLButtonElement} */ (query(".moreBtn", root));
+        /** 今出している件数と、次のページの印。「もっと見る」で続きを足すため。 */
+        let shown = 0;
+        /** @type {string|null} */
+        let nextPageToken = null;
+        /** 読み込みの番号。条件を続けて変えたとき、遅れて届いた古い応答で上書きしないため（アーカイブと同じ）。 */
+        let request = 0;
+
+        /** @param {any} quota 応答の quota */
+        const showQuota = (quota) => {
+            query(".quotaLeft", root).textContent = quota ? `今日の残り ${quota.userRemaining} 回` : "";
+        };
+
+        // URL の条件を欄へ戻す（select は選択肢に無い値だと空になるので、既定へ戻す）
+        for (const field of fields) {
+            const value = params.get(field.name) || "";
+            if (field instanceof HTMLSelectElement) {
+                field.value = Array.from(field.options).some((o) => o.value === value) ? value : field.options[0].value;
+            } else if (field.type === "checkbox") {
+                field.checked = value === field.value;
+            } else {
+                field.value = value;
+            }
+        }
+        const syncPeriod = () => { period.hidden = posted.value !== "custom"; };
+        posted.addEventListener("change", syncPeriod);
+        syncPeriod();
+        // 詳しい条件を指定しているときは開き、何で絞り込んでいるかを見せる（アーカイブの畳み方と同じ）
+        const detailCount = MY_SEARCH_DETAIL_FIELDS.filter((name) => params.get(name)).length;
+        query(".filterCount", form).textContent = detailCount > 0 ? `${detailCount}件の条件を指定中` : "";
+        more.open = detailCount > 0;
+        const summaryEl = query("summary", more);
+        const syncExpanded = () => summaryEl.setAttribute("aria-expanded", String(more.open));
+        more.addEventListener("toggle", syncExpanded);
+        syncExpanded();
+
+        /**
+         * URL の条件で検索する。
+         * @param {string|null} pageToken 続きを読むときの印。最初のページは null
+         */
+        const load = async (pageToken) => {
+            const current = ++request;
+            const api = mySearchApiParams(new URLSearchParams(location.search));
+            if (pageToken) api.set("pageToken", pageToken);
+            setBusy(results, true);
+            moreButton.disabled = true;
+            try {
+                const data = await apiGet(`/api/my/search?${api}`);
+                if (current !== request || !results.isConnected) return;
+                clearError();
+                if (!pageToken) {
+                    results.replaceChildren();
+                    shown = 0;
+                }
+                results.append(...data.items.map(mySearchResult));
+                shown += data.items.length;
+                if (shown === 0) {
+                    results.innerHTML = emptyState("該当する動画はありません",
+                        "キーワードを変えるか、詳しい条件を外してお試しください");
+                }
+                nextPageToken = data.nextPageToken;
+                moreButton.hidden = !nextPageToken;
+                summary.hidden = false;
+                query(".resultCount", root).textContent = `約 ${shown} 件を表示`;
+                /** @type {HTMLElement} */ (query(".filteredMark", root)).hidden = !data.filteredByService;
+                showQuota(data.quota);
+            } catch (e) {
+                // 上限（429）・条件の誤り（400）・API の失敗（503）は、サーバーの文言をそのまま出す
+                if (current === request && results.isConnected) showError(errorMessage(e));
+            } finally {
+                if (current === request && results.isConnected) {
+                    setBusy(results, false);
+                    moreButton.disabled = false;
+                }
+            }
+        };
+
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            const url = new URL("/my/search", location.origin);
+            for (const field of fields) {
+                const value = field instanceof HTMLInputElement && field.type === "checkbox"
+                    ? (field.checked ? field.value : "") : field.value.trim();
+                const isDefault = !value || (field instanceof HTMLSelectElement && value === field.options[0].value);
+                if (!isDefault) url.searchParams.set(field.name, value);
+            }
+            if (posted.value !== "custom") {
+                url.searchParams.delete("from");
+                url.searchParams.delete("to");
+            }
+            const channel = url.searchParams.get("channel");
+            if (channel && !mySearchChannelId(channel)) {
+                showError("チャンネルの ID（UC で始まる 24 文字）か、/channel/UC… の URL を入れてください。@ で始まるハンドルは使えません");
+                return;
+            }
+            if (!url.searchParams.get("q") && !channel) {
+                showError("キーワードを入れてください（チャンネルを限定したときは空でも探せます）");
+                return;
+            }
+            for (const [key, value] of Object.entries(mySearchPublishedRange(posted.value,
+                    url.searchParams.get("from") || "", url.searchParams.get("to") || ""))) {
+                url.searchParams.set(key, value);
+            }
+            // 画面ごと描き直す（ルーターと同じ経路）。URL から条件を戻して検索するので、戻る・再読み込みと同じ動きになる
+            history.pushState(null, "", url);
+            myRender();
+        });
+        form.addEventListener("reset", () => window.setTimeout(syncPeriod));
+        moreButton.addEventListener("click", () => load(nextPageToken));
+
+        // 視聴画面の「検索結果に戻る」の行き先
+        try { sessionStorage.setItem(MY_SEARCH_LAST_URL_KEY, location.pathname + location.search); } catch { /* 残せなくても検索画面へは戻れる */ }
+        if (params.get("q") || params.get("channel")) {
+            load(null);
+        } else {
+            // 検索する前に、今日あと何回探せるかを見せる。失敗しても検索はできるので黙っておく
+            apiGet("/api/my/search/quota").then((quota) => {
+                if (!summary.isConnected) return;
+                summary.hidden = false;
+                showQuota(quota);
+            }).catch(() => {});
+        }
+    },
+};
+
+/**
+ * 説明を HTML にする。エスケープしてから URL だけをリンクにする（先にリンクを作ると、説明に書かれた HTML が効いてしまう）。
+ *
+ * @param {string|null} text 説明
+ * @returns {string} 差し込む HTML
+ */
+function mySearchLinkify(text) {
+    return escapeHtml(text).replace(/https?:\/\/[^\s<]+/g,
+        (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+}
+
+/**
+ * 検索から開く視聴画面。YouTube の埋め込みプレーヤーで再生し、下に動画の情報と、保存・監視のボタンを出す。
+ *
+ * プレーヤーは youtube-nocookie（再生するまで Cookie を置かない）にし、自動再生はしない（子ども向けの動画
+ * （madeForKids）もあり、開いただけで音が出るのを避けるため）。上に重ねる表示はしない（規約）。
+ * @type {MyView}
+ */
+const mySearchWatchView = {
+    title: "再生",
+    // 検索から開く画面なので、検索の中にいるものとして示す
+    nav: "/my/search",
+    async render(root, match) {
+        const videoId = match[1];
+        let back = "/my/search";
+        try { back = sessionStorage.getItem(MY_SEARCH_LAST_URL_KEY) || back; } catch { /* 検索画面の最初へ戻す */ }
+        root.innerHTML = `<p><a href="${escapeHtml(back)}">← 検索結果に戻る</a></p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <div class="searchPlayer"><iframe src="https://www.youtube-nocookie.com/embed/${videoId}?rel=0&amp;playsinline=1"
+              title="YouTube の動画" allow="encrypted-media; fullscreen; picture-in-picture" allowfullscreen
+              referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+            <p class="muted searchPlayerHint">再生できないときは YouTube で開いてください。</p>
+            <h1>読み込み中...</h1>
+            <div class="searchWatchInfo"></div>
+            ${mySearchAttribution}`;
+        const heading = query("h1", root);
+        const info = query(".searchWatchInfo", root);
+        const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+        /** @type {any} */
+        let video;
+        try {
+            // 無い動画（削除・非公開）は 404 で返る。ほかの失敗と分けて伝えるため、状態コードを見られるよう apiGet を使わない
+            const res = await authenticatedFetch(`/api/my/youtube/videos/${encodeURIComponent(videoId)}`);
+            if (res.status === 404) {
+                if (heading.isConnected) heading.textContent = "この動画は見られません";
+                return;
+            }
+            if (!res.ok) throw new Error(await extractError(res));
+            video = await res.json();
+        } catch (e) {
+            if (heading.isConnected) {
+                heading.textContent = "動画の情報を読み込めませんでした";
+                showError(errorMessage(e));
+            }
+            return;
+        }
+        if (!heading.isConnected) return;
+
+        document.title = `${video.title} - YouTube Live Monitor`;
+        heading.textContent = video.title;
+        query("iframe", root).title = video.title;
+        const saved = video.saved && video.recordingId
+            ? `<a href="/my/watch/${encodeURIComponent(video.recordingId)}">アーカイブで見る</a>`
+            : '<button type="button" class="saveBtn">サービスに保存</button>';
+        info.innerHTML = `<p>${mySearchChannel(video)}</p>
+            <p class="muted">${[mySearchViews(video.viewCount), formatInstant(video.publishedAt)].filter(Boolean).join("・")}</p>
+            <p class="searchWatchActions">
+              <a href="${watchUrl}" target="_blank" rel="noopener noreferrer">YouTube で開く</a>
+              ${saved}
+              <a href="/my/download?${new URLSearchParams({ url: watchUrl, destination: "device" })}">端末に保存</a>
+              ${video.registered ? "" : '<button type="button" class="watchChannelBtn">監視する（マイチャンネルに登録）</button>'}
+            </p>
+            <div class="searchWatchDescription">${mySearchLinkify(video.description)}</div>
+            <button type="button" class="descriptionToggle" hidden>もっと見る</button>`;
+
+        const description = query(".searchWatchDescription", info);
+        const toggle = /** @type {HTMLButtonElement} */ (query(".descriptionToggle", info));
+        // 3 行に収まる短い説明には「もっと見る」を出さない
+        toggle.hidden = description.scrollHeight <= description.clientHeight;
+        toggle.addEventListener("click", () => {
+            const open = description.classList.toggle("is-open");
+            toggle.textContent = open ? "一部だけ表示" : "もっと見る";
+        });
+
+        info.querySelector(".saveBtn")?.addEventListener("click", async (event) => {
+            const button = /** @type {HTMLButtonElement} */ (event.currentTarget);
+            button.disabled = true;
+            try {
+                await apiPost("/api/my/downloads", { url: watchUrl });
+                if (!info.isConnected) return;
+                clearError();
+                showToast("保存を始めました。終わるとアーカイブに出ます");
+            } catch (e) {
+                // 配信中・同時に 2 件目・空き容量不足は、サーバーの文言をそのまま出す
+                if (info.isConnected) showError(errorMessage(e));
+                button.disabled = false;
+            }
+        });
+        info.querySelector(".watchChannelBtn")?.addEventListener("click", async (event) => {
+            const button = /** @type {HTMLButtonElement} */ (event.currentTarget);
+            button.disabled = true;
+            try {
+                await apiPost("/api/my/channels", {
+                    platform: "YOUTUBE", channelInput: video.channelId, channelName: video.channelTitle,
+                });
+                if (!info.isConnected) return;
+                clearError();
+                showToast(`${video.channelTitle} をマイチャンネルに登録しました`);
+                button.remove();
+            } catch (e) {
+                if (info.isConnected) showError(errorMessage(e));
+                button.disabled = false;
+            }
+        });
+    },
+};
