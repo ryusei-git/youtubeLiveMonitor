@@ -112,6 +112,25 @@ monitor:
     # 見回りの間隔。1 回で対象の録画を全部（1 本ずつ）処理するので、録画が終わってから候補が付くまでの待ち時間になる
     interval: PT10M
 
+  # 新人 VTuber の発掘（DiscoveryService・DiscoveryScheduler、#488）。
+  discovery:
+    # 既定は monitor.scheduling.enabled と同じ。確認用の起動（bin/preview.sh）で検索の回数を使わないため
+    enabled: ${MONITOR_DISCOVERY_ENABLED:${monitor.scheduling.enabled:true}}
+    # 日本時間の 03:00・11:00・19:00。4 語 × 3 回 = 検索 12 回で、発掘の枠（search.discovery-limit）と同じ
+    cron: ${MONITOR_DISCOVERY_CRON:0 0 3,11,19 * * *}
+    # 30 日の決まりの見回り（日本時間の 04:30。検索の直後を避ける）
+    sweep-cron: ${MONITOR_DISCOVERY_SWEEP_CRON:0 30 4 * * *}
+    # 検索語（カンマ区切り。1 語で検索 1 回）
+    terms: ${MONITOR_DISCOVERY_TERMS:新人VTuber|新人Vtuber,初配信 VTuber,個人勢VTuber,デビュー配信 VTuber}
+    # VTuber らしさの語（カンマ区切り）。チャンネルの説明と見つけた動画のタイトルのどれかに含まれれば候補にする
+    words: ${MONITOR_DISCOVERY_WORDS:VTuber,Vtuber,バーチャル,Live2D,個人勢,初配信,新人}
+    max-subscribers: ${MONITOR_DISCOVERY_MAX_SUBSCRIBERS:1000}
+    max-videos: ${MONITOR_DISCOVERY_MAX_VIDEOS:10}
+    # 規約（API のデータは 30 日以内に取り直すか消す）に余裕を持たせて 20 日で取り直す
+    refresh-days: 20
+    # 判定されないまま 30 日たった候補は消す
+    expire-days: 30
+
   youtube:
     api-key: ${YOUTUBE_API_KEY:}
     interval-seconds: ${MONITOR_INTERVAL_SECONDS:120}

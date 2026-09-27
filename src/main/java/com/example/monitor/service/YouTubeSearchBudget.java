@@ -140,6 +140,24 @@ public class YouTubeSearchBudget {
     }
 
     /**
+     * 定期の発掘が今日使った検索の回数を返す（発掘の画面の表示用。回数は増やさない）。
+     *
+     * @return 太平洋時間の今日の発掘の回数
+     */
+    public synchronized int discoveryUsedToday() {
+        return load(DISCOVERY_ID, today()).getRequests();
+    }
+
+    /**
+     * 定期の発掘の 1 日の上限を返す。
+     *
+     * @return {@code monitor.youtube.search.discovery-limit}
+     */
+    public int discoveryLimit() {
+        return limits.discoveryLimit();
+    }
+
+    /**
      * その場の検索の上限を返す。発掘の枠を差し引いた残りなので、設定が逆転しても負にしない。
      *
      * @return その場の検索の 1 日の上限
