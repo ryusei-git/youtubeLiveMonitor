@@ -71,9 +71,10 @@ Java 21 / Spring Boot 4.1.1 / Gradle / H2（ファイルモード）。
 1. **完了条件を通す**（`.claude/skills/verify` と同じ内容）。
    - `./gradlew clean build javadoc` が警告ゼロ
    - `npx -y -p typescript tsc -p src/main/resources/static/jsconfig.json --noEmit` が型エラーゼロ
-   - **ビルドしたら必ず `bin/service.sh restart`**（稼働中のサービスは起動時に `run/` へコピーした jar で動くので、再起動しないと反映されない）
-   - `bin/api.sh POST /api/monitor/check` と `java -jar build/libs/*.jar channel list` が動く
-   - Issue の完了条件に書かれた確認
+   - **ビルドしたら `bin/sandbox.sh start`** で、作業ツリーのビルドを確認用インスタンス（新しい DB・監視なし・Discord なし・ポート 18180）として起動する。本番（`bin/service.sh restart`）では確かめない（worktree や本番の無い作業端末では動かない。本番への反映はマージ後に本番の端末で行う）。ビルドし直したら `bin/sandbox.sh start` をやり直す
+   - `ENV_FILE=.sandbox/.env SERVER_PORT=18180 bin/api.sh POST /api/monitor/check` が応答を返す（監視なしで起動するので 409・終了コード 22 は想定どおり。ログインの失敗・500 は失敗）ことと、`bin/sandbox.sh cli channel list` が動くこと（Issue に `java -jar build/libs/*.jar channel list` とあれば、これで代えてよい）
+   - Issue の完了条件に書かれた確認（画面は `http://localhost:18180/adminLogin.html` に `.sandbox/.env` の管理者でログインして見る）
+   - 確かめ終わったら `bin/sandbox.sh stop`（止めずに作業ツリーを消すと、java が残ってポート 18180 を掴み続ける）
 2. **Codex**: ブランチ `codex/issue-<番号>-<要約>` で 1 コミットにまとめてプッシュし、
    PR を作る（本文に `Closes #<番号>`、実行した確認とその結果）。Status を `In review` にし、
    Claude のターミナルへ `PR #<番号> 準備できました` と送る。**ラベルは付けたまま。**
@@ -192,6 +193,13 @@ CLI はサービス常駐中でも実行できる（H2 を `AUTO_SERVER=TRUE` �
 
 録画中で本番をビルド・再起動できないときは、`bin/preview.sh start` で最新の main を別の場所・
 別ポート（18080）・DB の複製・監視なしで起動して画面を確かめる（`bin/preview.sh stop` で止める）。
+
+作業ツリー（worktree を含む）の変更を確かめるときは、`bin/sandbox.sh start` でその作業ツリーのビルドを
+`.sandbox/` に新しい DB・監視なし・Discord なし・ポート 18180 で起動する（`bin/sandbox.sh stop` で止める）。
+API は `ENV_FILE=.sandbox/.env SERVER_PORT=18180 bin/api.sh ...`、CLI は `bin/sandbox.sh cli ...` で使う。
+DB・ログ・録画フォルダは start のたびに作り直す。`.sandbox/.env`（管理者のパスワードなど）は残るので、
+確認のために値を書き足したら `bin/sandbox.sh stop` → `start` で起動し直す。本番の DB で main を見る
+`bin/preview.sh` とは別物（詳しくは `bin/sandbox.sh` の冒頭）。
 
 ## テスト
 
