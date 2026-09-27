@@ -115,6 +115,12 @@ monitor:
   youtube:
     api-key: ${YOUTUBE_API_KEY:}
     interval-seconds: ${MONITOR_INTERVAL_SECONDS:120}
+    # 検索（search.list）の 1 日の回数の上限。既定値の理由は YouTubeSearchBudget の JavaDoc。
+    # その場の検索の上限は daily-limit - discovery-limit（発掘の枠を対話が食わない）。
+    search:
+      daily-limit: ${YOUTUBE_SEARCH_DAILY_LIMIT:52}
+      discovery-limit: ${YOUTUBE_SEARCH_DISCOVERY_LIMIT:12}
+      per-user-limit: ${YOUTUBE_SEARCH_PER_USER_LIMIT:10}
 
   twitch:
     client-id: ${TWITCH_CLIENT_ID:}

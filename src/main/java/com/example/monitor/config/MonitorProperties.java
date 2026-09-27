@@ -1,6 +1,7 @@
 package com.example.monitor.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
@@ -30,10 +31,55 @@ public record MonitorProperties(
      *
      * @param apiKey          YouTube Data API のキー。未設定でも起動はできるが、配信の詳細取得と名前検索が失敗する
      * @param intervalSeconds 監視の実行間隔（秒）。配信中かどうかの確認はクォータを消費しないため短くできる
+     * @param search          検索（{@code search.list}）の 1 日の回数の上限
      */
     public record YouTubeProperties(
             @DefaultValue("") String apiKey,
-            @DefaultValue("120") int intervalSeconds
+            @DefaultValue("120") int intervalSeconds,
+            @DefaultValue SearchProperties search
+    ) {
+
+        /**
+         * 設定ファイルから値を入れるときに使う（コンストラクタが 2 つあると、
+         * どちらで値を入れるかを Spring が決められないため明示する）。
+         *
+         * @param apiKey          YouTube Data API のキー
+         * @param intervalSeconds 監視の実行間隔（秒）
+         * @param search          検索の回数の上限
+         */
+        @ConstructorBinding
+        public YouTubeProperties {
+        }
+
+        /**
+         * 検索の上限を既定値のままにして作る。
+         *
+         * <p>検索の上限を足す前からある、コードで設定を組み立てる箇所（主にテスト）を
+         * 書き換えずに済ませるため。
+         *
+         * @param apiKey          YouTube Data API のキー
+         * @param intervalSeconds 監視の実行間隔（秒）
+         */
+        public YouTubeProperties(String apiKey, int intervalSeconds) {
+            this(apiKey, intervalSeconds, new SearchProperties(52, 12, 10));
+        }
+    }
+
+    /**
+     * YouTube の検索（{@code search.list}）を 1 日に何回まで使うか。
+     *
+     * <p>既定値の理由（なぜ 52・12・10 か）は {@code YouTubeSearchBudget} の JavaDoc を参照。
+     * その場の検索の上限は {@code dailyLimit - discoveryLimit}（発掘の枠を対話が食わないため、
+     * 別の設定にせず差で決める）。
+     *
+     * @param dailyLimit     検索全体の 1 日の上限
+     * @param discoveryLimit 定期の新人発掘に取っておく回数
+     * @param perUserLimit   その場の検索を 1 人が 1 日に使える回数
+     */
+    public record SearchProperties(
+            @DefaultValue("52") int dailyLimit,
+            @DefaultValue("12") int discoveryLimit,
+            @DefaultValue("10") int perUserLimit
     ) {}
 
     /**

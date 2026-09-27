@@ -9,6 +9,7 @@ import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.MonitoringInProgressException;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
+import com.example.monitor.exception.SearchQuotaExceededException;
 import com.example.monitor.exception.SoundDetectionConflictException;
 import com.example.monitor.exception.SoundDetectionNotFoundException;
 import com.example.monitor.exception.SoundMarkNotFoundException;
@@ -87,6 +88,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MonitoringInProgressException.class)
     public ResponseEntity<Map<String, String>> handleMonitoringInProgress(MonitoringInProgressException e) {
         return clientError(HttpStatus.CONFLICT, e);
+    }
+
+    /**
+     * YouTube の検索が本日の上限に達した場合を 429 Too Many Requests として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(SearchQuotaExceededException.class)
+    public ResponseEntity<Map<String, String>> handleSearchQuotaExceeded(SearchQuotaExceededException e) {
+        return clientError(HttpStatus.TOO_MANY_REQUESTS, e);
     }
 
     /**
