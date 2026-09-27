@@ -5,6 +5,7 @@
 #   例: bin/api.sh GET /api/channels
 #       bin/api.sh POST /api/monitor/check
 #       bin/api.sh POST /api/my/channels '{"platform":"YOUTUBE","channelInput":"..."}'
+#       ENV_FILE=.sandbox/.env SERVER_PORT=18180 bin/api.sh GET /api/health   # 確認用インスタンス（bin/sandbox.sh）
 #
 # ログインはフォーム形式（JSON ではない）で、CSRF トークンは Cookie から取って
 # 送り返す必要がある。毎回手で組み立てると必ずどこかを間違えるのでここにまとめた。
@@ -18,7 +19,16 @@ METHOD="${1:?使い方: bin/api.sh <METHOD> <PATH> [JSON本文]}"
 API_PATH="${2:?使い方: bin/api.sh <METHOD> <PATH> [JSON本文]}"
 BODY="${3:-}"
 
-set -a; . ./.env; set +a
+# 読む .env（管理者の名前とパスワード）。相対パスはリポジトリの直下から数える。
+# 確認用インスタンス（bin/sandbox.sh）を叩くときは ENV_FILE=.sandbox/.env SERVER_PORT=18180 を付ける
+ENV_FILE="${ENV_FILE:-.env}"
+# 「/」を含まない名前を . に渡すと、bash は先に PATH から探す
+[[ "$ENV_FILE" == */* ]] || ENV_FILE="./$ENV_FILE"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "$ENV_FILE がありません（確認用インスタンスなら ENV_FILE=.sandbox/.env SERVER_PORT=18180 を付ける）" >&2
+    exit 1
+fi
+set -a; . "$ENV_FILE"; set +a
 
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
@@ -38,7 +48,7 @@ login_result="$(curl -sc "$JAR" -b "$JAR" -o /dev/null -w '%{http_code} %{redire
     --data-urlencode "_csrf=$(csrf)")"
 case "$login_result" in
     3??\ *error*|[!3]*)
-        echo "ログインに失敗しました（.env の ADMIN_USERNAME / ADMIN_PASSWORD を確認）: $login_result" >&2
+        echo "ログインに失敗しました（$ENV_FILE の ADMIN_USERNAME / ADMIN_PASSWORD を確認）: $login_result" >&2
         exit 1 ;;
 esac
 
