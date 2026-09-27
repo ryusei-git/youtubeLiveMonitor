@@ -407,6 +407,18 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
     Optional<Recording> findFirstByVideoId(String videoId);
 
     /**
+     * 渡した動画 ID のうち、指定した状態の録画をまとめて返す。
+     *
+     * <p>YouTube の検索結果（最大 100 件）に「保存済み」の印を付けるために使う
+     * （{@link #findFirstByVideoId} を 1 件ずつ呼ぶと、結果の件数だけ問い合わせが走るため）。
+     *
+     * @param videoIds 調べる動画 ID
+     * @param statuses 対象にする状態
+     * @return 該当する録画
+     */
+    List<Recording> findByVideoIdInAndStatusIn(Collection<String> videoIds, Collection<RecordingStatus> statuses);
+
+    /**
      * 再生できる状態なのにサムネイルがまだ無い録画を取得する。
      *
      * <p>サムネイル生成の仕組みを入れる前に録画したものや、生成に失敗したものを
