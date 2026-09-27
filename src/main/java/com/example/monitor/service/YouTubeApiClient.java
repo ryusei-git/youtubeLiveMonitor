@@ -2,6 +2,7 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.ChannelSearchResult;
 import com.example.monitor.dto.LiveStreamDetails;
+import com.example.monitor.util.ApiKeyRedactor;
 import com.example.monitor.util.EpochTimeConverter;
 import com.example.monitor.util.YouTubeWatchUrl;
 import com.google.api.services.youtube.YouTube;
@@ -35,6 +36,9 @@ import java.util.Optional;
  *   <tr><td>{@link #searchChannelsByName}</td><td>search.list</td><td>100</td><td>利用者が手動で検索したときだけ</td></tr>
  *   <tr><td>{@link #resolveHandleToChannelId}</td><td>channels.list</td><td>1</td><td>ハンドル形式のチャンネル登録時だけ</td></tr>
  * </table>
+ *
+ * <p>失敗のログには例外の本体を渡さず {@link ApiKeyRedactor#describe} の説明だけを書く。
+ * Google の例外の本文とスタックにはキー付きの URL が入るため（Issue #495）。
  *
  * @see LiveStreamDetector 配信中かどうかの検知（クォータ消費なし）
  */
@@ -72,7 +76,7 @@ public class YouTubeApiClient {
             return Optional.of(toLiveStreamDetails(videoId, response.getItems().get(0)));
 
         } catch (IOException e) {
-            log.error("動画の詳細情報の取得に失敗しました: video={}", videoId, e);
+            log.error("動画の詳細情報の取得に失敗しました: video={}, reason={}", videoId, ApiKeyRedactor.describe(e));
             return Optional.empty();
         }
     }
@@ -108,7 +112,7 @@ public class YouTubeApiClient {
                 ));
             }
         } catch (IOException e) {
-            log.error("チャンネル名検索に失敗しました: query={}", query, e);
+            log.error("チャンネル名検索に失敗しました: query={}, reason={}", query, ApiKeyRedactor.describe(e));
         }
         return searchResults;
     }
@@ -140,7 +144,7 @@ public class YouTubeApiClient {
             return Optional.of(response.getItems().get(0).getId());
 
         } catch (IOException e) {
-            log.error("ハンドルの解決に失敗しました: handle={}", handle, e);
+            log.error("ハンドルの解決に失敗しました: handle={}, reason={}", handle, ApiKeyRedactor.describe(e));
             return Optional.empty();
         }
     }
