@@ -135,9 +135,10 @@ public class SecurityConfig {
             "script-src 'self'",
             // style="display:none" のようなインラインの指定を使っているため
             "style-src 'self' 'unsafe-inline'",
-            // チャンネルのアイコンを YouTube から直接読むため。Referrer-Policy: same-origin なので
-            // 閲覧中の URL は YouTube へ渡らない
-            "img-src 'self' data: https://yt3.ggpht.com https://yt3.googleusercontent.com",
+            // チャンネルのアイコン（yt3）と、検索結果の動画のサムネイル（i.ytimg.com、#489）を YouTube から
+            // 直接読むため。API の規約でサムネイルを書き換えず出す決まりがあり、手元へ写さない（#485）。
+            // Referrer-Policy: same-origin なので、閲覧中の URL は YouTube へ渡らない
+            "img-src 'self' data: https://yt3.ggpht.com https://yt3.googleusercontent.com https://i.ytimg.com",
             "media-src 'self'",
             "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv",
             "connect-src 'self'",
