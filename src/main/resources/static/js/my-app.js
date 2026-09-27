@@ -1583,6 +1583,7 @@ const myRoutes = [
     [/^\/my\/download\/?$/, myDownloadView],
     [/^\/my\/search\/?$/, mySearchView],
     [/^\/my\/search\/watch\/([\w-]{11})\/?$/, mySearchWatchView],
+    [/^\/my\/discover\/?$/, myDiscoverView],
     [/^\/my\/archive\/?$/, myArchiveView],
     [/^\/my\/watch\/(\d+)\/?$/, myWatchView],
     [/^\/my\/channels\/?$/, myChannelsView],

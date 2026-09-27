@@ -1796,6 +1796,8 @@ const studioPages = {
     "download": "M12 4v11 M7 10l5 5 5-5 M5 20h14",
     // 検索（/my/search）。虫めがね
     "search": "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M16 16l5 5",
+    // 新人発掘（/my/discover）。きらめき（新しく見つかったもの）
+    "discover": "M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z M19 3v4 M17 5h4",
 };
 
 /**
