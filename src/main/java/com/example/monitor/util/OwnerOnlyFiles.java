@@ -2,6 +2,7 @@ package com.example.monitor.util;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -53,14 +54,15 @@ public final class OwnerOnlyFiles {
         Path target = file.toAbsolutePath();
         Path dir = target.getParent();
         Files.createDirectories(dir);
-        boolean posix = Files.getFileStore(dir).supportsFileAttributeView(PosixFileAttributeView.class);
+        FileStore store = Files.getFileStore(dir);
+        boolean posix = store.supportsFileAttributeView(PosixFileAttributeView.class);
         Path tmp = posix
                 ? Files.createTempFile(dir, target.getFileName() + ".", ".tmp",
                         PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
                 : Files.createTempFile(dir, target.getFileName() + ".", ".tmp");
         try {
             if (!posix) {
-                restrictToOwner(tmp, target);
+                restrictToOwner(tmp, target, store);
             }
             Files.writeString(tmp, content, StandardCharsets.UTF_8);
             Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE);
@@ -77,13 +79,19 @@ public final class OwnerOnlyFiles {
      *
      * <p>ACL も POSIX も無いファイルシステム（FAT など）では絞れないので、止めずに WARN を出して書く。
      * そのファイルシステムではどのみち誰でも読めるので、起動を止めても守れない。
+     * ACL を持てるかはファイルストアで確かめる。Windows の JDK はファイルシステムに関わらず
+     * {@link AclFileAttributeView} を返すので、それが {@code null} かどうかでは FAT を見分けられず、
+     * 所有者を取るところで例外になって起動が止まる。
      *
      * @param tmp 権限を絞る一時ファイル
      * @param target 最終的に置き換える先（ログに出すため）
+     * @param store 一時ファイルを置いたファイルストア（ACL を持てるかを確かめるため）
      * @throws IOException 所有者を取れない、ACL を書き換えられないとき
      */
-    private static void restrictToOwner(Path tmp, Path target) throws IOException {
-        AclFileAttributeView view = Files.getFileAttributeView(tmp, AclFileAttributeView.class);
+    private static void restrictToOwner(Path tmp, Path target, FileStore store) throws IOException {
+        AclFileAttributeView view = store.supportsFileAttributeView(AclFileAttributeView.class)
+                ? Files.getFileAttributeView(tmp, AclFileAttributeView.class)
+                : null;
         if (view == null) {
             log.warn("本人だけが読める権限にできないファイルシステムのため、権限を絞らずに書きます: {}", target);
             return;
