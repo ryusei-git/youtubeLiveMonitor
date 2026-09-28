@@ -15,9 +15,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ChannelRemoveCommand")
@@ -56,6 +58,7 @@ class ChannelRemoveCommandTest {
         @DisplayName("正常系：削除に成功した場合はメッセージを表示し0を返す")
         void testMethod01() {
             ReflectionTestUtils.setField(command, "channelRecordId", 1L);
+            when(monitoredChannelService.remove(1L)).thenReturn(CompletableFuture.completedFuture(0));
 
             Integer exitCode = command.call();
 
