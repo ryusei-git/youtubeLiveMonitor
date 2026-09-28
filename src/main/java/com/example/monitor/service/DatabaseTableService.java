@@ -6,6 +6,7 @@ import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.util.CaseInsensitiveMatcher;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -307,7 +308,8 @@ public class DatabaseTableService {
      * @param primaryKeyValue    更新する行の主キー値（文字列。数値型の主キーには自動変換される）
      * @param requestedChanges   「カラム名 → 新しい値」の対応
      * @throws IllegalArgumentException テーブルが存在しない、更新できる項目が 1 つもない、
-     *                                  バイナリの列を含む、または該当する行がない場合
+     *                                  バイナリの列を含む、該当する行がない、
+     *                                  または値が列の型・長さ・制約に合わず DB が受け付けない場合
      * @throws IllegalStateException    対象テーブルに主キーがない場合
      */
     public void updateRow(String requestedTableName, String primaryKeyValue, Map<String, Object> requestedChanges) {
@@ -357,7 +359,15 @@ public class DatabaseTableService {
         parameters.add(convertPrimaryKeyValue(tableName, primaryKeyColumn, primaryKeyValue));
 
         String sql = "UPDATE " + tableName + " SET " + setClause + " WHERE " + primaryKeyColumn + " = ?";
-        int updatedRowCount = jdbcTemplate.update(sql, parameters.toArray());
+        int updatedRowCount;
+        try {
+            updatedRowCount = jdbcTemplate.update(sql, parameters.toArray());
+        } catch (DataIntegrityViolationException e) {
+            // 画面は値を常に文字列で送るので、数値・日時の列に読めない文字や空欄を入れるとここに来る。
+            // 管理者の入力の誤りなので 400 にし、見直す列を返す。DB の文面は SQL と入力値を含むので返さない
+            throw new IllegalArgumentException("値を保存できません。列の型・長さ・空欄の可否・重複を確かめてください: "
+                    + String.join(", ", applicableChanges.keySet()), e);
+        }
 
         if (updatedRowCount == 0) {
             throw new IllegalArgumentException(
@@ -370,9 +380,11 @@ public class DatabaseTableService {
      * 更新の失敗を監査ログに残すときの理由。
      *
      * <p>このクラスが自分で投げる例外（{@link IllegalArgumentException}・{@link IllegalStateException}）は、
-     * 列に書き込む値を文言に含めないので、文言をそのまま使う。それ以外（型の変換や列の長さの超過で
-     * JDBC が投げる {@code DataAccessException} など）は、例外の種類名だけにする。H2 の文言には
-     * 入力した値がそのまま入り、値を残さない方針（クラスの JavaDoc「監査ログ」）が崩れるため。
+     * 列に書き込む値を文言に含めないので、文言をそのまま使う。DB が値を受け付けなかった場合（型の変換や
+     * 列の長さの超過など）も、{@link #applyRowUpdate} が列名だけの {@link IllegalArgumentException} に
+     * 置き換えてからここへ来る。それ以外（ロック待ちの時間切れや接続の失敗で JDBC が投げる
+     * {@code DataAccessException} など）は、例外の種類名だけにする。DB の文言には SQL 文や入力した値が
+     * 入ることがあり、値を残さない方針（クラスの JavaDoc「監査ログ」）が崩れるため。
      *
      * @param e 更新中に起きた例外
      * @return 監査ログの {@code detail} に載せる理由

@@ -8,8 +8,8 @@ import com.example.monitor.repository.OnlineVideoRepository;
 import com.example.monitor.repository.VideoThumbnailRepository;
 import com.example.monitor.service.OnlineVideoService;
 import com.example.monitor.service.VideoCollectionTracker;
+import com.example.monitor.util.PageRequestUtils;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -104,6 +104,8 @@ public class OnlineVideoController {
      * @return 条件に一致する動画（200）
      * @throws ResponseStatusException {@code page < 0}、{@code size} が 1〜{@value #MAX_PAGE_SIZE} の外、
      *         {@code keyword} が {@value #MAX_KEYWORD_LENGTH} 文字超、{@code section} が上のどれでもない場合（400）
+     * @throws IllegalArgumentException {@code page × size} が int の範囲を超える場合
+     *         （400。{@code GlobalExceptionHandler} が「ページ番号が大きすぎます」を返す）
      */
     @GetMapping
     public PageResponse<OnlineVideoResponse> list(Authentication auth,
@@ -113,7 +115,8 @@ public class OnlineVideoController {
         if (page < 0 || size < 1 || size > MAX_PAGE_SIZE || keyword.length() > MAX_KEYWORD_LENGTH) throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         boolean admin = admin(auth);
         String user = auth.getName();
-        var pageable = PageRequest.of(page, size);
+        // 範囲は上で確かめ済み。ここで効くのはオフセット（page × size）の溢れだけで、放っておくと Spring Data が 500 になる例外を投げる
+        var pageable = PageRequestUtils.bounded(page, size, MAX_PAGE_SIZE);
         // 省略時はダッシュボード（liveOnly=true）が使う従来の検索のまま動きを変えない
         var videos = section == null
                 ? repository.search(admin, user, channelId, liveOnly, service.startedAt(), keyword, pageable)

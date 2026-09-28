@@ -18,16 +18,22 @@ import com.example.monitor.exception.TooManyPasswordAttemptsException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.exception.YouTubeApiUnavailableException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.util.DisconnectedClientHelper;
 
+import java.sql.SQLException;
 import java.util.Map;
 
 /**
@@ -71,6 +77,18 @@ public class GlobalExceptionHandler {
 
     /** 存在しないパスへの応答。枠組みの文言を外に出さないために決め打ちにする。 */
     private static final String NOT_FOUND_MESSAGE = "指定されたパスは存在しません";
+
+    /**
+     * 一意制約（主キーを含む）の違反を表す SQLSTATE。H2 もこの値を返す。
+     *
+     * <p>重複だけをこれで見分け、列の長さ・型・NOT NULL の違反とは扱いを分ける
+     * （{@link #handleDataIntegrityViolation} 参照）。
+     */
+    private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
+
+    /** 重複の違反（同じ要求の重なり）を利用者へ返すときの文言。 */
+    private static final String DUPLICATE_MESSAGE =
+            "同じ操作が重なったため保存できませんでした。画面を読み込み直してからやり直してください";
 
     /**
      * 登録済みチャンネルの重複登録を 409 Conflict として返す。
@@ -350,6 +368,86 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 型の合わないパラメーター（数値の欄の文字・知らない選択肢・読めない日付など）を 400 Bad Request として返す。
+     *
+     * <p>これを拾わないと catch-all に落ちて 500 になり、URL を打ち間違えただけで
+     * ERROR とスタックトレースが残る（{@code /api/logs/system?limit=abc} など）。
+     * 文面はパラメーター名から自分で組み立てる。枠組みの文面は英語で、型のクラス名を含むため外に出さない。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, String>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return clientError(HttpStatus.BAD_REQUEST, e, e.getName() + "：値の形式が正しくありません");
+    }
+
+    /**
+     * 必須のパラメーターが無い要求を 400 Bad Request として返す。
+     *
+     * <p>これも拾わないと 500 になる。{@code /api/password-reset} はログインせずに呼べるので、
+     * 誰でも ERROR とスタックトレースを積み上げられる状態になっていた。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Map<String, String>> handleMissingParameter(MissingServletRequestParameterException e) {
+        return clientError(HttpStatus.BAD_REQUEST, e, e.getParameterName() + "：指定してください");
+    }
+
+    /**
+     * 読めない本文（壊れた JSON・項目の型違い・知らない選択肢・本文なし）を 400 Bad Request として返す。
+     *
+     * <p>枠組みの文面は Jackson の英語の説明で、受け取った値の一部を含むことがあるため外に出さない
+     * （ログには WARN で残る）。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> handleMessageNotReadable(HttpMessageNotReadableException e) {
+        return clientError(HttpStatus.BAD_REQUEST, e,
+                "送られた内容を読み取れませんでした（JSON の形式と項目の型を確かめてください）");
+    }
+
+    /**
+     * JSON 以外の形式（{@code text/plain} など）で送られた本文を 415 Unsupported Media Type として返す。
+     *
+     * <p>本文を受け取る API はすべて JSON なので、文言も JSON に決め打ちにする。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<Map<String, String>> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException e) {
+        return clientError(HttpStatus.UNSUPPORTED_MEDIA_TYPE, e,
+                "送る内容は JSON（Content-Type: application/json）にしてください");
+    }
+
+    /**
+     * DB の制約の違反のうち、<b>重複（一意制約）だけ</b>を 409 Conflict として返す。
+     *
+     * <p>「無ければ作る」を確かめてから保存する処理（録画の印・購読・監視対象の登録）は、
+     * 同じ要求が重なると両方が「無い」と判断して保存し、片方が一意制約で失敗する。
+     * 利用者の操作の重なりなので、サーバーの異常（500・ERROR）として扱わず、やり直せば通ることを伝える。
+     *
+     * <p><b>重複以外（列の長さ・型・NOT NULL・外部キー）は今までどおり 500 と ERROR にする。</b>
+     * これらはコードや DB の不具合でも起きる。列挙子を足して H2 の ENUM 列が値を拒んだ事故では、
+     * 巡回 API の 500 で気づいた（docs/pitfalls.md）。まとめて 4xx と WARN にすると、その合図が消える。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, String>> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        if (isUniqueViolation(e)) {
+            return clientError(HttpStatus.CONFLICT, e, DUPLICATE_MESSAGE);
+        }
+        return serverError(e, FALLBACK_MESSAGE);
+    }
+
+    /**
      * 上記のいずれにも当てはまらない例外を 500 Internal Server Error として返す。
      *
      * <p><b>この受け口が無いと、想定していなかった例外はこのクラスを素通りする。</b>
@@ -444,5 +542,24 @@ public class GlobalExceptionHandler {
      */
     private String messageOf(Exception e) {
         return e.getMessage() == null ? FALLBACK_MESSAGE : e.getMessage();
+    }
+
+    /**
+     * 例外の原因をたどり、一意制約の違反を表す {@link SQLException} があるかを返す。
+     *
+     * <p>JPA 経由では Hibernate の例外に、JDBC 経由では Spring の例外に包まれて届く。
+     * 包み方に依らないよう、元の {@link SQLException} の SQLSTATE で判定する。
+     *
+     * @param e 調べる例外
+     * @return 一意制約の違反なら {@code true}
+     */
+    private static boolean isUniqueViolation(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sqlException
+                    && UNIQUE_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())) {
+                return true;
+            }
+        }
+        return false;
     }
 }
