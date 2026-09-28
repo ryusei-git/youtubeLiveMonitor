@@ -38,6 +38,10 @@ import java.util.stream.Collectors;
  * しきい値を越え、チャンネルの数だけ知らせが並ぶのを防ぐため（プラットフォーム単位の知らせで足りる）。
  * そのため登録が 1 件だけのプラットフォームでは、そのチャンネルの削除もプラットフォーム単位として知らせる
  * （本文に「チャンネルの削除」も原因として書いている）。
+ * 過半数が判定できなかった巡回の直後の巡回でも、チャンネル単位の知らせを新しくは送らない。障害が巡回の途中で直ると（YouTube はチャンネルごとに
+ * 問い合わせるので、直る前に問い合わせた一部だけが失敗する）、過半数に届かないその巡回で、障害の間に積み上がった
+ * 連続失敗回数がしきい値を越え、無事なチャンネルまで「削除・改名された可能性」として知らせてしまうため
+ * （次の巡回で「戻りました」が続き、知らせが 2 通無駄になる）。本当に直らないチャンネルは、その次の巡回で知らせる。
  *
  * <h2>状態はメモリにだけ持つ</h2>
  * 知らせたかどうかを DB に持たない（スキーマを増やさない）。失敗が続いたまま再起動すると、もう 1 度知らせる
@@ -103,9 +107,11 @@ public class DetectionFailureAlerter {
                         .isDetectionFailed())
                 .toList();
         boolean platformFailing = failed.size() * 2 > channels.size();
+        // 前の巡回で過半数が判定できなかったか。checkPlatform が failingCycles を書き換える前に読む
+        boolean platformWasFailing = failingCycles.containsKey(platform);
 
         checkPlatform(platform, channels.size(), failed.size(), platformFailing);
-        checkChannels(channels, failed, platformFailing);
+        checkChannels(channels, failed, platformFailing || platformWasFailing);
     }
 
     /**
@@ -138,11 +144,12 @@ public class DetectionFailureAlerter {
     /**
      * チャンネル単位の条件を見る。
      *
-     * @param channels        そのプラットフォームの監視対象
-     * @param failed          この巡回で判定できなかったチャンネル
-     * @param platformFailing この巡回で過半数が判定できなかったか。{@code true} なら新しくは知らせない
+     * @param channels                そのプラットフォームの監視対象
+     * @param failed                  この巡回で判定できなかったチャンネル
+     * @param platformRecentlyFailing この巡回か前の巡回で過半数が判定できなかったか。{@code true} なら新しくは知らせない
      */
-    private void checkChannels(List<MonitoredChannel> channels, List<MonitoredChannel> failed, boolean platformFailing) {
+    private void checkChannels(
+            List<MonitoredChannel> channels, List<MonitoredChannel> failed, boolean platformRecentlyFailing) {
         Set<Long> failedIds = failed.stream().map(MonitoredChannel::getId).collect(Collectors.toSet());
 
         List<MonitoredChannel> recovered = new ArrayList<>();
@@ -155,7 +162,7 @@ public class DetectionFailureAlerter {
             send("次のチャンネルの配信状態の判定が戻りました: " + describe(recovered));
         }
 
-        if (platformFailing) {
+        if (platformRecentlyFailing) {
             return;
         }
         List<MonitoredChannel> newlyFailing = new ArrayList<>();
