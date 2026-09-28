@@ -106,6 +106,57 @@ public class RecordingSalvager {
     }
 
     /**
+     * 空き容量が足りないために、この録画の詰め替えを見送る状態かを返す。外部コマンドは起動しない。
+     *
+     * <p>失敗の録画のファイルを消す前に、後始末で直せる録画ではないかを確かめるために使う
+     * （「サービスに保存」の取り直し）。見送られた録画は元のファイル・断片が残っていて、空きができれば
+     * 後始末（{@link RecordingReconciler}）が直す（{@link SalvageStatus#INSUFFICIENT_SPACE}）。
+     * ここで消すと、直せたはずの録画を失う。判定は {@link #remux} と同じ {@link #lacksSpaceFor} を使う。
+     *
+     * <p>入力は {@link #ensurePlayable} と同じく、{@code {動画ID}.mp4} があればそれ、無ければ結合前の断片とする。
+     * {@code {動画ID}.mp4} がそのまま再生できるかは確かめない（{@code ffprobe} を起動しないため）。
+     * 再生できる MP4 でも、空きが足りなければ {@code true} を返す（消さない側に倒れる）。
+     *
+     * @param outputFile 完成予定の録画ファイルのパス（{@code {動画ID}.mp4}）
+     * @return 詰め替えの入力があり、空き容量を読めて、それが「入力の合計＋下限」に満たなければ {@code true}。
+     *         入力が無い・空き容量を読めない・{@link #minFreeGb} が 0 以下なら {@code false}
+     */
+    public boolean lacksSpaceToSalvage(Path outputFile) {
+        List<Path> inputs = Files.isRegularFile(outputFile)
+                ? List.of(outputFile)
+                : findFormatParts(outputFile);
+        return !inputs.isEmpty() && lacksSpaceFor(inputs, outputFile);
+    }
+
+    /**
+     * 空き容量が「入力の合計＋{@link DiskSpaceUtils#reserveBytes(long)}」に満たないかを返す。
+     *
+     * <p>{@link #remux} の見送りと {@link #lacksSpaceToSalvage} の判定を 1 か所にまとめるために切り出した。
+     * 別々に書くと、片方だけ直したときに「詰め替えを見送って残した録画を、取り直しで消す」食い違いが戻る。
+     * 満たないときは、どれだけ空ければよいかが分かるよう、必要量と空きを WARN に残す。
+     *
+     * @param inputs     詰め替えの入力
+     * @param outputFile 最終的な出力先（このディレクトリがあるボリュームの空き容量を見る）
+     * @return 空き容量を読めて、「入力の合計＋下限」に満たなければ {@code true}。
+     *         {@link #minFreeGb} が 0 以下・空き容量を読めないときは {@code false}
+     *         （「判定できなかった」を「足りない」と扱わない）
+     */
+    private boolean lacksSpaceFor(List<Path> inputs, Path outputFile) {
+        if (minFreeGb <= 0) {
+            return false;
+        }
+        long requiredBytes = inputs.stream().mapToLong(DirectorySizeUtils::sizeOf).sum()
+                + DiskSpaceUtils.reserveBytes(minFreeGb);
+        DiskSpaceUtils.Capacity disk = DiskSpaceUtils.read(outputFile.toAbsolutePath().getParent());
+        if (disk.error() != null || disk.usableBytes() == null || disk.usableBytes() >= requiredBytes) {
+            return false;
+        }
+        log.warn("空き容量が録画ファイルの詰め替えに足りません（元のファイルは残します）: file={}, 必要={}MB, 空き={}MB",
+                outputFile, requiredBytes / (1024L * 1024), disk.usableBytes() / (1024L * 1024));
+        return true;
+    }
+
+    /**
      * ファイルが MP4 コンテナとして読めるかを調べる。
      *
      * <p>拡張子ではなく実際の中身で判断する。<b>配信途中で止まった録画は
@@ -156,15 +207,8 @@ public class RecordingSalvager {
     private SalvageOutcome remux(List<Path> inputs, Path outputFile) {
         // 出力は入力と同じ大きさになる。足りないまま始めると ffmpeg が空きを 0 まで使い切ってから失敗し、
         // その間 H2 とログの書き込みも失敗する。元のファイルには触らずに見送る
-        if (minFreeGb > 0) {
-            long requiredBytes = inputs.stream().mapToLong(DirectorySizeUtils::sizeOf).sum()
-                    + DiskSpaceUtils.reserveBytes(minFreeGb);
-            DiskSpaceUtils.Capacity disk = DiskSpaceUtils.read(outputFile.toAbsolutePath().getParent());
-            if (disk.error() == null && disk.usableBytes() != null && disk.usableBytes() < requiredBytes) {
-                log.warn("空き容量が足りないため録画ファイルの詰め替えを見送ります（元のファイルは残します）: file={}, 必要={}MB, 空き={}MB",
-                        outputFile, requiredBytes / (1024L * 1024), disk.usableBytes() / (1024L * 1024));
-                return SalvageOutcome.insufficientSpace();
-            }
+        if (lacksSpaceFor(inputs, outputFile)) {
+            return SalvageOutcome.insufficientSpace();
         }
 
         Path workFile = outputFile.resolveSibling(outputFile.getFileName() + WORK_FILE_SUFFIX);
@@ -320,6 +364,8 @@ public class RecordingSalvager {
         /**
          * 空き容量が足りないため詰め替えを見送った。元のファイル・断片はそのまま残してあり、
          * 空きができれば直せる（{@link RecordingReconciler} は失敗として覚えず、後始末のたびに試し直す）。
+         * 録画の履歴は {@code FAILED} になるが中身は残っているので、失敗の履歴を消して取り直すときも
+         * これに当たる録画は消さない（{@link RecordingSalvager#lacksSpaceToSalvage}）。
          */
         INSUFFICIENT_SPACE
     }
