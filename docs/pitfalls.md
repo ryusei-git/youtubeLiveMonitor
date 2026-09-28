@@ -194,7 +194,7 @@ Google の API ライブラリの例外は、本文にリクエストの URL（`
 `YouTubeApiClient` が失敗のログに例外をそのまま渡していたため、API キーが本番のログに残り、
 管理画面のログの画面（`/logs.html`）からも見えていた（#495）。ログは 14 日残り、調査の途中で Issue や PR に貼られることもある。
 
-- YouTube の API の失敗は、例外の本体をログに渡さず、HTTP の状態や `reason` だけの説明を書く（`YouTubeApiClient` の 3 か所の
+- YouTube の API の失敗は、例外の本体をログに渡さず、HTTP の状態や `reason` だけの説明を書く（`YouTubeApiClient` の失敗のログの
   `ApiKeyRedactor.describe(e)` が例。`DiscoveryYouTubeClient.describe(e)` も同じ考え方）。例外を包み直して投げるときも、
   元の例外を原因（`cause`）に付けない（付けると、包んだ例外のログの `Caused by:` にキー付きの URL が出る）。
   Discord の Webhook の URL（トークン入り）も、例外のメッセージやログに入れない（`DiscordWebhookUrl` の JavaDoc）。
