@@ -56,7 +56,7 @@ import java.util.stream.Collectors;
  * <h2>想定する利用範囲</h2>
  * 管理者（ADMIN）だけが使う。{@code SecurityConfig} が {@code /api/admin/tables/**} と {@code /tables.html} を
  * ADMIN に閉じている。任意のテーブルの任意の行を書き換えられるので、この制限を緩めないこと。
- * 秘密や証跡を持つテーブルは、管理者にも見せないよう {@code EXCLUDED_TABLES} で対象から外している。
+ * 秘密や証跡を持つテーブルは、管理者にも見せないよう {@link #EXCLUDED_TABLES} で対象から外している。
  */
 @Service
 @RequiredArgsConstructor
