@@ -13,6 +13,7 @@ import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.UserNotificationRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import com.example.monitor.util.DiscordWebhookUrl;
+import com.example.monitor.util.TextTruncator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -221,9 +222,8 @@ public class UserNotificationService {
             return;
         }
 
-        String error = outcome.errorMessage();
         DatabaseUpdateVerifier.verify(userNotificationRepository.recordFailure(record.getId(), LocalDateTime.now(),
-                        error != null && error.length() > MAX_ERROR_LENGTH ? error.substring(0, MAX_ERROR_LENGTH) : error),
+                        TextTruncator.truncate(outcome.errorMessage(), MAX_ERROR_LENGTH)),
                 "利用者への通知の失敗の記録", record.getId());
         int failures = record.getFailureCount() + 1;
         log.warn("利用者への通知に失敗しました（{}/{} 回目{}）: user={}, video={}, reason={}",
