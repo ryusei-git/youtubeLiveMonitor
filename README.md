@@ -638,6 +638,7 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 - 検出は 2 時間の録画で CPU を 40 秒ほど使い、録画と CPU を取り合うため、**録画中の録画がある間は始めません**
   （1 本終えるごとに確かめ、残りは次の見回りに回します）。
 - **6 時間を超える録画は検出しません。** 検出器のメモリは録画の長さに比例し、足りないと JVM ごと落ちるためです。
+  再生画面には `6 時間を超える録画は、自動の検出の対象外です` と出ます（失敗とは分けて出します）。
 - 失敗が 3 回たまった録画は、見回りの対象から外れます（同じ録画で何度も落ちないため）。回数は最後に完了してから数え、
   ふつうの停止（`bin/service.sh restart` など）で止めた回は数えません。
 - 検出 1 本には時間の上限（録画の長さの 1/10 ＋ 10 分。2 時間の録画で 22 分）があります。ffmpeg が固まるなどして超えると、
@@ -652,7 +653,7 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 2. `EarKissModel` の `RESOURCE` を新しいファイルに替える。
 3. ビルドして再起動する。見回りが、全部の録画を新しい版で付け直します（1 本ずつなので、録画の本数に応じて時間がかかります）。
    前の版で答えた候補は、答えごと同じ位置の今の版の候補として引き継がれ（その前後 1 秒以内には新しい候補を作りません）、
-   答え直す必要はありません。
+   答え直す必要はありません。引き継ぎは付け直しを待たず、版を上げた後の最初の見回りで済みます（録画中でも行います）。
 
 **検出器をその場で試す**（CLI。DB には保存しません）:
 
@@ -715,7 +716,7 @@ java -jar build/libs/*.jar sound detect 23 --from 0 --to 600
 | GET | `/api/my/recordings/{recordingId}/sound-marks?kind=EAR_KISS` | 録画に付いた耳キスの印（全員の分）を位置の順に返す（ログインしていれば誰でも使える。以下の `/api/my/**` も同じ） |
 | POST | `/api/my/recordings/{recordingId}/sound-marks` | 印を付ける（本文 `{"kind":"EAR_KISS","positionMs":123456}`。同じ人が前後 1 秒以内に付け直すと前の印を返す） |
 | DELETE | `/api/my/recordings/{recordingId}/sound-marks/{markId}` | 自分の印を消す（ほかの人の印は 404） |
-| GET | `/api/my/recordings/{recordingId}/sound-candidates?kind=EAR_KISS` | 検出器が付けた今の版の候補と、今の版の検出の状態（`state`: `PENDING`・`DONE`・`FAILED`） |
+| GET | `/api/my/recordings/{recordingId}/sound-candidates?kind=EAR_KISS` | 検出器が付けた今の版の候補と、今の版の検出の状態（`state`: `PENDING`・`DONE`・`FAILED`・`UNSUPPORTED`。`UNSUPPORTED` は 6 時間を超えて検出しない録画） |
 | PUT | `/api/my/recordings/{recordingId}/sound-candidates/{candidateId}/verdict` | 候補に答える（本文 `{"verdict":"CONFIRMED"}` が耳キス、`"REJECTED"` がちがう、`null` が取り消し） |
 
 `/api/admin/tables` 以下は任意のテーブルの任意の行を書き換えられるため、管理者（ADMIN）だけが使えます（`SecurityConfig`）。
