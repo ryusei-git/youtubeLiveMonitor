@@ -53,10 +53,13 @@ class DefaultProcessLauncherTest {
             ProcessHandle.Info grep = info("/usr/bin/grep", "abc123");
             ProcessHandle.Info tail = info("/usr/bin/tail", "-f", "logs/yt-dlp/abc123.log");
             ProcessHandle.Info bash = info("/usr/bin/bash", "-c", "yt-dlp abc123");
+            // 引数のファイル名が yt-dlp でも、実行ファイルが Python の処理系でなければ対象にしない
+            ProcessHandle.Info grepYtDlp = info("/usr/bin/grep", "yt-dlp", "logs/yt-dlp/abc123.log");
 
             assertThat(DefaultProcessLauncher.isWorkerProcess(grep)).isFalse();
             assertThat(DefaultProcessLauncher.isWorkerProcess(tail)).isFalse();
             assertThat(DefaultProcessLauncher.isWorkerProcess(bash)).isFalse();
+            assertThat(DefaultProcessLauncher.isWorkerProcess(grepYtDlp)).isFalse();
         }
 
         @Test
@@ -116,12 +119,15 @@ class DefaultProcessLauncherTest {
             ProcessHandle.Info grep = info("/usr/bin/grep", "abc123");
             ProcessHandle.Info tail = info("/usr/bin/tail", "-f", "logs/yt-dlp/abc123.log");
             ProcessHandle.Info bash = info("/usr/bin/bash", "-c", "yt-dlp abc123");
+            // 引数のファイル名が yt-dlp でも、実行ファイルが Python の処理系でなければ yt-dlp とみなさない
+            ProcessHandle.Info grepYtDlp = info("/usr/bin/grep", "yt-dlp", "logs/yt-dlp/abc123.log");
             ProcessHandle.Info script = info("/usr/bin/python3", "/home/user/tool.py", "abc123");
             ProcessHandle.Info helper = info("/usr/bin/python3", "/opt/yt-dlp-helper", "abc123");
 
             assertThat(DefaultProcessLauncher.isYtDlp(grep)).isFalse();
             assertThat(DefaultProcessLauncher.isYtDlp(tail)).isFalse();
             assertThat(DefaultProcessLauncher.isYtDlp(bash)).isFalse();
+            assertThat(DefaultProcessLauncher.isYtDlp(grepYtDlp)).isFalse();
             assertThat(DefaultProcessLauncher.isYtDlp(script)).isFalse();
             assertThat(DefaultProcessLauncher.isYtDlp(helper)).isFalse();
         }

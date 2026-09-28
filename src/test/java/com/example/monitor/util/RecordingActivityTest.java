@@ -88,10 +88,12 @@ class RecordingActivityTest {
             // ログの場所は YtDlpLogFile.of() が作業ディレクトリからの相対パスで決めていて差し替えられないため、作業ディレクトリの logs/yt-dlp/ に書く
             Path log = YtDlpLogFile.of(videoId);
             Files.createDirectories(log.getParent());
-            Files.createFile(log);
-            Files.setLastModifiedTime(log, FileTime.from(T5));
 
+            // 更新時刻の設定で失敗しても作ったログを残さないよう、作るところから try に入れる
             try {
+                Files.createFile(log);
+                Files.setLastModifiedTime(log, FileTime.from(T5));
+
                 assertThat(RecordingActivity.lastModified(tempDir, videoId)).isEqualTo(T5);
             } finally {
                 Files.deleteIfExists(log);
