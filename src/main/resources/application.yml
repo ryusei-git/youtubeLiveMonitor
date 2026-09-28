@@ -73,6 +73,18 @@ spring:
     use-jackson2-defaults: true
 
   jpa:
+    # 要求の間ずっと DB の接続を握らせない（Open Session in View を切る）。
+    # 既定の true だと、要求の中で一度 DB を読むと、応答を書き終えるまで接続を返さない
+    # （Spring は Hibernate に接続を EntityManager が閉じるまで持たせる）。端末保存のダウンロード
+    # （数 GB を送り切るまで）や「今すぐチェック」（巡回 1 周を待つ）が接続を握る。接続は上の hikari で
+    # 5 本に絞っているので、5 本とも長い要求に握られると、定期巡回が接続を待ったまま失敗する。
+    # 切ると、トランザクションの外（コントローラーでの詰め替え）で遅延読み込みの関連を読んだときに
+    # LazyInitializationException になる。画面へ返すためにチャンネルを読むクエリには
+    # @EntityGraph(attributePaths = "channel") を付けてある（NotificationHistoryRepository・
+    # RecordingRepository・OnlineVideoRepository）。関連を読む API を足すときも同じようにする。
+    # 未指定だと、起動のたびに「spring.jpa.open-in-view is enabled by default」の WARN も出る。
+    # テストは src/test/resources/application.yml を読むので、この設定はテストには効かない。
+    open-in-view: false
     hibernate:
       ddl-auto: update
     show-sql: false
