@@ -13,7 +13,7 @@ import java.util.List;
  *
  * @param measuredAt 計測した時刻
  * @param system     端末全体
- * @param service    このサービス（アプリ本体と録画プロセス）
+ * @param service    このサービス（アプリ本体・録画プロセス・アプリが起動したその他の外部プロセス）
  * @param warnings   目安を超えている項目。無ければ空
  */
 public record ResourceSnapshotResponse(
@@ -51,14 +51,15 @@ public record ResourceSnapshotResponse(
     /**
      * このサービス全体のリソース。
      *
-     * @param cpuPercent  アプリ本体と録画プロセス（子孫を含む）の CPU 使用率の合計
-     * @param memoryBytes アプリ本体と録画プロセス（子孫を含む）の実メモリの合計
+     * @param cpuPercent  アプリ本体・録画プロセス・その他の外部プロセス（どれも子孫を含む）の CPU 使用率の合計
+     * @param memoryBytes アプリ本体・録画プロセス・その他の外部プロセス（どれも子孫を含む）の実メモリの合計
      * @param application アプリ本体（この Java プロセス）
      * @param recorders   録画プロセス
+     * @param helpers     アプリが起動した、録画プロセス以外の外部プロセス（アプリの直接の子ごと）
      */
     public record ServiceUsage(
             Double cpuPercent, long memoryBytes,
-            ApplicationUsage application, List<RecorderUsage> recorders
+            ApplicationUsage application, List<RecorderUsage> recorders, List<HelperUsage> helpers
     ) {}
 
     /**
@@ -92,7 +93,26 @@ public record ResourceSnapshotResponse(
     ) {}
 
     /**
-     * 録画プロセスの子孫 1 つ分のリソース。
+     * アプリが起動した、録画プロセス以外の外部プロセス 1 つ分のリソース（「端末に保存」の yt-dlp、耳キスの検出・詰め替え・
+     * サムネイルの ffmpeg など）。
+     *
+     * <p>録画プロセスと分けるのは、録画プロセスは「どのチャンネルを録っているか」で見分けるのに対し、
+     * こちらは「何のために動いているか」で見分けるため。
+     *
+     * @param pid         プロセス ID
+     * @param name        プロセス名
+     * @param purpose     用途（「端末に保存」「耳キスの検出」など）。見分けられなければ「その他」
+     * @param cpuPercent  CPU 使用率（子孫は含まない）
+     * @param memoryBytes 実メモリ（子孫は含まない）
+     * @param children    このプロセスが起動した子孫プロセス（yt-dlp が起動する ffmpeg など）
+     */
+    public record HelperUsage(
+            int pid, String name, String purpose, Double cpuPercent, long memoryBytes,
+            List<ProcessUsage> children
+    ) {}
+
+    /**
+     * 録画プロセス・その他の外部プロセスの子孫 1 つ分のリソース。
      *
      * @param pid         プロセス ID
      * @param name        プロセス名
