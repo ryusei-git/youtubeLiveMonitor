@@ -337,7 +337,15 @@ const myTopView = {
                 renderLiveVideoCards(live, page, emptyState("配信中のチャンネルはありません"));
                 renderUpcomingStreams(streams, upcoming, emptyState("7 日以内の配信予定はありません"));
             } catch (e) {
-                if (live.isConnected) showError(errorMessage(e));
+                if (!live.isConnected) return;
+                showError(errorMessage(e));
+                // まだ一度も描けていない（lastKey が空の）ときは、欄の「読み込み中...」を置き換える。残すと、待てば出るのか
+                // 読めなかったのか分からない（#338）。一度描けていれば前回の内容を残す（失敗はエラー帯で伝わり、描き直すとフォーカスが飛ぶ）
+                if (!lastKey) {
+                    const failed = '<p class="muted">読み込めませんでした。1 分ごとに読み直します。</p>';
+                    live.innerHTML = failed;
+                    upcoming.innerHTML = failed;
+                }
             }
         };
         load();
