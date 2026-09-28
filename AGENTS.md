@@ -181,6 +181,7 @@ gh api graphql -f query='{repository(owner:"ryusei-git",name:"youtubeLiveMonitor
 - `cli` プロファイルで作られない Bean に依存するコントローラーには `@Profile("!cli")` を付ける（実際に発生した）
 - ログ設定は `logback-spring.xml` のみ
 - ログ書式を変えるならパーサーも直す
+- 外部 API の例外をそのままログに渡さない（実際に発生した）
 - ファイルの権限を POSIX の属性で指定すると、Windows では起動もテストもできない（実際に発生した）
 
 **API・DB**
