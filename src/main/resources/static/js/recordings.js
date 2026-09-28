@@ -98,7 +98,7 @@
         }
     }
 
-    /** 削除後は一覧とディスク使用量の両方を引き直す */
+    /** 削除・停止の後は一覧とディスク使用量の両方を引き直す */
     function afterDelete() {
         loadRecordings();
         loadDiskUsage();
@@ -153,15 +153,20 @@
         `;
         query(".watchedCell", tr).appendChild(recordingMarkButton(r, "watched", toggleMark));
         query(".favoriteCell", tr).appendChild(recordingMarkButton(r, "favorite", toggleMark));
-        // カードと同じく、録画中は中断させたくないので削除ボタンを出さない（API 側も 409 で弾く）
-        if (r.status !== "RECORDING") {
-            const btn = document.createElement("button");
-            btn.type = "button";
+        // カードと同じく、録画中は削除の代わりに停止を出す（削除は API 側も 409 で弾く）
+        const btn = document.createElement("button");
+        btn.type = "button";
+        if (r.status === "RECORDING") {
+            btn.className = "stopBtn removeBtn";
+            btn.textContent = "停止";
+            btn.setAttribute("aria-label", `${r.videoTitle}の録画を停止する`);
+            btn.addEventListener("click", () => stopRecording(r, afterDelete));
+        } else {
             btn.className = "deleteBtn";
             btn.textContent = "削除";
             btn.addEventListener("click", () => deleteRecording(r, afterDelete));
-            query(".deleteCell", tr).appendChild(btn);
         }
+        query(".deleteCell", tr).appendChild(btn);
         return tr;
     }
 
