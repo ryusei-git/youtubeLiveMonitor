@@ -62,6 +62,14 @@ public class ExternalCommandRunner {
     /** 上限を超えて捨てた出力があったときに、出力の末尾に付ける印。 */
     private static final String TRUNCATION_MARKER = "（以下省略）";
 
+    /**
+     * 異常終了したときにログへ添える、出力の末尾の文字数。
+     *
+     * <p>失敗の理由（{@code ffmpeg} の容量不足・壊れた断片など）は出力の最後に出るので、末尾だけを残す。
+     * 全部を出さないのは、壊れた入力では {@link #MAX_OUTPUT_CHARS} 近くまで出力されうるため。
+     */
+    private static final int FAILURE_OUTPUT_TAIL_CHARS = 2000;
+
     private final ProcessLauncher processLauncher;
 
     /**
@@ -69,6 +77,7 @@ public class ExternalCommandRunner {
      *
      * <p>失敗はすべて {@link Optional#empty()} に畳む。呼び出し側はいずれの失敗でも
      * 「その付加機能を諦めて先へ進む」以外の対応を取らないため。
+     * 異常終了したときは、失敗の理由を後から追えるよう出力の末尾を WARN に添える（{@link #failureOutputTail} 参照）。
      *
      * <p><b>待ち時間の上限は呼び出し側が決める。</b>これらの処理は監視の巡回サイクルから
      * 呼ばれるため、長すぎる上限は監視そのものを止める。一方で短すぎると、
@@ -165,11 +174,33 @@ public class ExternalCommandRunner {
         }
 
         if (process.exitValue() != 0) {
-            log.warn("{} が異常終了しました: 対象={}, exitCode={}",
-                    command.get(0), context, process.exitValue());
+            log.warn("{} が異常終了しました: 対象={}, exitCode={}, 出力の末尾:{}",
+                    command.get(0), context, process.exitValue(), failureOutputTail(readTask.output));
             return Optional.empty();
         }
         return Optional.of(readTask.output);
+    }
+
+    /**
+     * 異常終了したときにログへ添える、出力の末尾を返す。
+     *
+     * <p>複数行のまま返す。ログ画面の解析（{@code ChannelLogReader}）は、日時で始まらない行を直前の 1 件の続きとして
+     * つなぐため、スタックトレースと同じく 1 件のログとして読める。
+     * 出力が {@link #MAX_OUTPUT_CHARS} を超えて後ろを捨てていたときは、ここで返すのは本当の最後ではない
+     * （{@link #TRUNCATION_MARKER} で終わる）。
+     *
+     * @param output 読み取った出力
+     * @return 改行で始まる末尾。出力が空なら「（出力なし）」
+     */
+    private static String failureOutputTail(String output) {
+        String stripped = output.strip();
+        if (stripped.isEmpty()) {
+            return " （出力なし）";
+        }
+        if (stripped.length() <= FAILURE_OUTPUT_TAIL_CHARS) {
+            return "\n" + stripped;
+        }
+        return "\n…" + stripped.substring(stripped.length() - FAILURE_OUTPUT_TAIL_CHARS);
     }
 
     /**

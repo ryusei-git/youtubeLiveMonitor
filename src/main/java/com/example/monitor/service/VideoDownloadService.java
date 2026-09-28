@@ -363,6 +363,11 @@ public class VideoDownloadService {
                 ChannelLogContext.runWithChannel(channelId,
                         () -> runToCompletion(process, recordingId, videoId, outputFile));
             }
+        } catch (RuntimeException e) {
+            // 仮想スレッドの既定の処理（標準エラー）に流さず、アプリのログ（/logs 画面の「システム」）に残す。
+            // RECORDING のまま残った行は、予約を外した後に RecordingReconciler が補正する
+            log.error("ダウンロードの結果を記録できませんでした。録画履歴は後始末（RecordingReconciler）が補正します: video={}",
+                    videoId, e);
         } finally {
             // 結果を記録し終えてから追跡を外す。順序を逆にすると、その隙に RecordingReconciler が
             // 「処理中でないのに RECORDING のまま＝置き去り」と誤判定してしまう
