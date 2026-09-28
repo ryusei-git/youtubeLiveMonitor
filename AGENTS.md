@@ -26,6 +26,15 @@ Java 21 / Spring Boot 4.1.1 / Gradle / H2（ファイルモード）。
   同じ処理が別クラスにも必要になったときに複製されやすい。
   既存の例: `FileNameUtils`（拡張子除去）, `EpochTimeConverter`（日時変換）,
   `CaseInsensitiveMatcher`（大文字小文字を無視した一致検索）。
+- JavaDoc・コメント・文書に文を足すときは、周りの行と同じ幅（約 100 桁。全角は 2 桁）で折り返す。
+  `@param` の説明は、同じ JavaDoc のほかの `@param` と書き出しの桁をそろえる。
+- メソッドの引数・戻り値・投げる例外を変えたら、その `@param`・`@return`・`@throws` と、その
+  メソッドを `{@link}` で参照する JavaDoc も見直す。JavaDoc に呼び出し元の一覧や個数を書かない
+  （ほかの PR が入ると黙って古くなる）。
+- 例外を管理者への通知やアプリのログに載せるときは、`e.getMessage()` でなく `e` を載せる
+  （`getMessage()` だけでは例外の型が消え、`null` のこともある）。ログでは `{}` を割り当てずに最後の
+  引数として渡す。外部 API の例外は `docs/pitfalls.md`「外部 API の例外をそのままログに渡さない」
+  に従う。
 
 ## タスクの進め方（Claude と Codex の共通ルール）
 
@@ -65,6 +74,10 @@ Java 21 / Spring Boot 4.1.1 / Gradle / H2（ファイルモード）。
 2. **相手のラベル（`claude` / `codex`）が付いた Issue は触らない。**
 3. **宣言する。** 自分のラベルを付け、Project の Status を `In progress` にする。
 4. Issue に「関連する落とし穴」が挙がっていれば `docs/pitfalls.md` の該当項目を読む。
+5. **Issue が書かれた後に、変更するファイルへ入ったコミットを見る。** `git fetch origin` の後に
+   `git log --oneline --since="<Issue の作成日時>" origin/<PR のベースブランチ> -- <変更するファイル>`
+   （作成日時は `gh issue view <番号> --json createdAt --jq .createdAt`）。手順の前提（コード・
+   呼び出し元・画面の文言）が変わっていたら、何が変わってどう合わせたかを PR 本文に書く。
 
 ### 終わったら
 
@@ -76,6 +89,11 @@ Java 21 / Spring Boot 4.1.1 / Gradle / H2（ファイルモード）。
    - `ENV_FILE=.sandbox/.env SERVER_PORT=18180 bin/api.sh POST /api/monitor/check` が応答を返す（監視なしで起動するので 409・終了コード 22 は想定どおり。ログインの失敗・500 は失敗）ことと、`bin/sandbox.sh cli channel list` が動くこと（Issue に `java -jar build/libs/*.jar channel list` とあれば、これで代えてよい）
    - Issue の完了条件に書かれた確認（画面は `http://localhost:18180/adminLogin.html` に `.sandbox/.env` の管理者でログインして見る）
    - 確かめ終わったら `bin/sandbox.sh stop`（止めずに作業ツリーを消すと、java が残ってポート 18180 を掴み続ける）
+   - Issue の「割り当てられたポート」は、依頼か環境変数 `SANDBOX_PORT` で指定されたポート。指定が
+     無ければ 18180（ほかの作業ツリーの確認用インスタンスが使っていれば、空いている番号を選ぶ）。
+     18180 以外なら `SANDBOX_PORT=<ポート> bin/sandbox.sh start` で起動し、`bin/api.sh` の
+     `SERVER_PORT` と画面の URL もそのポートにする（上の 18180 もそのポートに読み替える）
+   - Issue の完了条件で差分を比べる相手は PR のベースブランチ（`origin/main` とあっても読み替える）
 
    PR を作ると GitHub Actions（`.github/workflows/ci.yml`）が、上のうちビルド・JavaDoc・型検査・JS のテストを
    Linux でもう一度実行する。API と CLI の確認は CI では行わないので、手元で省略しない。
