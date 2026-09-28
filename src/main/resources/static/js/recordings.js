@@ -16,7 +16,7 @@
 
     /** 一覧とディスク使用量を読み直す。見えるようになるのを待つ間の登録と解除で同じ関数を使うため名前を付ける。 */
     function refreshRunning() {
-        loadRecordings();
+        loadRecordings(false);
         loadDiskUsage();
     }
 
@@ -41,10 +41,15 @@
         }, RUNNING_REFRESH_INTERVAL_MS);
     }
 
+    /**
+     * 録画の保存先の使用量を読み込む。
+     * 成功してもエラー帯は消さない。この読み込みは利用者の操作の結果を知らせるものではなく、一覧の読み込みや
+     * 他の操作の後に裏で走るため、ここで消すと、直前の操作の失敗（ダウンロードの拒否・削除や印の切り替えの失敗）や、
+     * 並んで走る選択肢の読み込みの失敗を、利用者が読む前に消してしまう（showToast の「消えてしまっては困る情報を自動で消さない」）。
+     */
     async function loadDiskUsage() {
         try {
             const data = await apiGet("/api/recordings/disk-usage");
-            clearError();
             el("totalDiskUsage").textContent = formatFileSize(data.totalBytes);
 
             const tbody = query("#diskUsageTable tbody");
@@ -98,9 +103,9 @@
         }
     }
 
-    /** 削除・停止の後は一覧とディスク使用量の両方を引き直す */
+    /** 削除・停止の後は一覧とディスク使用量の両方を引き直す。エラー帯は deleteRecording・stopRecording が成功時に消しているので、ここでは消さない */
     function afterDelete() {
-        loadRecordings();
+        loadRecordings(false);
         loadDiskUsage();
     }
 
@@ -170,14 +175,21 @@
         return tr;
     }
 
-    async function loadRecordings() {
+    /**
+     * 一覧を読み込む。
+     *
+     * @param {boolean} clearAlert 成功したらエラー帯を消すか。利用者が一覧を読み直す操作（検索・条件のクリア・
+     *   ページ送り・「戻る」「進む」）のときだけ true にする。開いた直後・10 秒ごとの読み直し・削除などの後の
+     *   読み直しで消すと、直前の操作の失敗や、並んで走る選択肢の読み込みの失敗を、利用者が読む前に消してしまうため
+     */
+    async function loadRecordings(clearAlert) {
         const request = ++loadRequest;
         try {
             const data = await apiGet(`/api/recordings?${search.apiParams()}`);
             if (request !== loadRequest) return;
             // ページが範囲を超えていた（URL の page が古いなど）ときは、最後のページに直して読み直す
-            if (!search.show(data)) return loadRecordings();
-            clearError();
+            if (!search.show(data)) return loadRecordings(clearAlert);
+            if (clearAlert) clearError();
             el("resultSummary").textContent =
                 data.totalElements === 0 ? "該当する録画はありません" : `${data.totalElements}件`;
             scheduleRefreshWhileRunning(data.content);
@@ -194,7 +206,7 @@
         grid: el("videoGrid"),
         list: el("recordingList"),
         pager: el("pager"),
-        load: loadRecordings,
+        load: () => loadRecordings(true),
         buildCard: (r) => buildVideoCard(r, afterDelete, true, null, toggleMark),
         buildRow: buildRecordingRow,
         empty: emptyState(
@@ -231,7 +243,7 @@
 
     window.addEventListener("popstate", () => {
         search.restore();
-        loadRecordings();
+        loadRecordings(true);
     });
 
     buttonEl("cleanupOrphanedBtn").addEventListener("click", async () => {
@@ -265,7 +277,7 @@
                     summary.textContent = message;
                     container.replaceChildren();
                     loadDiskUsage();
-                    loadRecordings();
+                    loadRecordings(false);
                 } catch (e) {
                     showError(errorMessage(e));
                     container.replaceChildren();
@@ -282,7 +294,7 @@
     // 選択肢が揃ってから URL を戻す（先に戻すと、チャンネル一覧から来た ?channelId= やジャンルが選択肢に無いとして捨てられる）
     Promise.all([loadChannelOptions(), loadGenreOptions()]).then(() => {
         search.restore();
-        loadRecordings();
+        loadRecordings(false);
     });
     loadDiskUsage();
 })();
