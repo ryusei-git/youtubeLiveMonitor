@@ -256,11 +256,18 @@ yt-dlp はそれらをスキップして残りを最後までダウンロード�
 有無で完了・失敗に補正する。配信の巡回と同じ間隔で、巡回とは別の仮想スレッドから呼ばれる
 （巡回の中で呼ぶと `ffmpeg` の詰め替えを待つ間、全チャンネルの検知が止まるため。#252）。
 
-補正の対象外とする判定は **2 段階**。`StreamRecorder.isRecording()`（このアプリが追跡中か）
-だけでなく、`ProcessLauncher.isRunningWithCommandLineContaining()`（OS 上に yt-dlp が
+補正の対象外とする判定は **2 段階**。`ActiveVideoJobs.reserve()`（このアプリが追跡中なら予約が取れない）
+だけでなく、`ProcessLauncher.isRunningWithCommandLineContaining()`（OS 上に yt-dlp・ffmpeg が
 まだ生きているか）も見る。**後者が欠かせない**——録画プロセスは JVM を止めても生き残るため、
 前者だけだと再起動直後に「実際はまだ録画中」のものを失敗と誤判定し、
 その後 yt-dlp が完成させても永久に失敗表示のままになる。
+`FAILED` 行の救済にも同じ 2 段階を掛ける（再起動前の JVM が始めた詰め替えの ffmpeg が残っていることがある）。
+
+**補正は、一覧を取った時点の状態を信じない。** 予約を取ったまま行を読み直し、状態が一覧と違えば
+（または行が消えていれば）触らない。一覧（`findByStatus`）を取ってから 1 件ずつ詰め替える
+（外部コマンド 1 回ごとに最大 600 秒）ため、その間に追跡中だった録画が終わると、録画スレッドが `PARTIAL` を記録して
+予約を外す。一覧の `RECORDING` のまま補正すると、詰め替え済みの mp4 を見て `COMPLETED` で上書きしてしまう
+（全量レビューで見つかった）。
 
 **`StreamRecorder` とは別クラスにしている理由**: 判定には
 `StreamRecorder.isRecording(videoId)`（今まさに追跡中かどうか）が要るが、
