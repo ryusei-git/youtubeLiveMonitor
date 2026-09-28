@@ -20,6 +20,9 @@ import java.time.Duration;
  *
  * <p>RSS フィードは投稿動画・配信アーカイブ・待機所を区別せずに返すため、動画ページを 1 件ずつ見て判定する。
  * 判定できなかった動画は種類を空のまま残し、次の収集で再試行する（1 件の失敗で収集全体を止めない）。
+ * 待機所と判定済みの動画で、動画ページが「再生できません」を返したもの（削除された・存在しない）は、
+ * 消えた動画（{@link OnlineVideo#KIND_MISSING}）にして判定し直す対象から外す。
+ * 消された待機所が配信予定の段に残り、収集のたびに動画ページを取り直し続けたため。
  */
 @Service @RequiredArgsConstructor @Slf4j
 public class VideoContentKindService {
@@ -39,6 +42,10 @@ public class VideoContentKindService {
      *
      * <p>上限を設ける理由は {@link #BATCH_SIZE} を参照。待機所を毎回見直すのは、配信が始まって
      * 終わると種類が変わるため。判定できなかった動画は種類をそのまま残し、次の収集で再試行する。
+     * 消えた動画は種類が {@code UPCOMING} でも null でもなくなるので、次の収集から
+     * {@link OnlineVideoRepository#pendingContentKind} の対象に入らない。まだ種類が分からない（null の）動画には付けない。
+     * 「再生できません」の文言は汎用で、YouTube 側の一時的な制限でも返るおそれがあり、
+     * 見つけたばかりの公開動画をどの段からも消してしまうため。
      */
     public void classifyPending() {
         for (var video : videos.pendingContentKind(PageRequest.of(0, BATCH_SIZE))) {
@@ -50,11 +57,16 @@ public class VideoContentKindService {
             }
             try {
                 var result = YouTubeVideoKindParser.parse(fetch(video.getId()));
-                if (result == null) {
+                // 消えた動画は、待機所と判定済みの動画にだけ付ける（まだ種類の分からない動画は、今までどおり判定できないとして残す）。
+                boolean missing = result != null && OnlineVideo.KIND_MISSING.equals(result.kind());
+                if (result == null || (missing && !OnlineVideo.KIND_UPCOMING.equals(video.getContentKind()))) {
                     log.warn("動画の種類を判定できません（次回再試行）: video={}", video.getId());
                     continue;
                 }
-                videos.updateContentKind(video.getId(), result.kind(), result.scheduledStartTime());
+                int updated = videos.updateContentKind(video.getId(), result.kind(), result.scheduledStartTime());
+                if (updated > 0 && missing) {
+                    log.info("動画ページが「再生できません」を返したため、消えた待機所として判定し直しを止めます: video={}", video.getId());
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt(); return;
             } catch (Exception e) {
