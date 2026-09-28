@@ -274,10 +274,12 @@ public class StreamRecorder {
             } catch (IOException e) {
                 log.error("録画プロセスの起動に失敗しました（yt-dlp が無いか、出力先のログファイルを作れない可能性があります）: "
                         + "channel={}, video={}", channel.getChannelName(), videoId, e);
+                // getMessage() ではなく例外の種類ごと載せる。logs/yt-dlp/ を作れないときの AccessDeniedException は
+                // メッセージがパスだけで、理由が読めないため（録画フォルダの通知と同じ形）
                 alertStartFailureOnce("録画プロセス（yt-dlp）を起動できないため、録画を始められません: "
                         + channel.getChannelName() + "（" + videoId + "）。"
                         + "yt-dlp が入っていてサービスの PATH から見えるか、logs/yt-dlp/ に書き込めるかを確かめてください（"
-                        + e.getMessage() + "）。直るまで巡回のたびに試みますが、この通知は録画を始められるまで再び送りません。");
+                        + e + "）。直るまで巡回のたびに試みますが、この通知は録画を始められるまで再び送りません。");
                 return false;
             }
             log.info("録画を開始しました: channel={}, video={}, directory={}",
