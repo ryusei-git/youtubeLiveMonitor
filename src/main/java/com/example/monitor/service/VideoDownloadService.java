@@ -97,6 +97,7 @@ public class VideoDownloadService {
     private final ProcessLauncher processLauncher;
     private final RecordingHistoryService recordingHistoryService;
     private final RecordingSalvager recordingSalvager;
+    private final RecordingFileService recordingFileService;
     private final RecordingRepository recordingRepository;
     private final MonitoredChannelRepository monitoredChannelRepository;
     private final AppUserRepository appUserRepository;
@@ -184,7 +185,8 @@ public class VideoDownloadService {
      * @throws LiveStreamDownloadRejectedException 配信中・配信開始前の URL の場合
      * @throws VideoAlreadyDownloadedException    同じ動画を取得中、または再生できる録画（完了・途中まで）が
      *                                            既にある場合。失敗の履歴だけなら投げずに、消して取り直す
-     * @throws InsufficientDiskSpaceException     空き容量がしきい値を下回る場合（503）
+     * @throws InsufficientDiskSpaceException     空き容量がしきい値を下回る場合、または空きが足りずに詰め替えを
+     *                                            見送った失敗の録画が残っている場合（503。後者は何も消さない）
      * @throws ServiceDownloadInProgressException 一般利用者が既に 1 件保存中の場合（409）
      * @throws IllegalStateException              保存先を作れない、
      *                                            {@code yt-dlp} を起動できない場合
@@ -258,10 +260,18 @@ public class VideoDownloadService {
      * <p><b>なぜ消して取り直すのか。</b>以前は状態を問わず断り、録画履歴を先に消すよう求めていた。
      * #450 でこの処理を一般利用者にも開いたが、録画を消す API（{@code /api/recordings/**}）は管理者だけなので、
      * 一時的な通信エラーで失敗した動画は、利用者からは二度と保存できなかった。{@code FAILED} は再生できるものが
-     * 何も無い状態（{@link RecordingStatus#FAILED}）で、利用者のアーカイブにも出ないので、消しても失うものは無い。
+     * 無い状態（{@link RecordingStatus#FAILED}）で、利用者のアーカイブにも出ない。
      * 「既にサービスの録画にあるときは取り直さない」（#449 の決定）は、再生できる録画（完了・途中まで）があるときに守る。
      * ファイルも消すのは、再生できない {@code {動画ID}.mp4} や断片が残っていると、yt-dlp が出力先にある
      * ファイルを使い回して、また失敗になりうるため。
+     *
+     * <p><b>空きが足りずに詰め替えを見送った録画が 1 件でもあれば、何も消さずに 503 で断る。</b>
+     * この録画は {@code FAILED} でも元のファイル・断片が残っていて、空きができれば後始末
+     * （{@link RecordingReconciler}）が途中まで・完了に直す（{@link SalvageStatus#INSUFFICIENT_SPACE}）。
+     * 開始時の空き容量の確認（{@link #minFreeGb}）は録画の大きさを見ないので、大きな録画では、その確認を通っても
+     * 詰め替えに要る「録画の大きさ＋下限」に足りないことがある。ここで消すと、直せたはずの録画を利用者の操作で失う。
+     * 判定は後始末の見送りと同じもの（{@link RecordingSalvager#lacksSpaceToSalvage}）を使う。
+     * 空きができてから、次の後始末がこの録画を直すまでの間に押されると、判定は通って消す。
      *
      * <p><b>1 件でも失敗以外の履歴があれば何も消さない。</b>{@link RecordingHistoryService#deleteRecording(Long)} は
      * 同じフォルダーにある同じ動画 ID のファイルをまとめて消すので、完了した録画と同じ動画 ID の失敗の履歴を消すと、
@@ -277,9 +287,9 @@ public class VideoDownloadService {
      * （{@link DeviceDownloadService}）の {@code yt-dlp} も同じ動画 ID をコマンドラインに含むので、確かめると、
      * 誰かが端末に保存しているだけで断ってしまうため。予約で避けられないのは、再起動前の JVM が失敗の行に始めた
      * 詰め替えの {@code ffmpeg} が生き残っている間（1 件最大 600 秒）だけ（{@code docs/pitfalls.md}
-     * 「録画中にアプリを再起動すると「録画中」のまま更新されなくなる」）。そのファイルを消しても、失敗の録画なので
-     * 再生できるものは失わない。消せずに残って取り直しがまた失敗しても、その {@code ffmpeg} が終わった後に
-     * もう一度保存すれば通る。
+     * 「録画中にアプリを再起動すると「録画中」のまま更新されなくなる」）。そのファイルを消しても再生できるものは
+     * 失わないが、後始末が直せたはずの録画は失いうる（{@link RecordingStatus#FAILED}）。消せずに残って
+     * 取り直しがまた失敗しても、その {@code ffmpeg} が終わった後にもう一度保存すれば通る。
      *
      * <p>監査ログには、操作した人の操作として {@code RECORDING_DELETE}（消した失敗の履歴）と
      * {@code DOWNLOAD_REQUEST}（取り直し）が並ぶので、何を消して取り直したかを後から追える。
@@ -287,6 +297,7 @@ public class VideoDownloadService {
      * @param videoId 動画 ID
      * @throws VideoAlreadyDownloadedException 再生できる録画がある場合（保存済みの文言）。取得中の履歴がある、
      *                                         または確かめている間に履歴が消えた場合（取得中の文言。もう一度押せば通る）
+     * @throws InsufficientDiskSpaceException  空きが足りずに詰め替えを見送った失敗の録画がある場合（何も消さない）
      */
     private void discardFailedHistory(String videoId) {
         List<Recording> history = recordingRepository.findByVideoId(videoId);
@@ -301,6 +312,15 @@ public class VideoDownloadService {
                 && history.stream().allMatch(recording -> recording.getStatus() == RecordingStatus.FAILED);
         if (!onlyFailed) {
             throw new VideoAlreadyDownloadedException(videoId);
+        }
+        // 空きが足りずに詰め替えを見送った録画は、中身が残っていて後始末が直せる。消すと直せたはずの録画を
+        // 失うので、1 件でもあれば何も消さずに断る（必要量と空きは RecordingSalvager が WARN に残す）
+        for (Recording failed : history) {
+            if (recordingSalvager.lacksSpaceToSalvage(recordingFileService.resolveFilePath(failed))) {
+                log.warn("空きが足りず詰め替えを見送った録画が残っているため、失敗の履歴を消さずに断ります: video={}, id={}",
+                        videoId, failed.getId());
+                throw new InsufficientDiskSpaceException();
+            }
         }
         for (Recording failed : history) {
             try {

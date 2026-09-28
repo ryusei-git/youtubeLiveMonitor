@@ -179,8 +179,13 @@ public class Recording {
         /**
          * 録画プロセスが異常終了し、再生できるファイルを用意できなかった。
          *
-         * <p>途中まででもファイルが残っていれば {@link #PARTIAL} になるため、
-         * この状態は「そもそも中身が無い」ことを意味する。
+         * <p>途中まででも再生できる形に直せれば {@link #PARTIAL} になるが、
+         * この状態でも<b>中身が無いとは限らない。</b>空き容量が足りずに詰め替えを見送った録画は、
+         * 元のファイル・断片を残したままこの状態になり、空きができれば後始末
+         * （{@link com.example.monitor.service.RecordingReconciler}）が
+         * {@link #PARTIAL}・{@link #COMPLETED} に直す。この状態だけを理由にファイルを消すと、
+         * 直せたはずの録画を失う（空きの判定は
+         * {@link com.example.monitor.service.RecordingSalvager#lacksSpaceToSalvage}）。
          */
         FAILED
     }
