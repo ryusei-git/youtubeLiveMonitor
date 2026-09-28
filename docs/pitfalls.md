@@ -202,6 +202,10 @@ root のレベル設定が効かない（明示 level は additivity では止�
 ログ画面のレベル絞り込みの選択肢もこのパターンの抽出結果（`LogEntry.level`）から作っているため、
 形式を変えると「選択肢が常に空になる」という形で先に壊れる。
 
+この対応は `LogbackPatternConventionTest`（`src/test/java/com/example/monitor/service/`）が確かめている。
+`logback-spring.xml` の 3 つの `<pattern>` で実際に整形した行を `ChannelLogReader.readChannelLog()` で読み返すので、
+書式だけ・パーサーだけを変えると `./gradlew build` が落ちる（`logback-spring.xml` は logback 自身の警告を捨てているので、起動しても気づけない）。
+
 ### 外部 API の例外をそのままログに渡さない（実際に発生した）
 
 Google の API ライブラリの例外は、本文にリクエストの URL（`?key=<API キー>` 付き）を含む。
@@ -217,6 +221,9 @@ Google の API ライブラリの例外は、本文にリクエストの URL（`
   この 2 つの形以外の秘密（ヘッダーの値、JSON の中の値など）は伏せない。上の決まりを省く理由にしないこと。
 - pattern を書き換えるときも、この `%replace` と末尾の `%nopex` を外さない。`%msg` だけを包むと、
   例外のスタック（logback が末尾に自動で足す `%ex`）の中の URL が伏せられない。
+
+伏せ字が効いていること（本文と例外のスタックの両方）は `LogbackPatternConventionTest` の `Redaction` が確かめている。
+ただし `%nopex` を外しても logback 1.5.38 ではスタックが 2 回出ないので、`%nopex` の有無はテストでは見分けられない。
 
 ### 一覧のセルは折り返さない
 
@@ -533,6 +540,10 @@ Value not permitted for column "('COMPLETED', 'FAILED', 'RECORDING')": "PARTIAL"
 ALTER TABLE recordings ALTER COLUMN status SET DATA TYPE VARCHAR(16);
 ```
 
+この決まりは `EntityColumnConventionTest`（`src/test/java/com/example/monitor/entity/`）が確かめている。
+`@Enumerated(EnumType.STRING)` の無い enum、`columnDefinition` が `varchar(N)` で始まらない enum、
+N より長い名前の列挙子があると、`./gradlew build` が落ちる。
+
 ### 既存データがある状態で NOT NULL の boolean カラムを追加すると失敗する（実際に発生した）
 
 `recordEnabled`（boolean, primitive）を `MonitoredChannel` に追加した際、登録済みチャンネルが
@@ -543,3 +554,6 @@ ALTER TABLE recordings ALTER COLUMN status SET DATA TYPE VARCHAR(16);
 boolean の primitive フィールドを新規追加するときは、原則として
 `@Column(columnDefinition = "boolean default false")` のようにDB側のデフォルト値を
 明示すること（`recordEnabled` 参照）。
+
+この決まりも `EntityColumnConventionTest` が確かめている。`columnDefinition` に `default` の無い primitive の boolean があると落ちる。
+例外は、本番の DB に最初からある `MonitoredChannel.currentlyLive` だけ（テストの `BOOLEAN_COLUMNS_WITHOUT_DEFAULT`）。新しいフィールドは、新しいテーブルのものでもこの一覧に足さないこと。
