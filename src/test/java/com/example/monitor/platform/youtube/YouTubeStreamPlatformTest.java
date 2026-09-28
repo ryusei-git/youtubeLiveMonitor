@@ -6,6 +6,7 @@ import com.example.monitor.dto.VideoSource;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.service.LiveStreamDetector;
 import com.example.monitor.service.YouTubeApiClient;
+import com.example.monitor.util.YouTubeWatchUrl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -282,6 +283,43 @@ class YouTubeStreamPlatformTest {
             when(youTubeApiClient.fetchLiveStreamDetails("video001")).thenReturn(Optional.empty());
 
             assertThat(platform.fetchDetails("UCchannel001", "video001")).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("fallbackDetails()")
+    class FallbackDetails {
+
+        @Test
+        @DisplayName("正常系：検知結果とチャンネル名から通知に要る値を詰め、APIは呼ばない")
+        void testMethod01() {
+            LiveStreamDetection detection = LiveStreamDetection.live(
+                    "abcdefghijk", "【雑談】おはよう", null, "https://www.youtube.com/watch?v=abcdefghijk");
+
+            LiveStreamDetails details = platform.fallbackDetails("テストチャンネル", detection).orElseThrow();
+
+            assertThat(details.getVideoId()).isEqualTo("abcdefghijk");
+            assertThat(details.getTitle()).isEqualTo("【雑談】おはよう");
+            assertThat(details.getChannelTitle()).isEqualTo("テストチャンネル");
+            // 視聴 URL は検知結果が運んだものをそのまま使う
+            assertThat(details.getWatchUrl()).isEqualTo("https://www.youtube.com/watch?v=abcdefghijk");
+            assertThat(details.getThumbnailUrl()).isEqualTo(YouTubeWatchUrl.thumbnailOf("abcdefghijk"));
+            // API でしか分からない値は入れない（待機所の見送りの判定に使われないように）
+            assertThat(details.getBroadcastStatus()).isNull();
+            // クォータを使わない
+            verifyNoInteractions(youTubeApiClient, liveStreamDetector);
+        }
+
+        @Test
+        @DisplayName("正常系：タイトルが読めていなくても、空でない題を入れる")
+        void testMethod02() {
+            LiveStreamDetection detection = LiveStreamDetection.live(
+                    "abcdefghijk", null, null, "https://www.youtube.com/watch?v=abcdefghijk");
+
+            LiveStreamDetails details = platform.fallbackDetails("テストチャンネル", detection).orElseThrow();
+
+            // Discord の埋め込みの題を空にしない
+            assertThat(details.getTitle()).isNotBlank();
         }
     }
 }
