@@ -2257,10 +2257,93 @@ function channelIcon(url) {
 }
 
 /**
+ * 開始予定までの残り（過ぎていれば過ぎた長さ）を「あと 25 分」「予定を 12 分過ぎ」の形にする。
+ *
+ * <p>日付・時間の列だけでは、今からどれくらい先かを暗算しないといけない。また、開始予定を過ぎてもまだ始まっていない
+ * 待機所（遅れている配信。UpcomingStreamResponse.listWithinWindow が「すぐ始まる可能性が高い」として含めている）を、
+ * これからの予定と見分けられない。表の更新は分単位なので、分に丸める（前後 30 秒以内は「まもなく」）。
+ *
+ * @param {string|null} iso 開始予定時刻（API の値。タイムゾーンの無い形はブラウザの時刻として読む。splitScheduledStart と同じ）
+ * @param {number} [now] 基準の時刻（ミリ秒）。省くと今
+ * @returns {string} 表示用の文字列。時刻が無い・読めなければ "-"
+ */
+function formatStartsIn(iso, now = Date.now()) {
+    if (!iso) return "-";
+    const start = new Date(iso).getTime();
+    if (Number.isNaN(start)) return "-";
+    const minutes = Math.round((start - now) / 60_000);
+    if (minutes === 0) return "まもなく";
+    const abs = Math.abs(minutes);
+    const days = Math.floor(abs / 1440);
+    const hours = Math.floor((abs % 1440) / 60);
+    const rest = abs % 60;
+    const span = days > 0 ? (hours > 0 ? `${days} 日 ${hours} 時間` : `${days} 日`)
+        : hours > 0 ? (rest > 0 ? `${hours} 時間 ${rest} 分` : `${hours} 時間`)
+        : `${rest} 分`;
+    return minutes > 0 ? `あと ${span}` : `予定を ${span}過ぎ`;
+}
+
+/**
+ * 表の「開始まで」の列（renderUpcomingStreams が付ける .upcomingStartsIn）を、今の時刻で書き直す。
+ *
+ * <p>表は API の値が変わらないと描き直さない（利用者のトップは前回と同じ内容なら描き直さない。#279）ので、描き直しに頼ると
+ * 残り時間が止まる。表ごと描き直すとフォーカスしていたリンクが外れるため、文字だけを書き換える。
+ */
+function refreshUpcomingStartsIn() {
+    for (const cell of document.querySelectorAll(".upcomingStartsIn")) {
+        const text = formatStartsIn(cell.getAttribute("data-start") || null);
+        if (cell.textContent !== text) cell.textContent = text;
+    }
+}
+
+/**
+ * refreshUpcomingStartsIn を回すタイマー。まだ回していなければ 0。
+ * 利用者の画面（my.html）は画面を移ってもページを読み込み直さないので、表を描くたびにタイマーを作ると積み重なる。
+ * そのため 1 ページに 1 つだけ作り、表が無い間は何もしない（探す要素が無いだけ）。
+ */
+let upcomingStartsInTimer = 0;
+
+/**
+ * カレンダーに入れる予定の長さ（分）。配信の長さは始まるまで分からないので、Google カレンダーの既定の長さと同じ 1 時間にする。
+ * 予定に入れる目的は開始時刻を忘れないことなので、終わりの時刻は目安でよい。
+ */
+const UPCOMING_CALENDAR_EVENT_MINUTES = 60;
+
+/**
+ * 配信予定を Google カレンダーの予定作成画面で開く URL。
+ *
+ * <p>サーバーを介さず、利用者が自分のカレンダーへ開始予定を入れられるようにする。時刻は UTC（末尾 Z）で渡し、
+ * 表に出している開始予定と同じ時点の予定にする（タイムゾーンの無い時刻で渡すと、Google アカウントのタイムゾーンで読まれて
+ * ずれることがある）。カレンダーはアカウントのタイムゾーンで表示するので、端末と同じなら表の「時間」と同じ時刻に見える。
+ * 説明欄に視聴 URL を入れるのは、カレンダーの予定から直接配信を開けるようにするため。
+ * .ics ファイルは作らない（iPhone の Safari で、JS で作ったファイルを保存したときの扱いを確かめられていないため）。
+ *
+ * @param {{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string}} stream 配信予定
+ * @returns {string|null} URL。開始予定が無い・読めなければ null
+ */
+function googleCalendarUrl(stream) {
+    if (!stream.scheduledStartTime) return null;
+    const start = new Date(stream.scheduledStartTime);
+    if (Number.isNaN(start.getTime())) return null;
+    const end = new Date(start.getTime() + UPCOMING_CALENDAR_EVENT_MINUTES * 60_000);
+    // 2026-09-30T12:00:00.000Z → 20260930T120000Z（Google カレンダーの dates の書式）
+    const utc = (/** @type {Date} */ date) => date.toISOString().replace(/\.\d{3}Z$/, "Z").replace(/[-:]/g, "");
+    const params = new URLSearchParams({
+        action: "TEMPLATE",
+        text: `${stream.channelName}：${stream.title ?? "配信予定"}`,
+        dates: `${utc(start)}/${utc(end)}`,
+        details: stream.watchUrl,
+    });
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+/**
  * 配信予定を開始時刻の近さで読み取れる一覧にする。
  *
  * <p>配信中の一覧と分けることで、待機所を配信開始と誤解せず、利用者が次の予定を把握できる。
  * 管理画面のダッシュボードと利用者のトップ（my-app.js）で同じ表を出すため、ここに置いている。
+ *
+ * <p>「開始まで」の列（formatStartsIn）と「カレンダー」の列（googleCalendarUrl）は、行の値から画面だけで作る（API は変えない）。
  *
  * @param {Array<{channelName: string, title: string|null, scheduledStartTime: string|null, watchUrl: string, genre?: string|null, channelIconUrl?: string|null, channelUrl: string|null}>} streams 開始予定の早い順で返された配信予定
  * @param {HTMLElement} [box] 描く先。省くとダッシュボードの欄
@@ -2275,24 +2358,29 @@ function renderUpcomingStreams(streams, box = el("upcomingStreams"),
     }
     const rows = streams.map(s => {
         const start = splitScheduledStart(s.scheduledStartTime);
+        const calendarUrl = googleCalendarUrl(s);
         return `
         <tr data-focus-key="${escapeHtml(s.watchUrl)}">
             <td>${escapeHtml(start.date)}</td>
             <td>${escapeHtml(start.weekday)}</td>
             <td>${escapeHtml(start.time)}</td>
+            <td class="upcomingStartsIn" data-start="${escapeHtml(s.scheduledStartTime ?? "")}">${escapeHtml(formatStartsIn(s.scheduledStartTime))}</td>
             <td><span class="channelWithIcon">${channelIcon(s.channelIconUrl)}${externalLink(s.channelName, s.channelUrl)}</span></td>
             <td>${escapeHtml(s.genre || "未設定")}</td>
             <td>${externalLink(s.title ?? "（タイトル不明）", s.watchUrl)}</td>
+            <td>${calendarUrl ? externalLink("カレンダーに追加", calendarUrl) : "-"}</td>
         </tr>`;
     }).join("");
     box.innerHTML = `
         <div class="table-scroll">
             <table id="upcomingTable">
-                <thead><tr><th>日付</th><th>曜日</th><th>時間</th><th>チャンネル名</th><th>ジャンル</th><th>タイトル</th></tr></thead>
+                <thead><tr><th>日付</th><th>曜日</th><th>時間</th><th>開始まで</th><th>チャンネル名</th><th>ジャンル</th><th>タイトル</th><th>カレンダー</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>
         </div>`;
     restoreFocus();
+    // 描き直さない間も「開始まで」を進める（refreshUpcomingStartsIn の JSDoc を参照）
+    if (!upcomingStartsInTimer) upcomingStartsInTimer = window.setInterval(refreshUpcomingStartsIn, 30_000);
 }
 
 /** 非表示中の定期通信を省き、戻ってきたときだけ最新の保存済み状態を読む。
