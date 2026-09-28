@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * 管理者が発行する招待リンクと、そこからの利用者登録を扱う。
@@ -55,6 +56,15 @@ public class InvitationService {
 
     /** 利用者名の最大文字数（DB の列長と揃えている）。 */
     private static final int MAX_USERNAME_LENGTH = 64;
+
+    /**
+     * 利用者名に使わせない文字（制御文字 Cc・書式文字 Cf・空白 Z）。
+     *
+     * <p>改行を許すと、利用者名を出すすべてのログに偽の行を書き込める。ゼロ幅スペース（Cf）や
+     * 全角空白（Z。{@link String#trim()} では前後から落ちない）を許すと、見た目が同じ別の利用者名を作れ、
+     * 利用者一覧と監査ログで他人になりすませる。
+     */
+    private static final Pattern FORBIDDEN_USERNAME_CHARACTERS = Pattern.compile("[\\p{Cc}\\p{Cf}\\p{Z}]");
 
     /** 使用済みの招待を断るときの文言。 */
     private static final String ALREADY_USED_MESSAGE =
@@ -227,6 +237,9 @@ public class InvitationService {
         if (username.length() < MIN_USERNAME_LENGTH || username.length() > MAX_USERNAME_LENGTH) {
             throw new IllegalArgumentException(
                     "利用者名は" + MIN_USERNAME_LENGTH + "〜" + MAX_USERNAME_LENGTH + "文字にしてください");
+        }
+        if (FORBIDDEN_USERNAME_CHARACTERS.matcher(username).find()) {
+            throw new IllegalArgumentException("利用者名に空白・改行・見えない文字は使えません");
         }
     }
 

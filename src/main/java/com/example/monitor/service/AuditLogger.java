@@ -4,6 +4,7 @@ import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditLog;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.repository.AuditLogRepository;
+import com.example.monitor.util.LogValueSanitizer;
 import com.example.monitor.util.RequestContext;
 import com.example.monitor.util.TextTruncator;
 import lombok.RequiredArgsConstructor;
@@ -96,7 +97,10 @@ public class AuditLogger {
                     .detail(fit(detail, DETAIL_LENGTH))
                     .build());
         } catch (Exception e) {
-            log.warn("監査ログの記録に失敗しました: action={}, outcome={}, user={}", action, outcome, username, e);
+            // ログインの失敗では username がフォームの値そのもの（長さも文字も未検証）。保存に失敗すると
+            // ここに来るので、改行で偽の行を書かれないよう無害化してから出す
+            log.warn("監査ログの記録に失敗しました: action={}, outcome={}, user={}", action, outcome,
+                    LogValueSanitizer.sanitize(username), e);
         }
     }
 
