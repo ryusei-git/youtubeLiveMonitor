@@ -170,6 +170,7 @@ public class StreamRecorder {
      *
      * <p>同じ動画 ID を録画できるのは {@link ActiveVideoJobs} の予約を取った 1 本だけなので、
      * 1 つの動画 ID を待つスレッドは同時に 1 本しかない。
+     * 管理画面から止めたとき（{@link #stopRecording(Long)}）も、待ちを解くために完了させる。
      */
     private final Map<String, CompletableFuture<Void>> liveConfirmations = new ConcurrentHashMap<>();
 
@@ -432,7 +433,9 @@ public class StreamRecorder {
      * 利用者が同じ動画を端末保存している yt-dlp（{@link DeviceDownloadService}。出力先は一時フォルダ）まで止めてしまうため。
      *
      * <p>止める処理は、SIGKILL へ切り替えるまで最大 30 秒待つため、仮想スレッドで行い HTTP の応答を待たせない。
-     * 追跡中の録画は、プロセスが終わると {@code awaitCompletion} が救済・記録する。追跡していない録画は
+     * 追跡中の録画は、プロセスが終わると {@code awaitCompletion} が救済・記録する。録り直しの前に巡回の合図を
+     * 待っている録画（止める yt-dlp が無い）は、待ちを解いてすぐに記録させる。解かないと、合図の待ち（既定で最大 6 分）が
+     * 切れるまで録画中のまま残り、{@link StopOutcome#STOPPING} の「最大 30 秒」を守れないため。追跡していない録画は
      * {@link RecordingReconciler} が次の後始末で記録する。{@code lastRecordedVideoId} は録画の開始時に更新済みなので、
      * 次の巡回で同じ配信を録り始めることもない。
      *
@@ -451,6 +454,11 @@ public class StreamRecorder {
         if (tracked) {
             // プロセスを止める前に付ける（stopRequested の JavaDoc 参照）
             stopRequested.add(videoId);
+            // 巡回の合図を待っている録画には止める yt-dlp が無い。待ちを解き、起きたスレッドに印を見て録り直さずに記録させる
+            CompletableFuture<Void> waiting = liveConfirmations.get(videoId);
+            if (waiting != null) {
+                waiting.complete(null);
+            }
         }
         String outputFragment = FileNameUtils.stripExtension(recording.getFilePath(), ".mp4") + ".%(ext)s";
         List<ProcessHandle> handles = processLauncher.findYtDlpProcessesWithCommandLineContaining(outputFragment);
@@ -638,7 +646,8 @@ public class StreamRecorder {
                             channel.getChannelName(), videoId);
                     return;
                 }
-                // 合図を待つ間に管理画面から止められた録画は、合図が来ても録り直さない
+                // 合図を待つ間に管理画面から止められた録画は録り直さない（stopRecording が待ちを解いてここへ来る。
+                // 待ちが解けたのが巡回の合図でも同じ。stillLive より先に見るのはそのため）
                 if (stopRequested.contains(videoId)) {
                     log.info("管理画面の操作で止められたため、録り直しをやめます: channel={}, video={}",
                             channel.getChannelName(), videoId);
@@ -929,7 +938,8 @@ public class StreamRecorder {
      * 壊れやすく、壊れると以降の録画がすべて失敗する。気付くのが遅れるほど取り返せない配信が増えるため、その場で知らせる。
      *
      * <p>空き容量のような「1 回だけ」の抑制はしない。呼び出し元の巡回は録画を始めた時点で
-     * {@code lastRecordedVideoId} を更新済みで、同じ配信を録り直さないため、通知は失敗した配信 1 本につき 1 回で済む。
+     * {@code lastRecordedVideoId} を更新済みで同じ配信を録り始め直さず、録り直しは記録より前に
+     * {@code awaitCompletion} の中で済ませるため、通知は失敗した配信 1 本につき 1 回で済む。
      * 固まった・空き容量が下限を割ったために止めた録画が失敗に終わったときは、止めたことの通知（{@link #awaitExit}）に
      * 続けてこの通知も届く。止めた結果どうなったかが分かるので、1 通にまとめない。
      *
