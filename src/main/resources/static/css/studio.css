@@ -345,6 +345,9 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 .discoverStats { display: flex; flex-wrap: wrap; gap: 4px 16px; }
 .discoverStats span { white-space: nowrap; }
 .discoverActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px !important; }
+/* 判定したカードの代わりに残す行。押し間違えをその場で取り消せるようにする。カードより低く、判定済みと分かる地の色にする */
+.discoverUndo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0; padding: 10px 16px; background: #f6f5fa; border: 1px solid var(--border); border-radius: 12px; color: var(--text-muted); font-size: 13px; overflow-wrap: anywhere; }
+.discoverUndo span { min-width: 0; }
 @media (max-width: 760px) {
     .discoverCard { grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 12px; }
     .discoverIcon { width: 44px; height: 44px; }
