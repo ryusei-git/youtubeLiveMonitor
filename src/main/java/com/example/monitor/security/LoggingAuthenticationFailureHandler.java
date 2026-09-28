@@ -3,6 +3,7 @@ package com.example.monitor.security;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.service.AuditLogger;
+import com.example.monitor.util.LogValueSanitizer;
 import com.example.monitor.util.LoginReturnPath;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -33,6 +34,11 @@ import java.io.IOException;
  * {@code LoginAttemptFilter} が {@code UsernamePasswordAuthenticationFilter} より前段で
  * 制限中のリクエストを 429 で打ち切るため、このハンドラ自体が呼ばれない。
  * 総当たりが続いても監査ログの行数は際限なく増えない。
+ *
+ * <h2>利用者名はそのままアプリログに書かない</h2>
+ * 利用者名は未ログインの人が自由に決められる。改行を含めて送られると、アプリログに本物と区別できない
+ * 偽の行を書き込まれ、管理者のログ画面に本物として並ぶ。そのため {@link LogValueSanitizer#sanitize(String)} に
+ * 通してから書く（ログの書式はパーサーと対なので変えない）。
  */
 @Component
 @Profile("!cli")
@@ -66,7 +72,8 @@ public class LoggingAuthenticationFailureHandler extends SimpleUrlAuthentication
                                          AuthenticationException exception) throws IOException, ServletException {
         // パスワードそのものはログに残さない（usernameパラメータのみ参照する）
         String username = request.getParameter("username");
-        log.warn("ログインに失敗しました: user={}, reason={}", username, exception.getMessage());
+        // 利用者名は未ログインの人が自由に決められるので、改行で偽の行を書かれないよう無害化してから出す
+        log.warn("ログインに失敗しました: user={}, reason={}", LogValueSanitizer.sanitize(username), exception.getMessage());
         // 存在しない利用者名でも同じ経路を通る。実在の有無を監査ログの有無から
         // 読み取れてしまわないよう、userId は常に null のまま記録する
         auditLogger.recordAuthEvent(AuditAction.LOGIN_FAILURE, AuditOutcome.FAILURE,
