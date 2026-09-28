@@ -90,8 +90,13 @@ public class HttpClientConfig {
          *
          * <p>{@code future.cancel(true)} は、JDK の {@code sendAsync} が返す future の上で要求そのものを取り消す
          * （JDK 自身の {@code send} も、割り込まれたときに同じ呼び方をしている）。止まった接続を抱え続けないため。
-         * 例外の型は変えない。呼び出し側は {@link IOException} を捕まえて「判定できなかった」「送れなかった」に
-         * 変えているので、{@link IOException} の仲間はそのまま投げる。
+         * 例外の型は JDK の {@code send} と同じにする。呼び出し側は {@link IOException} を捕まえて
+         * 「判定できなかった」「送れなかった」に変えているので、{@link IOException} の仲間はそのまま投げる。
+         * {@link IllegalArgumentException}・{@link SecurityException} 以外の実行時例外やエラーも、
+         * JDK の {@code send} と同じく {@link IOException} に包む。そのまま投げると、{@link IOException} だけを
+         * 捕まえる呼び出し側（Twitch の API など）を素通りして巡回まで上がってしまうため。
+         * 割り込み済みなら送らずに {@link InterruptedException} を投げるのも、JDK の {@code send} と同じ
+         * （送ってすぐ取り消すだけの要求を出さないため）。
          */
         @Override
         public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
@@ -99,6 +104,9 @@ public class HttpClientConfig {
             Optional<Duration> timeout = request.timeout();
             if (timeout.isEmpty()) {
                 return delegate.send(request, responseBodyHandler);
+            }
+            if (Thread.interrupted()) {
+                throw new InterruptedException();
             }
             CompletableFuture<HttpResponse<T>> future = delegate.sendAsync(request, responseBodyHandler);
             try {
@@ -114,13 +122,10 @@ public class HttpClientConfig {
                 if (cause instanceof IOException ioException) {
                     throw ioException;
                 }
-                if (cause instanceof RuntimeException runtimeException) {
-                    throw runtimeException;
+                if (cause instanceof IllegalArgumentException || cause instanceof SecurityException) {
+                    throw (RuntimeException) cause;
                 }
-                if (cause instanceof Error error) {
-                    throw error;
-                }
-                throw new IOException(cause);
+                throw new IOException(cause.getMessage(), cause);
             }
         }
 
