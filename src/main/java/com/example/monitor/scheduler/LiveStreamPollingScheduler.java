@@ -8,6 +8,7 @@ import com.example.monitor.platform.Platform;
 import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.MonitoredChannelRepository;
+import com.example.monitor.service.DetectionFailureAlerter;
 import com.example.monitor.service.NotificationDispatcher;
 import com.example.monitor.service.NotificationHistoryService;
 import com.example.monitor.service.PollingStatusTracker;
@@ -66,6 +67,9 @@ import java.util.stream.Collectors;
  *       答えたら通知しない</li>
  *   <li>{@link NotificationDispatcher} で通知し、結果を履歴に残す</li>
  *   <li>通知に成功した場合のみ「通知済みの動画 ID」を更新する</li>
+ *   <li>プラットフォームごとの後処理が終わったら、判定結果を {@link DetectionFailureAlerter} に渡す。
+ *       判定の失敗が続いていれば管理者の Discord へ知らせる（ダッシュボードを開かなくても、
+ *       YouTube 側の変更などで検知が止まったことに気付けるように）</li>
  * </ol>
  *
  * <p>置き去りになった録画履歴の補正は巡回に含めない。{@code ffmpeg} を待つ間に配信検知が
@@ -120,6 +124,7 @@ public class LiveStreamPollingScheduler {
     private final com.example.monitor.service.OnlineVideoService onlineVideoService;
     private final UserNotificationService userNotificationService;
     private final PollingStatusTracker pollingStatusTracker;
+    private final DetectionFailureAlerter detectionFailureAlerter;
 
     /**
      * 巡回が実行中かどうか。定期実行と手動実行が同時に走るのを防ぐために使う。
@@ -169,7 +174,8 @@ public class LiveStreamPollingScheduler {
      * <p><b>最後まで回ったら {@link PollingStatusTracker#recordSuccess()} を呼ぶ</b>（{@code GET /api/health} の基準）。
      * {@code finally} では呼ばない。{@code findAll()} などが例外で抜けた巡回を成功と数えないため。
      * チャンネル・プラットフォームごとの検知の失敗は中で握って最後まで回るので成功に数える。
-     * ここで見るのは「巡回が回っているか」で、YouTube に届くかはダッシュボードの検知失敗の警告が受け持つ。
+     * ここで見るのは「巡回が回っているか」で、YouTube に届くかはダッシュボードの検知失敗の警告と
+     * {@link DetectionFailureAlerter}（管理者の Discord への知らせ）が受け持つ。
      *
      * @return 巡回を実行した場合 {@code true}。既に巡回中で見送った場合は {@code false}
      */
@@ -234,6 +240,15 @@ public class LiveStreamPollingScheduler {
                             channel.getChannelName(), channel.getYoutubeChannelId(), e);
                 }
             });
+        }
+
+        // 判定の失敗が続いていれば管理者へ知らせる。通知・録画を済ませた後に置くのは、Discord の応答待ち
+        // （sendAdminAlert は応答を最大 10 秒待つ）で配信開始の通知を遅らせないため。見張りの不具合で残りの
+        // プラットフォームの巡回や recordSuccess() を止めないよう、例外はここで握る
+        try {
+            detectionFailureAlerter.recordPlatformResult(platform, channels, detections);
+        } catch (RuntimeException e) {
+            log.warn("配信状態の判定の見張りに失敗しました: platform={}", platform, e);
         }
     }
 

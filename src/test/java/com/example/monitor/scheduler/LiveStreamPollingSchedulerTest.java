@@ -87,6 +87,10 @@ class LiveStreamPollingSchedulerTest {
     @Mock
     private com.example.monitor.service.PollingStatusTracker pollingStatusTracker;
 
+    /** 判定失敗の見張り。モックのままにして、既存の各テストで Discord へ送らない。 */
+    @Mock
+    private com.example.monitor.service.DetectionFailureAlerter detectionFailureAlerter;
+
     @InjectMocks
     private LiveStreamPollingScheduler scheduler;
 
