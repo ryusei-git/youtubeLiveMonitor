@@ -10,6 +10,7 @@ import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.exception.InsufficientDiskSpaceException;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
+import com.example.monitor.exception.ServiceDownloadInProgressException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
@@ -35,6 +36,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * URL を指定して動画 1 本をダウンロードする。
@@ -131,6 +134,32 @@ public class VideoDownloadService {
      */
     private final ActiveVideoJobs activeVideoJobs;
 
+    /** 下調べ中でまだ動画 ID が分からない枠の値。ConcurrentHashMap は null を値に持てないため空文字にしている。 */
+    private static final String PROBING = "";
+
+    /**
+     * 一般利用者（ADMIN 以外）の「サービスに保存」の枠。利用者 ID → 保存中の動画 ID（下調べ中は {@link #PROBING}）。
+     *
+     * <p>開始時点の空き容量の判定だけでは、長い動画を同時に何本も始めると、どれも判定を通ったうえで
+     * 終わる頃にしきい値を割り、自動録画（{@link StreamRecorder}）が始まらなくなる。
+     * 利用者 1 人の操作で監視対象の配信が録れなくなるのを防ぐため、一般利用者は 1 人同時 1 件にしている
+     * （端末に保存の {@link DeviceDownloadService} と同じ考え方。枠はそちらとは別に数える）。
+     *
+     * <p><b>管理者は対象外。</b>運用する本人で、{@code /api/downloads} も ADMIN 専用のため。
+     * 上限は呼ばれた口ではなく役割で決める。なので、管理者が利用者の画面（{@code /api/my/downloads}）から
+     * 保存しても上限はかからない。
+     *
+     * <p><b>メモリだけに持つ</b>（{@link DeviceDownloadService} と同じ）。再起動直後は、まだ動いている
+     * {@code yt-dlp} の分を数えないので、2 件目を受け付けうる。逆に、完了待ちのスレッドが再起動で失われても、
+     * 枠が外れないまま残る事故は起きない（{@code docs/pitfalls.md}「録画中にアプリを再起動すると
+     * 「録画中」のまま更新されなくなる」）。
+     *
+     * <p>枠は完了待ち（{@link #awaitCompletion}）が終わるまで外れない。いまの完了待ちは
+     * {@code process.waitFor()} を上限なしで待つので、{@code yt-dlp} が固まると、その利用者は再起動まで
+     * 次を保存できない（固まり検知は #595 で入る。端末に保存の枠も同じ性質）。
+     */
+    private final Map<Long, String> userSlots = new ConcurrentHashMap<>();
+
     /**
      * URL を指定して動画のダウンロードを開始する。
      *
@@ -148,6 +177,7 @@ public class VideoDownloadService {
      * @throws VideoAlreadyDownloadedException    同じ動画の録画履歴が既にある、
      *                                            または既に処理中の場合
      * @throws InsufficientDiskSpaceException     空き容量がしきい値を下回る場合（503）
+     * @throws ServiceDownloadInProgressException 一般利用者が既に 1 件保存中の場合（409）
      * @throws IllegalStateException              保存先を作れない、
      *                                            {@code yt-dlp} を起動できない場合
      */
@@ -165,36 +195,72 @@ public class VideoDownloadService {
         // 対応していない URL は、プロセスを起動する前にその理由で返す
         StreamPlatform platform = streamPlatformRegistry.findByUrl(url);
 
-        VideoSource source = videoSourceProbe.probe(url)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "動画の情報を取得できませんでした。URLを確認してください: " + url));
-
-        // ライブ配信・待機所は自動録画の担当。プロセスを起動する前、予約する前に打ち切る
-        if (source.isLiveOrUpcoming()) {
-            throw new LiveStreamDownloadRejectedException(source.videoId());
+        // 一般利用者は同時に 1 件まで。下調べ（数秒かかる）の前に枠を取る。後にすると、連打した 2 件がどちらも通る
+        Long limitedUserId = limitedUserId();
+        if (limitedUserId != null && userSlots.putIfAbsent(limitedUserId, PROBING) != null) {
+            throw new ServiceDownloadInProgressException();
         }
-
-        String videoId = source.videoId();
-        if (!activeVideoJobs.reserve(videoId)) {
-            throw new VideoAlreadyDownloadedException(videoId);
-        }
-
         boolean started = false;
         try {
-            if (recordingRepository.existsByVideoId(videoId)) {
+            VideoSource source = videoSourceProbe.probe(url)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "動画の情報を取得できませんでした。URLを確認してください: " + url));
+
+            // ライブ配信・待機所は自動録画の担当。プロセスを起動する前、予約する前に打ち切る
+            if (source.isLiveOrUpcoming()) {
+                throw new LiveStreamDownloadRejectedException(source.videoId());
+            }
+
+            String videoId = source.videoId();
+            if (!activeVideoJobs.reserve(videoId)) {
                 throw new VideoAlreadyDownloadedException(videoId);
             }
 
-            DownloadResponse accepted = launch(platform, source, url);
-            started = true;
-            recordDownloadRequest(accepted, url);
-            return accepted;
+            try {
+                if (recordingRepository.existsByVideoId(videoId)) {
+                    throw new VideoAlreadyDownloadedException(videoId);
+                }
+
+                if (limitedUserId != null) {
+                    // 起動より前に書く。起動後だと、すぐ終わったダウンロードの awaitCompletion が先に枠を外そうとして
+                    // 空振りし、この利用者の枠が再起動まで残る
+                    userSlots.put(limitedUserId, videoId);
+                }
+                DownloadResponse accepted = launch(platform, source, url);
+                started = true;
+                recordDownloadRequest(accepted, url);
+                return accepted;
+            } finally {
+                if (!started) {
+                    // 起動できなかった登録を残すと、この動画は以降永久にダウンロードできなくなる
+                    activeVideoJobs.release(videoId);
+                }
+            }
         } finally {
-            if (!started) {
-                // 起動できなかった登録を残すと、この動画は以降永久にダウンロードできなくなる
-                activeVideoJobs.release(videoId);
+            if (!started && limitedUserId != null) {
+                // 起動できなかった枠を残すと、この利用者は再起動まで保存できなくなる
+                userSlots.remove(limitedUserId);
             }
         }
+    }
+
+    /**
+     * 「サービスに保存」の同時 1 件の上限をかける利用者を求める。
+     *
+     * <p>上限は呼ばれた口ではなく役割で決める（理由は {@link #userSlots} を参照）。
+     * 利用者の引き方は {@link #recordDownloadRequest} と同じ。
+     *
+     * @return 同時 1 件の上限をかける利用者の ID。未ログイン・管理者・DB に無い利用者なら {@code null}
+     */
+    private Long limitedUserId() {
+        String username = RequestContext.currentUsername();
+        if (username == null) {
+            return null;
+        }
+        return appUserRepository.findByUsername(username)
+                .filter(user -> user.getRole() != AppUser.Role.ADMIN)
+                .map(AppUser::getId)
+                .orElse(null);
     }
 
     /**
@@ -369,6 +435,8 @@ public class VideoDownloadService {
             log.error("ダウンロードの結果を記録できませんでした。録画履歴は後始末（RecordingReconciler）が補正します: video={}",
                     videoId, e);
         } finally {
+            // 利用者の枠も、結果を記録し終えてから外す
+            userSlots.values().remove(videoId);
             // 結果を記録し終えてから追跡を外す。順序を逆にすると、その隙に RecordingReconciler が
             // 「処理中でないのに RECORDING のまま＝置き去り」と誤判定してしまう
             activeVideoJobs.release(videoId);
