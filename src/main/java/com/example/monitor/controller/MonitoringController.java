@@ -1,10 +1,12 @@
 package com.example.monitor.controller;
 
 import com.example.monitor.dto.ManualCheckResponse;
+import com.example.monitor.exception.MonitoringDisabledException;
 import com.example.monitor.exception.MonitoringInProgressException;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.scheduler.LiveStreamPollingScheduler;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +33,17 @@ public class MonitoringController {
     private final MonitoredChannelRepository monitoredChannelRepository;
 
     /**
+     * 監視を行う起動か。確認用の起動（{@code bin/preview.sh} など）では {@code false} になる。
+     *
+     * <p>{@code false} のとき {@link LiveStreamPollingScheduler#pollNow()} は巡回せずに {@code false} を返すが、
+     * その値は「既に巡回中」と見分けがつかない。待っても直らない状態を「実行中です。お待ちください」と
+     * 伝えないよう、ここで先に見て別の理由を返す。
+     * 初期値を {@code true} にしているのは、Spring を通さずに組み立てるテストでも今までどおり動かすため。
+     */
+    @Value("${monitor.scheduling.enabled:true}")
+    private boolean schedulingEnabled = true;
+
+    /**
      * 次の定期実行を待たずに、その場で全チャンネルを 1 巡する。
      *
      * <p>巡回が終わるまで応答を返さない（非同期にしない）。呼び出し側が
@@ -40,9 +53,13 @@ public class MonitoringController {
      *
      * @return 巡回したチャンネル数
      * @throws MonitoringInProgressException 既に巡回中の場合（409 Conflict）
+     * @throws MonitoringDisabledException 監視を止めた起動（確認用の起動）の場合（409 Conflict）
      */
     @PostMapping("/check")
     public ManualCheckResponse checkNow() {
+        if (!schedulingEnabled) {
+            throw new MonitoringDisabledException();
+        }
         long channelCount = monitoredChannelRepository.count();
 
         if (!liveStreamPollingScheduler.pollNow()) {
