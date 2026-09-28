@@ -3,6 +3,7 @@ package com.example.monitor.repository;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.UserSubscription;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -25,9 +26,14 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
     /**
      * 指定した利用者の購読一覧を、購読した日時の新しい順に取得する。
      *
+     * <p>チャンネルも同時に読み込む（{@code @EntityGraph}）。呼び出し元（購読の一覧・配信予定）は
+     * 全件のチャンネル名と配信予定を読むので、遅延読み込みのままだと購読の件数（最大 50）だけ
+     * 問い合わせが追加で走る。
+     *
      * @param user 対象の利用者
-     * @return 購読日時の降順に並んだ購読一覧
+     * @return 購読日時の降順に並んだ購読一覧（チャンネル読み込み済み）
      */
+    @EntityGraph(attributePaths = "channel")
     List<UserSubscription> findByUserOrderBySubscribedAtDesc(AppUser user);
 
     /**
