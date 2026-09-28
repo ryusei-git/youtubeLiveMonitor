@@ -13,9 +13,11 @@ import com.example.monitor.exception.SearchQuotaExceededException;
 import com.example.monitor.exception.SoundDetectionConflictException;
 import com.example.monitor.exception.SoundDetectionNotFoundException;
 import com.example.monitor.exception.SoundMarkNotFoundException;
+import com.example.monitor.exception.TooManyPasswordAttemptsException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.exception.YouTubeApiUnavailableException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -100,6 +102,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(SearchQuotaExceededException.class)
     public ResponseEntity<Map<String, String>> handleSearchQuotaExceeded(SearchQuotaExceededException e) {
         return clientError(HttpStatus.TOO_MANY_REQUESTS, e);
+    }
+
+    /**
+     * パスワード変更で今のパスワードの照合に続けて失敗した場合を 429 Too Many Requests として返す。
+     *
+     * <p>{@code Retry-After} を付ける。ログインの試行制限（{@code LoginAttemptFilter}）と同じく、
+     * いつ再試行できるかを伝えるため。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(TooManyPasswordAttemptsException.class)
+    public ResponseEntity<Map<String, String>> handleTooManyPasswordAttempts(TooManyPasswordAttemptsException e) {
+        ResponseEntity<Map<String, String>> response = clientError(HttpStatus.TOO_MANY_REQUESTS, e);
+        return ResponseEntity.status(response.getStatusCode())
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(response.getBody());
     }
 
     /**
