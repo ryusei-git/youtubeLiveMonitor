@@ -15,8 +15,9 @@ java {
 }
 
 repositories {
+    // 依存はすべて Maven Central から取る。jitpack.io のように GitHub のリポジトリをその場でビルドして配る取得元は、
+    // Central に無い名前を探しに行ったときに第三者のコードを取り込む入口になるため置かない
     mavenCentral()
-    maven { url = "https://jitpack.io" }
 }
 
 dependencies {
@@ -32,20 +33,14 @@ dependencies {
     implementation 'info.picocli:picocli-spring-boot-starter:4.7.6'
 
     // YouTube API
-    // google-http-client が Apache HttpClient 経由で commons-logging を引き込み、
-    // Spring Boot の spring-jcl と衝突して警告が出るため除外する
-    implementation('com.google.apis:google-api-services-youtube:v3-rev20260820-2.0.0') {
-        exclude group: 'commons-logging', module: 'commons-logging'
-    }
-    implementation('com.google.api-client:google-api-client:2.7.0') {
-        exclude group: 'commons-logging', module: 'commons-logging'
-    }
+    // google-http-client が Apache HttpClient 経由で commons-logging を引き込むが、除外はしない。
+    // Spring Framework 7 は spring-jcl をやめて commons-logging 1.3 に直接依存しており（除外しても jar に入る）、
+    // 1.3 系は見つけたログの仕組み（Log4j API・SLF4J）へ流し、最終的に logback に届くので衝突しない
+    implementation 'com.google.apis:google-api-services-youtube:v3-rev20260820-2.0.0'
+    implementation 'com.google.api-client:google-api-client:2.7.0'
 
     // ライブ判定（/live リダイレクトのHTML解析）
     implementation 'org.jsoup:jsoup:1.17.2'
-
-    // Discord Webhook
-    implementation 'club.minnced:discord-webhooks:0.8.4'
 
     // リソース計測（端末全体・プロセスごとの CPU / メモリ）
     implementation 'com.github.oshi:oshi-core:7.6.1'
@@ -62,10 +57,11 @@ dependencies {
 
     // Utilities
     // compileOnly と annotationProcessor はテストのコンパイルに引き継がれないため、テスト側にも同じ指定をする
-    compileOnly 'org.projectlombok:lombok:1.18.30'
-    annotationProcessor 'org.projectlombok:lombok:1.18.30'
-    testCompileOnly 'org.projectlombok:lombok:1.18.30'
-    testAnnotationProcessor 'org.projectlombok:lombok:1.18.30'
+    // 版は書かず Spring Boot の依存管理に任せる（1.18.30 に固定していたら、Boot を上げても古いまま残っていた）
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
 
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'

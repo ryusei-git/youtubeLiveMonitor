@@ -1,24 +1,23 @@
 package com.example.monitor.notification;
 
-import club.minnced.discord.webhook.send.WebhookEmbed;
-import club.minnced.discord.webhook.send.WebhookEmbedBuilder;
 import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.dto.LiveStreamDetails;
 import com.example.monitor.util.DiscordWebhookUrl;
+import tools.jackson.databind.json.JsonMapper;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import org.springframework.stereotype.Component;
 
-import java.awt.Color;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Discord の Webhook にメッセージを送信する。
@@ -31,26 +30,34 @@ import java.time.Duration;
  * <p>Webhook URL が未設定でも、形が崩れていてもアプリは起動できるようにしてある（起動時に WARN を出すだけ）。
  * 設定前でもチャンネル登録などの他の機能は使えた方が都合が良いため。
  *
- * <h2>宛先が 2 種類ある</h2>
- * 全体向け（{@code .env} の {@code DISCORD_WEBHOOK_URL}）と利用者ごとの Webhook のどちらへも、
- * 共有の {@link HttpClient} で JSON を POST する（{@link #post}）。
- * 以前は全体向けだけ discord-webhooks の {@code WebhookClient} で送っていたが、次の 2 つの理由でやめた。
- * (1) 送った後に {@code join()} で待つ時間に上限が無く、429（送りすぎ）を受けるとライブラリの中で待って
- * 送り直すので、その間は巡回が止まる。(2) URL が Webhook の形でないと、作る時点で例外になって
- * アプリ全体が起動しなかった。
- * 429 は他の失敗と同じく 1 回の失敗として扱い、次の巡回で送り直す（送り直しの上限は巡回側で数える）。
- * 利用者ごとに {@code WebhookClient} を作ることもしない。1 つごとに OkHttp の接続と専用のスレッドを抱えるため
- * （宛先が利用者の数だけあり、送るたびに作ると使い捨てのスレッドが増え、持ち続けると利用者の数だけ残る）。
- * ライブラリは本文の組み立て（{@link WebhookEmbed}／{@link WebhookEmbedBuilder}）にだけ使う。
- * どちらの宛先も本文は {@link #liveStartEmbed} で組み立て、同じ見た目の通知になるようにしている。
+ * <h2>送り方</h2>
+ * 全体向け（{@code .env} の {@code DISCORD_WEBHOOK_URL}）も利用者ごとの Webhook も、共有の {@link HttpClient} で
+ * JSON を POST する（{@link #post}）。配信開始の通知の本文はどちらも {@link #liveStartEmbed} で組み立て、
+ * 同じ見た目の通知になるようにしている。
+ * 429（送りすぎ）は他の失敗と同じく 1 回の失敗として扱い、次の巡回で送り直す（送り直しの上限は巡回側で数える）。
+ *
+ * <p>Discord 用のライブラリ（discord-webhooks）は使わない。以前は使っていたが、次の理由で外した。
+ * <ul>
+ *   <li>全体向けの送信は送った後に {@code join()} で待っていて、待つ時間に上限が無かった。429 を受けるとライブラリの中で
+ *       送り直し続けるので、その間は巡回が止まった</li>
+ *   <li>URL が Webhook の形でないと、クライアントを作る時点で例外になり、アプリ全体が起動しなかった</li>
+ *   <li>2023 年 8 月の 0.8.4 から更新が無く、既知の脆弱性がある okio 3.0.0（CVE-2023-3635）と
+ *       org.json 20230618（CVE-2023-5072）、OkHttp・Kotlin の標準ライブラリ（合わせて約 3MB）を実行用の jar に持ち込んでいた</li>
+ * </ul>
+ * 送る JSON は埋め込み 1 つだけの単純な形なので、Jackson で組み立てれば足りる（{@link #buildEmbed}）。
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class DiscordNotifier {
 
-    /** 通知の埋め込み左端に表示する色。配信中を示す赤。 */
-    private static final int EMBED_COLOR = Color.RED.getRGB();
+    /**
+     * 通知の埋め込み左端に表示する色。配信中を示す赤。
+     *
+     * <p>Discord は色を 0xRRGGBB の整数で受け取る。以前の {@code Color.RED.getRGB()} は不透明度の上位 8 ビットを含む
+     * 負の数で、ライブラリが下位 24 ビットに切って送っていた。送る値（16711680）は変わらない。
+     */
+    private static final int EMBED_COLOR = 0xFF0000;
 
     /**
      * Discord の Webhook へ送るときの上限（応答本文の受け取りまで含む。
@@ -124,12 +131,9 @@ public class DiscordNotifier {
      * @throws IllegalStateException 送信できなかった場合。メッセージに URL は含めない
      */
     public void sendTestNotification(String webhookUrl) {
-        post(webhookUrl, new WebhookEmbedBuilder()
-                .setColor(EMBED_COLOR)
-                .setTitle(new WebhookEmbed.EmbedTitle("テスト通知", null))
-                .setDescription("YouTube Live Monitor からのテスト通知です。"
-                        + "購読しているチャンネルの配信が始まると、ここに通知が届きます。")
-                .build());
+        post(webhookUrl, buildEmbed("テスト通知", null, null,
+                "YouTube Live Monitor からのテスト通知です。"
+                        + "購読しているチャンネルの配信が始まると、ここに通知が届きます。", null));
     }
 
     /**
@@ -142,36 +146,61 @@ public class DiscordNotifier {
      * @throws IllegalStateException Webhook URL が未設定・不正な場合や、送信できなかった場合
      */
     public void sendAdminAlert(String message) {
-        post(monitorProperties.discord().webhookUrl(), new WebhookEmbedBuilder()
-                .setColor(EMBED_COLOR)
-                .setTitle(new WebhookEmbed.EmbedTitle("管理者への通知", null))
-                .setDescription(message)
-                .build());
+        post(monitorProperties.discord().webhookUrl(), buildEmbed("管理者への通知", null, null, message, null));
     }
 
     /**
      * 配信開始の通知の本文を組み立てる。全体向けと利用者向けで同じものを使う。
      *
      * @param liveStream 通知対象の配信情報
-     * @return 埋め込みメッセージ
+     * @return 埋め込み 1 つ分（{@link #buildEmbed} 参照）
      */
-    private WebhookEmbed liveStartEmbed(LiveStreamDetails liveStream) {
-        WebhookEmbedBuilder embedBuilder = new WebhookEmbedBuilder()
-                .setColor(EMBED_COLOR)
-                .setTitle(new WebhookEmbed.EmbedTitle(liveStream.getTitle(), liveStream.getWatchUrl()))
-                .setAuthor(new WebhookEmbed.EmbedAuthor(liveStream.getChannelTitle(), null, null))
-                .setDescription("🔴 配信が開始されました");
+    private Map<String, Object> liveStartEmbed(LiveStreamDetails liveStream) {
+        return buildEmbed(liveStream.getTitle(), liveStream.getWatchUrl(), liveStream.getChannelTitle(),
+                "🔴 配信が開始されました", liveStream.getThumbnailUrl());
+    }
 
-        if (liveStream.getThumbnailUrl() != null) {
-            embedBuilder.setImageUrl(liveStream.getThumbnailUrl());
+    /**
+     * Discord の埋め込み（embed）1 つ分を、JSON にする前の形で組み立てる。
+     *
+     * <p>値が {@code null} の項目はキーごと入れない。以前のライブラリも、リンク先や画像が無ければキーごと省いていたので、
+     * 送る JSON の形を変えないため。見出しとチャンネル名は、以前のライブラリでは {@code null} だと組み立ての時点で
+     * {@link NullPointerException} になっていたが、ここでは省いて送る（通知そのものを落とさないため）。
+     *
+     * @param title       見出し
+     * @param titleUrl    見出しのリンク先。無ければ {@code null}
+     * @param authorName  見出しの上に出す名前（チャンネル名）。無ければ {@code null}
+     * @param description 本文
+     * @param imageUrl    大きく出す画像の URL。無ければ {@code null}
+     * @return キーの並びを保った埋め込みの中身
+     */
+    private static Map<String, Object> buildEmbed(String title, String titleUrl, String authorName,
+                                                  String description, String imageUrl) {
+        Map<String, Object> embed = new LinkedHashMap<>();
+        embed.put("color", EMBED_COLOR);
+        if (title != null) {
+            embed.put("title", title);
         }
-        return embedBuilder.build();
+        if (titleUrl != null) {
+            embed.put("url", titleUrl);
+        }
+        if (authorName != null) {
+            embed.put("author", Map.of("name", authorName));
+        }
+        if (description != null) {
+            embed.put("description", description);
+        }
+        if (imageUrl != null) {
+            embed.put("image", Map.of("url", imageUrl));
+        }
+        return embed;
     }
 
     /**
      * 埋め込みメッセージを 1 つ、指定した Webhook へ POST する。
      *
-     * <p>本文の JSON は {@link WebhookEmbed} 自身の変換で作る。
+     * <p>本文の JSON は Jackson の {@code JsonMapper.shared()} で作る。Spring の {@code ObjectMapper} の Bean を使わないのは、
+     * Discord へ送る JSON をアプリの API の JSON の設定（{@code spring.jackson.*}）に左右されないようにするため。
      * {@code wait=true} を付けるのは、Discord が受理したかを応答で確実に判定するため。
      *
      * <p>失敗のメッセージには URL を入れない（呼び出し側がログや API の応答に使うため）。
@@ -179,10 +208,10 @@ public class DiscordNotifier {
      * （{@link DiscordWebhookUrl} 参照）。
      *
      * @param webhookUrl 送り先の Webhook の URL
-     * @param embed      送る埋め込みメッセージ
+     * @param embed      送る埋め込み 1 つ分（{@link #buildEmbed} で組み立てたもの）
      * @throws IllegalStateException 送信できなかった場合
      */
-    private void post(String webhookUrl, WebhookEmbed embed) {
+    private void post(String webhookUrl, Map<String, Object> embed) {
         if (!DiscordWebhookUrl.isValid(webhookUrl)) {
             throw new IllegalStateException("Discord の Webhook の URL ではないため送信しません");
         }
@@ -190,7 +219,7 @@ public class DiscordNotifier {
                 .timeout(SEND_TIMEOUT)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(
-                        new JSONObject().put("embeds", new JSONArray().put(embed)).toString()))
+                        JsonMapper.shared().writeValueAsString(Map.of("embeds", List.of(embed)))))
                 .build();
 
         HttpResponse<String> response;
