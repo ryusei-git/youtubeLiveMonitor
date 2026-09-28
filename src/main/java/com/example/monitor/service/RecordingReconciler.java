@@ -80,8 +80,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 手動ダウンロード（{@link VideoDownloadService}）は {@link ActiveVideoJobs} への予約を
  * {@code RECORDING} 行の作成より先に行い、完了・失敗の記録の後で外す。そのため
  * {@code RECORDING} 行を見つけた時点で進行中なら予約が取れない。{@code FAILED} 行の動画が
- * もう一度始まることも無い（自動録画は開始に成功した時点で録画済みの動画 ID を更新して同じ配信を
- * 録り直さず、手動ダウンロードは履歴にある動画を受け付けない）。
+ * もう一度始まることも無い（自動録画は録り直しを {@code FAILED} の記録より前に同じ行・同じ予約のまま済ませ、
+ * 記録した後は録画済みの動画 ID が同じなので始め直さず、手動ダウンロードは履歴にある動画を受け付けない）。
  * 後始末の側も予約を取ってから触る。予約中に巡回が同じ動画の録画を試みると
  * {@link StreamRecorder#startRecording} は「既に録画中」と見なして起動せずに成功を返し、巡回は
  * その配信を録画済みとして扱う。今は置き去りの行・{@code FAILED} 行の動画を巡回が録り始めることは

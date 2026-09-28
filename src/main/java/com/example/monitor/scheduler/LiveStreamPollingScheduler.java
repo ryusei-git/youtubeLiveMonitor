@@ -634,6 +634,11 @@ public class LiveStreamPollingScheduler {
      * 録画が有効なチャンネルで、タイトルフィルターにも一致し、まだこの配信を録画していなければ
      * 録画を開始する。
      *
+     * <p>この配信を録画済み（{@code lastRecordedVideoId} が同じ）のときは録画を始め直さず、
+     * {@link StreamRecorder#confirmStillLive(String)} で「まだ配信中」と知らせるだけにする。
+     * 録り直すかと回数は録画側が決める（録画履歴を 1 行のまま録り直すため。理由は
+     * {@code StreamRecorder.awaitCompletion} の JavaDoc）。
+     *
      * @param channel   対象チャンネル
      * @param detection 検知結果（配信中であることが確定しているもの）
      * @throws RuntimeException 録画希望の判定（購読の読み出し）・録画履歴の登録・録画済み動画 ID の記録に
@@ -650,6 +655,11 @@ public class LiveStreamPollingScheduler {
             return;
         }
         if (Objects.equals(videoId, channel.getLastRecordedVideoId())) {
+            if (intent.matched()) {
+                // 録画がすぐ失敗して録画スレッドが合図を待っていれば、まだ配信中と知らせる（待っていなければ何もしない）。
+                // 配信中かを知っているのは巡回だけなので、録り直すかの材料をここから渡す
+                streamRecorder.confirmStillLive(videoId);
+            }
             return;
         }
         if (!intent.matched()) {
@@ -667,5 +677,6 @@ public class LiveStreamPollingScheduler {
                     "録画済み動画IDの更新", channel.getId());
         }
         // 起動失敗時は更新しない → 次のサイクルで自動的に再試行される
+        // 起動できたがすぐ失敗した録画は、ここではなく StreamRecorder が上の confirmStillLive の合図を待って録り直す
     }
 }

@@ -27,10 +27,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -143,6 +147,31 @@ public class StreamRecorder {
      * 知らせ済みかを DB に持たないので、アプリを再起動すると下回ったままでも 1 回送り直す。
      */
     private final AtomicBoolean lowDiskAlerted = new AtomicBoolean(false);
+
+    /**
+     * 巡回が「まだ配信中」と確かめてから録り直す回数の上限。1 回目の直後にその場で行う録り直しは数えない。
+     *
+     * <p>上限があるのは、待機所の誤検知のような直らない失敗で、配信中と判定され続ける限り
+     * 録り直し続けないため（通知の再試行に上限があるのと同じ考え方）。
+     */
+    private static final int MAX_LIVE_RETRIES = 2;
+
+    /**
+     * 巡回の合図を待つ長さ。巡回の間隔（{@code monitor.youtube.interval-seconds}）の何倍か。
+     *
+     * <p>1 倍だと、巡回 1 周が間隔より長引いたときや、その回の判定が失敗（DETECTION_FAILED）したときに
+     * 配信中でも諦めてしまう。巡回は前の周が終わってから間隔を空けて始まるので、同じチャンネルを見るまでの
+     * 時間は「1 周の所要時間 + 間隔」になる。
+     */
+    private static final int LIVE_CONFIRMATION_WAIT_CYCLES = 3;
+
+    /**
+     * 録り直しの合図を待っている録画スレッド。キーは動画 ID。
+     *
+     * <p>同じ動画 ID を録画できるのは {@link ActiveVideoJobs} の予約を取った 1 本だけなので、
+     * 1 つの動画 ID を待つスレッドは同時に 1 本しかない。
+     */
+    private final Map<String, CompletableFuture<Void>> liveConfirmations = new ConcurrentHashMap<>();
 
     /**
      * 管理画面から止めた録画の動画 ID。{@code awaitCompletion} は、ここにある録画を「今の時点から」録り直さない。
@@ -375,6 +404,22 @@ public class StreamRecorder {
     }
 
     /**
+     * 巡回がこの動画をまだ配信中と確かめたことを、録り直しを待っている録画スレッドへ知らせる。
+     * 待っているスレッドが無ければ何もしない。
+     *
+     * <p>録画済みの配信では巡回のたびにここへ来るので、マップを 1 回引くだけの軽い処理にしてある。
+     * 録り直すかの判断に巡回の結果を使う理由は {@link #awaitCompletion} を参照。
+     *
+     * @param videoId 巡回が配信中と確かめた動画 ID
+     */
+    public void confirmStillLive(String videoId) {
+        CompletableFuture<Void> confirmation = liveConfirmations.get(videoId);
+        if (confirmation != null) {
+            confirmation.complete(null);
+        }
+    }
+
+    /**
      * 管理画面の操作で、録画中の録画を止める。止めた録画は「今の時点から」録り直さず、
      * そこまでを再生できる形にして {@code PARTIAL}（再生できるものが無ければ {@code FAILED}）で残す。
      *
@@ -483,13 +528,28 @@ public class StreamRecorder {
     }
 
     /**
-     * 録画プロセスの終了を待って結果を履歴に残す。1 回目が再生できるファイルを残さずに終わったら、
-     * {@code fallbackCommand} で「今の時点から」もう 1 回だけ録り直す。
+     * 録画プロセスの終了を待って結果を履歴に記録する。再生できるファイルが何も残らなかったら、
+     * {@code fallbackCommand} で「今の時点から」録り直す。1 回目の直後にその場で 1 回、それでも残らなければ
+     * 巡回が「まだ配信中」と確かめるたびに（{@link #confirmStillLive(String)}）最大 {@link #MAX_LIVE_RETRIES} 回。
      *
      * <p><b>録り直すかは失敗の文言ではなく「完成ファイルが無い」ことで決める。</b>
      * yt-dlp のエラー文言は版ごとに変わりうるため。Twitch でアーカイブがサブスク限定のチャンネルは
      * {@code --live-from-start} だと必ず失敗するが、配信そのものは録れる（{@link #buildCommand} 参照）。
      * YouTube でも同じ動きになるが、1 回目で失敗するのはまれで、もう 1 回試しても害は無い。
+     *
+     * <p><b>その場の録り直しの後は、巡回の合図を待ってから録り直す。</b>配信開始の直後は、YouTube の
+     * 一時的な拒否（bot の確認・429）や回線断で、1 回目もその場の録り直しも数秒で失敗することがある。
+     * 巡回は録画を始めた時点で {@code lastRecordedVideoId} を更新するので、ここで諦めると配信が続いていても
+     * 二度と録られない。一方、配信が終わっていれば「今の時点から」は失敗するか、アーカイブ全体を落とし始める。
+     * そのため、配信中かを知っている巡回に確かめてもらう。待つ長さは巡回の間隔の
+     * {@link #LIVE_CONFIRMATION_WAIT_CYCLES} 倍。待っている間も、画面には録画中と出る。
+     *
+     * <p><b>{@code lastRecordedVideoId} を戻して巡回に録り直させる形にしていない。</b>巡回が録画を始め直すと
+     * {@link RecordingHistoryService#recordStart} が 2 行目の録画履歴を作り、1 行目の {@code FAILED} と同じファイル
+     * （{@code {チャンネル}/{動画ID}.mp4}）を指す。2 行目が録れた後、{@link RecordingReconciler} の {@code FAILED} の
+     * 救済が 1 行目も「ファイルのある失敗録画」として直すので、同じ録画が一覧に 2 つ並ぶ。このスレッドの中で
+     * 録り直せば、行は 1 つのまま、予約（{@link ActiveVideoJobs}）も {@code RECORDING} も持ち続けられ、
+     * 後始末・チャンネルの削除・録画の削除の今の扱いがそのまま効く。
      *
      * <p>録り直しの間も録画履歴は {@code RECORDING} のまま、動画IDの予約も保持し続ける。
      * 途中で {@code FAILED} にしたり予約を外したりすると、録り直し中の配信を
@@ -506,6 +566,9 @@ public class StreamRecorder {
      * チャンネルの削除で連鎖削除され、録画プロセスも止められたとき（{@link MonitoredChannelService#remove(Long)}）。
      * 止めた yt-dlp は完成ファイルを残さないことが多く、そのままでは「最初からの録画に失敗した」と見て録り直してしまい、
      * 削除したチャンネルを録り続ける。記録しても更新する行が無い。
+     * 行があるかは、プロセスが終わった直後に加えて、録り直しを起動する直前（合図を待った後。合図が来なかったときも）にも
+     * 確かめる。詰め替え（最大 600 秒）や合図の待ちの間に削除されると、削除時の停止処理はまだ起動していない録り直しを
+     * 止められず、合図の来ないまま待ちが切れたときには消えた行へ失敗を記録してしまうため。
      *
      * <p><b>途中の例外（DB の失敗など）は捕まえてログに残す。</b>捕まえないと仮想スレッドの既定の処理で
      * 標準エラーに出るだけで、チャンネル別ログにも {@code /logs} 画面にも残らない。記録できずに
@@ -544,29 +607,71 @@ public class StreamRecorder {
             SalvageOutcome salvage = recordingSalvager.ensurePlayable(outputFile);
             boolean resumedMidway = false;
 
-            // こちらから止めたとき（固まった・空き容量の下限を割った）は録り直さない。配信が終わっていれば
-            // 「今の時点から」は失敗するか、終わった配信のアーカイブ全体を落とし始める。配信中でも同じ止まり方を繰り返しうる。
+            // こちらから止めたとき（固まった・空き容量の下限を割った）は録り直さない。配信中でも同じ止まり方を繰り返しうる。
             // 空きが足りずに詰め替えを見送ったときも録り直さない（データは残っており、録り直すとさらに書き込む）
             // 管理画面から止めたときも録り直さない（録り直すと、止めたはずの配信を録り続ける）
-            boolean stoppedByAdmin = stopRequested.contains(videoId);
-            if (!salvage.isPlayable() && fallbackCommand != null && !exit.stoppedByUs() && !stoppedByAdmin
-                    && salvage.status() != SalvageStatus.INSUFFICIENT_SPACE
-                    && !Thread.currentThread().isInterrupted()) {
-                log.warn("最初からの録画に失敗したため、今の時点から録画し直します: channel={}, video={}, exitCode={}",
-                        channel.getChannelName(), videoId, exit.exitCode());
+            // retry == 0 は 1 回目の直後にその場で行う録り直し（従来どおり）。1 以降は、配信が終わっていれば
+            // 「今の時点から」は失敗するか、終わった配信のアーカイブ全体を落とし始めるので、
+            // 巡回が「まだ配信中」と確かめてから録り直す
+            for (int retry = 0; retry <= MAX_LIVE_RETRIES; retry++) {
+                if (salvage.isPlayable() || salvage.status() == SalvageStatus.INSUFFICIENT_SPACE
+                        || fallbackCommand == null || exit.stoppedByUs() || stopRequested.contains(videoId)
+                        || Thread.currentThread().isInterrupted()) {
+                    break;
+                }
+                boolean stillLive = true;
+                if (retry == 0) {
+                    log.warn("最初からの録画に失敗したため、今の時点から録画し直します: channel={}, video={}, exitCode={}",
+                            channel.getChannelName(), videoId, exit.exitCode());
+                } else {
+                    log.info("録画に失敗しました。巡回で配信が続いていると確かめられたら、今の時点から録画し直します: "
+                                    + "channel={}, video={}, exitCode={}, 残り={}回",
+                            channel.getChannelName(), videoId, exit.exitCode(), MAX_LIVE_RETRIES - retry + 1);
+                    stillLive = awaitLiveConfirmation(videoId);
+                }
+
+                // 1 回目の終了から詰め替え（最大 600 秒）や合図の待ちを挟むので、その間の削除をここで確かめ直す。
+                // チャンネル削除の停止処理はその時点で動いている yt-dlp しか探せないため、ここで止めないと録り続ける。
+                // 合図が来なかったときもここを通す（削除したチャンネルは巡回されず合図が来ないので、消えた行へ失敗を記録しない）
+                if (!recordingHistoryService.exists(recordingId)) {
+                    log.info("録画履歴が削除されているため（チャンネルの削除）、録り直しも記録もせずに終えます: channel={}, video={}",
+                            channel.getChannelName(), videoId);
+                    return;
+                }
+                // 合図を待つ間に管理画面から止められた録画は、合図が来ても録り直さない
+                if (stopRequested.contains(videoId)) {
+                    log.info("管理画面の操作で止められたため、録り直しをやめます: channel={}, video={}",
+                            channel.getChannelName(), videoId);
+                    break;
+                }
+                if (!stillLive) {
+                    log.info("配信が続いていることを巡回で確かめられなかったため、録り直しをやめます: channel={}, video={}",
+                            channel.getChannelName(), videoId);
+                    break;
+                }
+                if (retry > 0) {
+                    log.warn("配信が続いているため、今の時点から録画し直します（{}/{}回目）: channel={}, video={}",
+                            retry, MAX_LIVE_RETRIES, channel.getChannelName(), videoId);
+                }
                 try {
-                    Process retry = processLauncher.launch(fallbackCommand, YtDlpLogFile.of(videoId));
+                    Process relaunched = processLauncher.launch(fallbackCommand, YtDlpLogFile.of(videoId));
                     resumedMidway = true;
-                    exit = awaitExit(retry, channel, videoId, outputFile.getParent());
-                    if (exit.exitCode() != null) {
-                        // プロセスが終わった後に残る .temp.mp4 は結合の書きかけ。詰め替えの前に空きを返す
-                        deleteMergeLeftover(outputFile.getParent(), videoId);
-                    }
-                    salvage = recordingSalvager.ensurePlayable(outputFile);
+                    exit = awaitExit(relaunched, channel, videoId, outputFile.getParent());
                 } catch (IOException e) {
                     log.error("録り直しの録画プロセスの起動に失敗しました: channel={}, video={}",
                             channel.getChannelName(), videoId, e);
+                    break;
                 }
+                if (exit.exitCode() != null) {
+                    // プロセスが終わった後に残る .temp.mp4 は結合の書きかけ。詰め替えの前に空きを返す
+                    deleteMergeLeftover(outputFile.getParent(), videoId);
+                }
+                if (!recordingHistoryService.exists(recordingId)) {
+                    log.info("録画履歴が削除されているため（チャンネルの削除）、録画の結果を記録しません: channel={}, video={}, exitCode={}",
+                            channel.getChannelName(), videoId, exit.exitCode());
+                    return;
+                }
+                salvage = recordingSalvager.ensurePlayable(outputFile);
             }
 
             recordOutcome(recordingId, channel, videoId, salvage, resumedMidway, exit.exitCode());
@@ -585,6 +690,29 @@ public class StreamRecorder {
             if (mdcChannelId != null) {
                 MDC.remove(MDC_CHANNEL_ID_KEY);
             }
+        }
+    }
+
+    /**
+     * 巡回が {@link #confirmStillLive(String)} でこの動画をまだ配信中と知らせてくるのを待つ。
+     *
+     * @param videoId 録画対象の動画 ID
+     * @return 待つ間に知らせが来たら {@code true}。来なかった・割り込まれた場合は {@code false}（割り込み状態は立て直す）
+     */
+    private boolean awaitLiveConfirmation(String videoId) {
+        CompletableFuture<Void> confirmation = new CompletableFuture<>();
+        liveConfirmations.put(videoId, confirmation);
+        try {
+            confirmation.get((long) monitorProperties.youtube().intervalSeconds() * LIVE_CONFIRMATION_WAIT_CYCLES,
+                    TimeUnit.SECONDS);
+            return true;
+        } catch (TimeoutException | ExecutionException e) {
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } finally {
+            liveConfirmations.remove(videoId, confirmation);
         }
     }
 
