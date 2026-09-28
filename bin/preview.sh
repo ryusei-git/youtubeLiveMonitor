@@ -53,7 +53,8 @@ case "${1:-start}" in
         # DB のパスワードは本番と同じく .env から読む（#314）。ほかの値まで環境変数に流さないよう
         # サブシェルで読み、このキーだけを取り出す。キーが無ければ空（パスワード未設定の DB）
         DB_PASSWORD="$(set -a; . ./.env; set +a; echo "${SPRING_DATASOURCE_PASSWORD:-}")"
-        java -cp "$H2_JAR" org.h2.tools.Shell \
+        # サービスが止まっていると Shell 自身が AUTO_SERVER の待ち受けを開くので、この端末だけに限る（#312 と同じ理由）
+        java -Dh2.bindAddress=127.0.0.1 -cp "$H2_JAR" org.h2.tools.Shell \
             -url "jdbc:h2:file:$ROOT/data/monitor;AUTO_SERVER=TRUE" -user sa -password "$DB_PASSWORD" \
             -sql "BACKUP TO '$PREVIEW/data/backup.zip'" >/dev/null
         (cd "$PREVIEW/data" && unzip -oq backup.zip && rm backup.zip)
