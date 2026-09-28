@@ -20,7 +20,7 @@ Java 21 / Spring Boot 4.1.1 / Gradle / H2（ファイルモード）。
 - 識別子は英語、JavaDoc とコメントは日本語。
 - JavaDoc には「何をするか」ではなく**「なぜそうしているか」**を書く。
   何をするかはコードを読めば分かるが、なぜその判断をしたかは書かなければ失われる。
-- `./gradlew clean build` と `./gradlew javadoc` は**どちらも警告ゼロを維持する**。
+- `./gradlew clean build` と `./gradlew javadoc` は**どちらも警告ゼロを維持する**（javac と javadoc の警告は `build.gradle` の `-Werror` でビルドの失敗になる）。
 - **複数クラスで使う可能性のある処理は `util` パッケージに独立クラスとして切り出す**（状態を持たない
   static メソッド）。特定の機能に紐づく private メソッドのままにしておくと、
   同じ処理が別クラスにも必要になったときに複製されやすい。
@@ -69,16 +69,22 @@ Java 21 / Spring Boot 4.1.1 / Gradle / H2（ファイルモード）。
 ### 終わったら
 
 1. **完了条件を通す**（`.claude/skills/verify` と同じ内容）。
-   - `./gradlew clean build javadoc` が警告ゼロ
+   - `./gradlew clean build javadoc` が警告ゼロで成功する（javac と javadoc の警告は `-Werror` で失敗になる）
    - `npx -y -p typescript tsc -p src/main/resources/static/jsconfig.json --noEmit` が型エラーゼロ
+   - `node --test src/test/js/*.test.cjs` が全件成功（リポジトリ直下で実行する。テストが `common.js` をリポジトリ直下からの相対パスで読むため。`src/test/js/` のようにディレクトリを渡すと `MODULE_NOT_FOUND` で失敗する）
    - **ビルドしたら `bin/sandbox.sh start`** で、作業ツリーのビルドを確認用インスタンス（新しい DB・監視なし・Discord なし・ポート 18180）として起動する。本番（`bin/service.sh restart`）では確かめない（worktree や本番の無い作業端末では動かない。本番への反映はマージ後に本番の端末で行う）。ビルドし直したら `bin/sandbox.sh start` をやり直す
    - `ENV_FILE=.sandbox/.env SERVER_PORT=18180 bin/api.sh POST /api/monitor/check` が応答を返す（監視なしで起動するので 409・終了コード 22 は想定どおり。ログインの失敗・500 は失敗）ことと、`bin/sandbox.sh cli channel list` が動くこと（Issue に `java -jar build/libs/*.jar channel list` とあれば、これで代えてよい）
    - Issue の完了条件に書かれた確認（画面は `http://localhost:18180/adminLogin.html` に `.sandbox/.env` の管理者でログインして見る）
    - 確かめ終わったら `bin/sandbox.sh stop`（止めずに作業ツリーを消すと、java が残ってポート 18180 を掴み続ける）
+
+   PR を作ると GitHub Actions（`.github/workflows/ci.yml`）が、上のうちビルド・JavaDoc・型検査・JS のテストを
+   Linux でもう一度実行する。API と CLI の確認は CI では行わないので、手元で省略しない。
+
 2. **Codex**: ブランチ `codex/issue-<番号>-<要約>` で 1 コミットにまとめてプッシュし、
    PR を作る（本文に `Closes #<番号>`、実行した確認とその結果）。Status を `In review` にし、
    Claude のターミナルへ `PR #<番号> 準備できました` と送る。**ラベルは付けたまま。**
-3. **Claude**: squash マージし、Status を `Done`、ラベルを外し、Issue をクローズする。
+3. **Claude**: `gh pr checks <PR番号> --watch` で CI の `java` と `js` が両方 pass になったのを確かめてから
+   squash マージし、Status を `Done`、ラベルを外し、Issue をクローズする。CI が失敗していれば、直して pass になるまでマージしない。
 
 ### 中断するとき
 
