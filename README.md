@@ -133,10 +133,11 @@ YouTubeLiveMonitor/
 
 ### 前提条件
 
-- Java 21 以上
+- JDK 21（ビルドに使う。`build.gradle` の toolchain が 21 に決めてあり、ほかの版を自動で取ってくる設定は無いので、
+  JDK 21 が見つからないとビルドが止まる。`JAVA_HOME` か `PATH` の `java` を JDK 21 にしておくのが確実）。実行は Java 21 以上
 - Google Cloud Console アカウント
 - Discord サーバー管理権限（Webhook 作成用）
-- 録画機能を使う場合のみ: `yt-dlp` と `ffmpeg`（後述）
+- 録画機能を使う場合のみ: `yt-dlp` と `ffmpeg`（後述）。耳キスの検出（後述）も `ffmpeg` を使う
 
 ### 1. リポジトリのクローン
 
@@ -279,6 +280,15 @@ sleep 40 && bin/service.sh status             # 別の PID で起動中に戻る
 `systemctl --user daemon-reload` を実行してください。
 JVM のオプションを変えるときは `systemctl --user edit youtube-live-monitor` で
 `[Service]` に `Environment=JAVA_OPTS=...` を足します（端末の環境変数はユニットに届きません）。
+
+ユニットの `PATH` は `~/.local/bin:/usr/local/bin:/usr/bin:/bin` に決めてあります（ログインしていないときの
+systemd には、シェルの `PATH` が届かないため）。`java`・`yt-dlp`・`ffmpeg`・`deno`（yt-dlp が既定で探す
+JavaScript のランタイム）をこの外（SDKMAN の `~/.sdkman/candidates/java/current/bin`、`deno` の公式の
+インストーラーが入れる `~/.deno/bin` など）に入れているなら、`systemctl --user edit youtube-live-monitor` で
+`[Service]` に `Environment=PATH=<足す場所>:%h/.local/bin:/usr/local/bin:/usr/bin:/bin` を書き足してください
+（JavaScript のランタイムだけなら、`.env` の `MONITOR_YTDLP_JS_RUNTIME` に `deno:/home/<user>/.deno/bin/deno` のように
+「ランタイムの名前:フルパス」の形で書いてもかまいません）。
+書き足さないと、`nohup` で起動したときと systemd で起動したときとで、起動できるかどうかや、録画できる形式が変わります。
 
 **元に戻す（手動起動に戻す）**:
 
@@ -613,7 +623,59 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 - **日時はクリックで精密表示に切り替え**: 一覧の日時は既定で秒までの表示（例:
   `2026-09-13 20:24:01`）にしており、クリックすると秒未満の精度を含む元の値に切り替わります。
 
+### 耳キスの検出
+
+録画の中の「耳キス」（ASMR の音）の位置を集めて、再生画面からその位置へ飛べるようにする機能です（試験中。#459）。
+
+- **印**: 利用者の再生画面（`/my/watch/<録画の番号>`）の「耳キス」の欄で、聞きながら「ここは耳キス」を押すと
+  その位置に印が付きます。印は全員で共有し、「前の耳キスへ」「次の耳キスへ」で飛べます。消せるのは自分の印だけです。
+- **候補**: 検出器が録画に自動で付けた位置です。再生画面に「自動」として並び、聞いた人が「耳キス／ちがう」を
+  答えます。答えも全員で共有し（最後の答えが残る）、検出器を学び直すときの正解になります。
+
+**見回り**（`SoundDetectionScheduler`）が 10 分ごとに、今の版の検出器でまだ検出していない録画
+（完了・途中まで、再生時間が分かっているもの）を、新しい順に 1 本ずつ検出します。
+
+- 検出は 2 時間の録画で CPU を 40 秒ほど使い、録画と CPU を取り合うため、**録画中の録画がある間は始めません**
+  （1 本終えるごとに確かめ、残りは次の見回りに回します）。
+- **6 時間を超える録画は検出しません。** 検出器のメモリは録画の長さに比例し、足りないと JVM ごと落ちるためです。
+- 失敗が 3 回たまった録画は、見回りの対象から外れます（同じ録画で何度も落ちないため）。
+- 音声は `nice -n 19 ffmpeg` で取り出すので、`ffmpeg` が要ります。
+- 見回りを止めるには、`.env` に `MONITOR_SOUND_DETECTION_ENABLED=false` を書いて再起動します。
+  印を付ける・候補に答える操作は、止めても使えます。確認用の起動（`bin/preview.sh`）では、監視と一緒に止まっています。
+
+**検出器の版を上げる**（利用者の答えで学び直した重みに替える）:
+
+1. 新しい重みの JSON を `src/main/resources/sound/` に足す。`version` は前の版と違う名前にする（例 `ear-kiss-linear12-v3`）。
+2. `EarKissModel` の `RESOURCE` を新しいファイルに替える。
+3. ビルドして再起動する。見回りが、全部の録画を新しい版で付け直します（1 本ずつなので、録画の本数に応じて時間がかかります）。
+   前の版で答えた候補は、答えごと同じ位置の今の版の候補として引き継がれ（その前後 1 秒以内には新しい候補を作りません）、
+   答え直す必要はありません。
+
+**検出器をその場で試す**（CLI。DB には保存しません）:
+
+```bash
+java -jar build/libs/*.jar sound detect 23 --from 0 --to 600
+```
+
+`23` は録画の番号（録画一覧の ID）、`--from`・`--to` は秒です（省略すると録画全体）。範囲を絞ると、
+背景の音や候補の上限がその範囲だけで決まるので、録画全体で探したときと結果が変わることがあります。
+
+**候補が付かないとき**:
+
+- 管理者は `bin/api.sh GET "/api/recordings/<録画の番号>/sound-detection?kind=EAR_KISS"` で、今の版の実行記録を見られます。
+  404 は、今の版でまだ一度も検出していない（順番待ち、または再生時間が分からない録画）ことを表します。
+  `status` が `FAILED` なら `message` に理由があります（検出の途中も `FAILED`・`実行中に止まった` と出ます。
+  検出の途中でアプリが落ちたときも、`実行中に止まった` のまま残ります）。
+  まとめて見るときは、DB 管理画面の「音の検出の実行記録」（`SOUND_DETECTION_RUNS`）を開きます。
+  失敗はシステムログにも `耳キスの検出に失敗しました` として出ます。
+- 失敗が 3 回たまった録画や、やり直したい録画は、`bin/api.sh POST "/api/recordings/<録画の番号>/sound-detection?kind=EAR_KISS"`
+  で今すぐ検出します（202 が返り、終わるまで数十秒かかる。検出が走っている間は 409）。今の版で検出済みの録画をやり直すときは
+  `&force=true` を付けます。やり直しても、答えのある候補は消えません。
+
 ### REST API
+
+主な API だけを載せています（すべてではありません）。ここに無い API（利用者ポータル `/api/my/**` の多く・利用者の管理・招待・
+監査ログ・動画のダウンロード・収集した動画・新人発掘・検索など）は、各コントローラーの JavaDoc を見てください（`./gradlew javadoc`）。
 
 | メソッド | パス | 説明 |
 |---|---|---|
@@ -628,7 +690,7 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 | POST | `/api/channels` | 監視対象の登録（`platform` は省略可、既定は `YOUTUBE`） |
 | PUT | `/api/channels/{id}/record` | 録画設定の ON/OFF 切り替え |
 | PUT | `/api/channels/{id}/record-title-filter` | 録画対象を絞り込むタイトルキーワードの更新 |
-| DELETE | `/api/channels/{id}` | 監視対象の削除（通知履歴も一緒に消える） |
+| DELETE | `/api/channels/{id}` | 監視対象の削除。通知履歴・録画履歴（視聴済み・お気に入り・耳キスの印と候補を含む）・購読・収集した動画（視聴先・サムネイル）・チャンネル別ログも消え、録画中の yt-dlp は止める。録画ファイルは残る（録画画面の「削除済みチャンネルの録画を一括削除」で片付ける） |
 | GET | `/api/channels/search?name=` | チャンネル名から検索（**YouTube のみ**。1回100クォータ消費） |
 | GET | `/api/notifications` | 通知履歴（失敗した試行も含む） |
 | GET | `/api/recordings?keyword=&status=&channelId=` | 録画履歴（録画中・失敗も含む）。`keyword` は配信タイトルとチャンネル名の部分一致 |
@@ -644,9 +706,17 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 | GET | `/api/admin/tables` | DB のテーブル一覧 |
 | GET | `/api/admin/tables/{name}` | テーブルの内容 |
 | PUT | `/api/admin/tables/{name}/{pk}` | 行の更新 |
+| POST | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS&force=` | 録画の耳キスの検出を今すぐ始める（202。今の版で検出済みなら `force=true` が要る。検出が走っている・再生できない録画は 409） |
+| GET | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS` | 今の版の検出の実行記録（`status`・`candidateCount`・`attempts`・`message` など。まだ一度も検出していなければ 404） |
+| GET | `/api/my/recordings/{recordingId}/sound-marks?kind=EAR_KISS` | 録画に付いた耳キスの印（全員の分）を位置の順に返す（ログインしていれば誰でも使える。以下の `/api/my/**` も同じ） |
+| POST | `/api/my/recordings/{recordingId}/sound-marks` | 印を付ける（本文 `{"kind":"EAR_KISS","positionMs":123456}`。同じ人が前後 1 秒以内に付け直すと前の印を返す） |
+| DELETE | `/api/my/recordings/{recordingId}/sound-marks/{markId}` | 自分の印を消す（ほかの人の印は 404） |
+| GET | `/api/my/recordings/{recordingId}/sound-candidates?kind=EAR_KISS` | 検出器が付けた今の版の候補と、今の版の検出の状態（`state`: `PENDING`・`DONE`・`FAILED`） |
+| PUT | `/api/my/recordings/{recordingId}/sound-candidates/{candidateId}/verdict` | 候補に答える（本文 `{"verdict":"CONFIRMED"}` が耳キス、`"REJECTED"` がちがう、`null` が取り消し） |
 
-`/api/admin/tables` 以下は任意のテーブルを書き換えられます。認証を持たない個人用ツールを
-前提とした機能なので、外部からアクセスできる環境には置かないでください。
+`/api/admin/tables` 以下は任意のテーブルの任意の行を書き換えられるため、管理者（ADMIN）だけが使えます（`SecurityConfig`）。
+監査ログ・ログイン利用者・招待のテーブル（`AUDIT_LOGS`・`APP_USERS`・`INVITATIONS`）は、証跡の改ざんと秘密
+（パスワードのハッシュ・再設定と招待のトークン・利用者の Webhook）の露出を防ぐため、一覧にも出しません。
 
 ### ログ
 
@@ -806,6 +876,12 @@ bin/api.sh PUT /api/admin/tables/CHANNELS/1 '{"LAST_NOTIFIED_VIDEO_ID":null}'
 ディスクに残っている場合も反映されます。手動で消す場合は `recordings/` 配下を直接操作してください。
 どうしても容量を優先したい場合のみ `MONITOR_RECORDING_MAX_HEIGHT` に正の値（例: 1080）を
 設定すると解像度に上限がかかります。
+
+**空き容量が `MONITOR_RECORDING_MIN_FREE_GB`（既定 20GB）を下回ると、新しい録画・動画のダウンロード・端末保存を始めません。**
+録画を見送ったときは、ログに `空き容量がしきい値を下回っているため録画を始めません` が出て、管理者の Discord
+（`DISCORD_WEBHOOK_URL`）へ 1 度知らせます（空きが戻ってからまた下回ると、もう 1 度知らせます）。
+録画中に空きがしきい値の 1/4（既定 5GB）を下回ると、そのとき録画中の録画をすべて止めます（ディスクが満杯になって DB まで止まるのを防ぐため）。
+「録画が始まらない」ときは、まずこれを確かめてください。`0` にすると確かめません。
 
 ### 録画一覧の「途中まで」とは
 

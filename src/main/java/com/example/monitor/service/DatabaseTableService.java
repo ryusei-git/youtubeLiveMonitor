@@ -54,8 +54,9 @@ import java.util.stream.Collectors;
  * 監査ログは追記専用で後から消せない。失敗の理由の扱いは {@link #failureReason} 参照。
  *
  * <h2>想定する利用範囲</h2>
- * 認証を持たない個人用のローカルツールという前提で作られている。
- * 任意のテーブルを書き換えられるため、外部に公開する場合は必ずアクセス制御を追加すること。
+ * 管理者（ADMIN）だけが使う。{@code SecurityConfig} が {@code /api/admin/tables/**} と {@code /tables.html} を
+ * ADMIN に閉じている。任意のテーブルの任意の行を書き換えられるので、この制限を緩めないこと。
+ * 秘密や証跡を持つテーブルは、管理者にも見せないよう {@code EXCLUDED_TABLES} で対象から外している。
  */
 @Service
 @RequiredArgsConstructor
@@ -82,6 +83,10 @@ public class DatabaseTableService {
      * <b>知っていること自体が利用者登録の権限になる秘密</b>で、招待画面では
      * 使用済み・期限切れのものを返さないようにしている。ここから生の値を
      * 一覧できてしまうと、その配慮が意味を失う。
+     *
+     * <p>{@code APP_USERS} も除外している。パスワードのハッシュ、パスワード再設定のトークン、
+     * 利用者ごとの Discord の Webhook の URL（知っていれば誰でもその宛先へ送れる秘密）を持つため。
+     * 利用者の操作は利用者の管理画面（{@code users.html}）で行う。
      */
     private static final Set<String> EXCLUDED_TABLES = Set.of("AUDIT_LOGS", "APP_USERS", "INVITATIONS");
 
@@ -92,13 +97,21 @@ public class DatabaseTableService {
      * ここに無い（今後追加される）テーブルも動作は壊さない。その場合は
      * {@link #tableLabel(String)} が物理名をそのまま返す。
      */
-    private static final Map<String, String> TABLE_LABELS = Map.of(
-            "CHANNELS", "チャンネル",
-            "NOTIFICATION_HISTORY", "通知履歴",
-            "RECORDINGS", "録画履歴",
-            "APP_USERS", "ログイン利用者",
-            "USER_SUBSCRIPTIONS", "利用者の購読",
-            "INVITATIONS", "招待"
+    private static final Map<String, String> TABLE_LABELS = Map.ofEntries(
+            Map.entry("CHANNELS", "チャンネル"),
+            Map.entry("NOTIFICATION_HISTORY", "通知履歴"),
+            Map.entry("RECORDINGS", "録画履歴"),
+            Map.entry("RECORDING_MARKS", "録画の印（視聴済み・お気に入り）"),
+            Map.entry("SOUND_MARKS", "音の印（耳キスなど）"),
+            Map.entry("SOUND_CANDIDATES", "音の候補（検出器が付けたもの）"),
+            Map.entry("SOUND_DETECTION_RUNS", "音の検出の実行記録"),
+            Map.entry("USER_SUBSCRIPTIONS", "利用者の購読"),
+            Map.entry("USER_NOTIFICATIONS", "利用者への通知"),
+            Map.entry("ONLINE_VIDEOS", "収集した動画"),
+            Map.entry("VIDEO_THUMBNAILS", "収集した動画のサムネイル"),
+            Map.entry("VIDEO_COLLECTION_STATES", "動画収集の状態"),
+            Map.entry("VIDEO_COLLECTION_QUOTA", "YouTube API の使用回数"),
+            Map.entry("DISCOVERY_CANDIDATES", "新人発掘の候補")
     );
 
     /**
@@ -111,15 +124,24 @@ public class DatabaseTableService {
     private static final Map<String, Map<String, String>> COLUMN_LABELS = Map.of(
             "CHANNELS", Map.ofEntries(
                     Map.entry("ID", "ID"),
+                    Map.entry("PLATFORM", "プラットフォーム"),
                     Map.entry("YOUTUBE_CHANNEL_ID", "チャンネルID"),
                     Map.entry("CHANNEL_NAME", "チャンネル名"),
                     Map.entry("LAST_NOTIFIED_VIDEO_ID", "最終通知動画ID"),
                     Map.entry("CURRENTLY_LIVE", "配信中フラグ"),
                     Map.entry("CURRENT_LIVE_VIDEO_ID", "配信中の動画ID"),
+                    Map.entry("UPCOMING_VIDEO_ID", "配信予定の動画ID"),
+                    Map.entry("UPCOMING_TITLE", "配信予定のタイトル"),
+                    Map.entry("UPCOMING_SCHEDULED_START_TIME", "配信予定の開始時刻"),
+                    Map.entry("CHANNEL_ICON_URL", "アイコンのURL"),
+                    Map.entry("CHANNEL_LOGIN", "Twitchのログイン名"),
                     Map.entry("LAST_CHECKED_AT", "最終チェック日時"),
+                    Map.entry("LAST_DETECTION_SUCCESS_AT", "最終判定成功日時"),
+                    Map.entry("CONSECUTIVE_DETECTION_FAILURES", "判定の連続失敗回数"),
                     Map.entry("RECORD_ENABLED", "自動録画フラグ"),
+                    Map.entry("NOTIFICATION_FAILURE_COUNT", "通知の連続失敗回数"),
                     Map.entry("LAST_RECORDED_VIDEO_ID", "最終録画動画ID"),
-                    Map.entry("RECORD_TITLE_KEYWORDS", "録画タイトルフィルター"),
+                    Map.entry("RECORD_TITLE_KEYWORDS", "タイトルフィルター（通知・録画）"),
                     Map.entry("CREATED_AT", "登録日時")
             ),
             "NOTIFICATION_HISTORY", Map.of(
@@ -131,25 +153,20 @@ public class DatabaseTableService {
                     "ERROR_MESSAGE", "エラー内容",
                     "NOTIFIED_AT", "通知日時"
             ),
-            "RECORDINGS", Map.of(
-                    "ID", "ID",
-                    "CHANNEL_ID", "チャンネル（内部ID）",
-                    "VIDEO_ID", "動画ID",
-                    "VIDEO_TITLE", "配信タイトル",
-                    "FILE_PATH", "ファイルパス",
-                    "FILE_SIZE_BYTES", "ファイルサイズ（バイト）",
-                    "STATUS", "状態",
-                    "STARTED_AT", "開始日時",
-                    "COMPLETED_AT", "完了日時"
-            ),
-            "APP_USERS", Map.of(
-                    "ID", "ID",
-                    "USERNAME", "ユーザー名",
-                    "PASSWORD_HASH", "パスワードハッシュ",
-                    "ROLE", "権限",
-                    "ENABLED", "有効フラグ",
-                    "CREATED_AT", "作成日時",
-                    "LAST_LOGIN_AT", "最終ログイン日時"
+            "RECORDINGS", Map.ofEntries(
+                    Map.entry("ID", "ID"),
+                    Map.entry("CHANNEL_ID", "チャンネル（内部ID）"),
+                    Map.entry("VIDEO_ID", "動画ID"),
+                    Map.entry("VIDEO_TITLE", "配信タイトル"),
+                    Map.entry("GENRE", "ジャンル（タイトルの【】）"),
+                    Map.entry("FILE_PATH", "ファイルパス"),
+                    Map.entry("FILE_SIZE_BYTES", "ファイルサイズ（バイト）"),
+                    Map.entry("DURATION_SECONDS", "再生時間（秒）"),
+                    Map.entry("PLAY_COUNT", "再生回数（この画面での合計）"),
+                    Map.entry("THUMBNAIL_PATH", "サムネイルのパス"),
+                    Map.entry("STATUS", "状態"),
+                    Map.entry("STARTED_AT", "開始日時"),
+                    Map.entry("COMPLETED_AT", "完了日時")
             )
     );
 
@@ -196,7 +213,7 @@ public class DatabaseTableService {
     /**
      * 閲覧できるテーブル名の一覧を返す。
      *
-     * <p>{@link #EXCLUDED_TABLES} に含まれるテーブル（監査ログ）はここで除外する。
+     * <p>{@link #EXCLUDED_TABLES} に含まれるテーブル（監査ログ・ログイン利用者・招待）はここで除外する。
      * この画面全体のテーブル解決が {@link #resolveExistingTableName(String)} を経由して
      * この一覧に照合する作りになっているため、ここで除いておけば閲覧・編集の両方から
      * 自動的に対象外になる。
