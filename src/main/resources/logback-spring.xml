@@ -5,6 +5,30 @@
     <include resource="org/springframework/boot/logging/logback/defaults.xml" />
 
     <!--
+        3 つの appender（CONSOLE・CHANNEL_LOG・SERVICE_FILE）の pattern は、本文と例外のスタックを
+        %replace(%msg%n%ex){...}%nopex で包み、ログに混ざった秘密を書き出す直前に *** へ伏せる（#586）。
+        伏せるのは URL の ?key= / &key= の値（YouTube の API キー）と、Discord の Webhook の
+        /webhooks/<ID>/ に続くトークンの 2 つだけ。
+
+        #495 で、YouTube の API の例外をそのままログに渡した箇所から API キー付きの URL が本番のログに残った。
+        呼び出し側で ApiKeyRedactor を通す決まりは続けるが、それだけだと次に例外をそのまま渡した箇所で
+        また漏れる。ログは /logs.html から読め、14 日残るので、設定 1 か所で最後の網を張る。
+        上の 2 つの形以外の秘密は伏せないので、この網を理由に呼び出し側の注意を省かないこと。
+
+        ・%msg だけでなく %ex も包むのは、例外のスタックは %msg の外（pattern に無ければ logback が末尾に
+          足す %ex）に出るため。Google の例外は本文に URL を持つので、%msg だけでは伏せられない。
+        ・末尾の %nopex は「例外はもう出した」と logback に伝え、伏せないスタックがもう一度足されるのを防ぐ。
+        ・値を [\w-]+（英数字・_・-）までにするのは、API キーも Webhook のトークンもこの文字だけでできており、
+          広く取ると直後の「, reason=」の「,」のようなログの区切りまで消えるため。
+        ・key= の前に ? か & を求めるのは、URL の引数だけに当て、nokey=1 のような語の一部に当てないため。
+
+        出力の形（日時 [レベル] ロガー - 本文、スタックは続きの行）は変わらないので、
+        ChannelLogReader.LOG_LINE_PATTERN はそのままでよい。このファイルは NopStatusListener で logback 自身の
+        警告を捨てているため、pattern を書き間違えても起動時に何も言われない。書き換えたら #586 の
+        完了条件の手順で、伏せ字が効いているかを確かめること。
+    -->
+
+    <!--
         標準出力。bin/service.sh がこれを logs/service.log にリダイレクトしており、
         管理者が「サービス全体で何が起きているか」を見る唯一の入口になる。
 
@@ -31,7 +55,7 @@
             <level>INFO</level>
         </filter>
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %replace(%X{requestId}){'^(.+)$', '[$1] '}%msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %replace(%X{requestId}){'^(.+)$', '[$1] '}%replace(%msg%n%ex){'([?&amp;]key=|/webhooks/\d+/)[\w-]+', '$1***'}%nopex</pattern>
         </encoder>
     </appender>
 
@@ -62,7 +86,7 @@
                     <cleanHistoryOnStart>true</cleanHistoryOnStart>
                 </rollingPolicy>
                 <encoder>
-                    <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %replace(%X{requestId}){'^(.+)$', '[$1] '}%msg%n</pattern>
+                    <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %replace(%X{requestId}){'^(.+)$', '[$1] '}%replace(%msg%n%ex){'([?&amp;]key=|/webhooks/\d+/)[\w-]+', '$1***'}%nopex</pattern>
                 </encoder>
             </appender>
         </sift>
@@ -114,7 +138,7 @@
                 <cleanHistoryOnStart>true</cleanHistoryOnStart>
             </rollingPolicy>
             <encoder>
-                <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %replace(%X{requestId}){'^(.+)$', '[$1] '}%msg%n</pattern>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %replace(%X{requestId}){'^(.+)$', '[$1] '}%replace(%msg%n%ex){'([?&amp;]key=|/webhooks/\d+/)[\w-]+', '$1***'}%nopex</pattern>
             </encoder>
         </appender>
         <root>
