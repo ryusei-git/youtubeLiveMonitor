@@ -34,6 +34,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -171,6 +172,25 @@ public class DeviceDownloadService {
      */
     public DeviceDownloadResponse status(String jobId) {
         return ownedJob(jobId).toResponse();
+    }
+
+    /**
+     * ログイン中の利用者の仕事を、新しい順に返す。他人の仕事は含めない（{@code ownedJob} と同じ判断）。
+     *
+     * <p>仕事 ID は受け付けたときの応答にしか無いため、画面を移る・読み込み直すと、取得中の様子も
+     * 完成したファイルも見られなくなっていた（取得中は次を頼むと 409 になり、終わったファイルは受け取れないまま
+     * 期限で消える）。画面を開くたびにここから取り直せるようにする。
+     * 仕事はメモリにしか無いので、再起動の前の仕事は含まれない（Issue #451 の決定）。
+     *
+     * @return 自分の仕事の状態。無ければ空のリスト
+     */
+    public List<DeviceDownloadResponse> list() {
+        Long userId = currentAppUser.require().getId();
+        return jobs.values().stream()
+                .filter(job -> job.userId.equals(userId))
+                .sorted(Comparator.comparing((Job job) -> job.createdAt).reversed())
+                .map(Job::toResponse)
+                .toList();
     }
 
     /**
