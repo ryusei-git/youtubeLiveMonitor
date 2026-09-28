@@ -25,7 +25,43 @@ function renderDetail(rec) {
     document.title = `${rec.videoTitle} - YouTube Live Monitor`;
     el("title").textContent = rec.videoTitle;
 
+    // 録画中・失敗の録画には再生できるファイルが無い。src を入れると 404 で黒い画面のまま理由が分からないため、
+    // 動画の枠を出さずに理由を出す（利用者の再生画面 my-app.js の myWatchView と同じ判定）
+    if (PLAYABLE_RECORDING_STATUSES.includes(rec.status)) {
+        bindPlayer(rec);
+    } else {
+        showUnplayableNotice(rec);
+    }
+    // 録画中は中断させたくないので削除ボタンを出さない（API 側も 409 で弾く。アーカイブ一覧のカード・表と同じ扱い）
+    buttonEl("deleteBtn").hidden = rec.status === "RECORDING";
+
+    query("#detailTable tbody").innerHTML = [
+        detailRow("チャンネル", channelLink(rec.channelName, rec.channelUrl)),
+        // 動画 ID から URL を推測しない。Twitch の録画は URL が null で、ID を文字で出す
+        detailRow("元の配信", externalLink(rec.videoId, rec.videoUrl)),
+        detailRow("状態", recordingStatusLabel(rec.status)),
+        detailRow("録画開始", datetimeCell(rec.startedAt)),
+        detailRow("録画終了", datetimeCell(rec.completedAt)),
+        detailRow("再生時間", formatDuration(rec.durationSeconds)),
+        detailRow("ファイルサイズ", formatFileSize(rec.fileSizeBytes)),
+        detailRow("保存先", escapeHtml(rec.filePath)),
+    ].join("");
+    bindDatetimeCells(el("detailTable"));
+}
+
+/**
+ * 再生できる録画を動画の枠に読み込み、ロック画面の操作・小窓・視聴の記録をつなぐ。
+ *
+ * @param {Recording} rec 再生できる状態（COMPLETED / PARTIAL）の録画
+ */
+function bindPlayer(rec) {
     const player = /** @type {HTMLVideoElement} */ (el("player"));
+    // 状態が再生できるものでも、ファイルが消えている・ログインが切れている・このブラウザで再生できない形式のときは
+    // 読み込みに失敗する。何も出さないと黒い画面のまま理由が分からないため、エラー帯に出す。
+    // 読み込みの失敗を取りこぼさないよう、src を入れる前に付ける
+    player.addEventListener("error", () => {
+        showError("録画のファイルを読み込めませんでした（ファイルが見つからないか、このブラウザでは再生できない形式です）");
+    });
     // ファイル名に日本語や記号が入るため、パスとして安全な形に符号化する
     player.src = `/recordings/${encodeURI(rec.filePath)}`;
     bindMediaSession(player, {
@@ -40,18 +76,23 @@ function renderDetail(rec) {
         apiPut(`/api/recordings/${rec.id}/watched`, { watched: true }).catch(() => {});
         apiPost(`/api/recordings/${rec.id}/play`, {}).catch(() => {});
     }, { once: true });
+}
 
-    query("#detailTable tbody").innerHTML = [
-        detailRow("チャンネル", channelLink(rec.channelName, rec.channelUrl)),
-        // 動画 ID から URL を推測しない。Twitch の録画は URL が null で、ID を文字で出す
-        detailRow("元の配信", externalLink(rec.videoId, rec.videoUrl)),
-        detailRow("録画開始", datetimeCell(rec.startedAt)),
-        detailRow("録画終了", datetimeCell(rec.completedAt)),
-        detailRow("再生時間", formatDuration(rec.durationSeconds)),
-        detailRow("ファイルサイズ", formatFileSize(rec.fileSizeBytes)),
-        detailRow("保存先", escapeHtml(rec.filePath)),
-    ].join("");
-    bindDatetimeCells(el("detailTable"));
+/**
+ * 再生できない録画の理由を、動画の枠の代わりに出す。
+ * 録画中と失敗で次にできることが違う（録画中は待てば見られる）ため、文言を分ける。
+ *
+ * @param {Recording} rec 再生できない状態（RECORDING / FAILED）の録画
+ */
+function showUnplayableNotice(rec) {
+    el("player").hidden = true;
+    // 小窓の案内も、動画が無ければ意味が無いので隠す
+    el("pipRow").hidden = true;
+    const notice = el("playerNotice");
+    notice.innerHTML = rec.status === "RECORDING"
+        ? emptyState("録画中です", "録画が終わると再生できます。終わってからこのページを開き直してください。録画中は削除もできません。")
+        : emptyState("この録画は再生できません", "録画に失敗し、再生できるファイルが残っていません。");
+    notice.hidden = false;
 }
 
 /**
