@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <h2>{@code StreamRecorder} とは別クラスにしている理由</h2>
  * 対象は自動録画（{@link StreamRecorder}）と手動ダウンロード（{@link VideoDownloadService}）の
  * 両方であり、どちらか一方のクラスに寄せると他方の面倒まで見る不自然な依存が生まれる。
- * 進行中かどうかの判定は両者が共有する {@link ActiveVideoJobs} への問い合わせ1つで済み、
+ * 進行中かどうかの判定は両者が共有する {@link ActiveVideoJobs} の予約1つで済み、
  * {@code ActiveVideoJobs} 自身は {@link RecordingHistoryService} に依存しないため
  * 循環参照の心配もない。
  *
@@ -40,22 +40,33 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <b>今まさに録画・ダウンロードが進行中の配信</b>まで「まだ完成ファイルが無い」という理由で
  * 誤って失敗と判定してしまう。進行中かどうかは次の 2 つで確認する。
  * <ol>
- *   <li>{@link ActiveVideoJobs#isActive(String)} … このアプリが追跡中か。
+ *   <li>{@link ActiveVideoJobs#reserve(String)} … このアプリが追跡中なら予約が取れない。
  *       自動録画（{@link StreamRecorder}）と手動ダウンロード（{@link VideoDownloadService}）は
- *       同じ {@link ActiveVideoJobs} に予約するため、この1か所への問い合わせで両方を
+ *       同じ {@link ActiveVideoJobs} に予約するため、この1か所の予約で両方を
  *       まとめて確認できる（{@code isRecording} と {@code isDownloading} をそれぞれ確認するのと
  *       等価）。どちらも完了・失敗の記録を先に済ませてから予約を外す順序なので、
- *       予約中なら必ず進行中。<b>録画とダウンロードの両方を見る必要がある。</b>
+ *       予約が取れなければ必ず進行中。<b>録画とダウンロードの両方を見る必要がある。</b>
  *       どちらも同じ {@code recordings} テーブルに {@code RECORDING} 行を作り、同じ
  *       {@code yt-dlp} で出力先に書き込むため、この確認を欠くと<b>まだ書き込み中のファイルに
- *       {@link RecordingSalvager} を掛けて壊す</b>（詰め替えは出力ファイルを置き換えるため）。</li>
+ *       {@link RecordingSalvager} を掛けて壊す</b>（詰め替えは出力ファイルを置き換えるため）。
+ *       予約を取ったまま補正するので、補正の最中に同じ動画の録画・ダウンロードが始まらない。</li>
  *   <li>{@link ProcessLauncher#isRunningWithCommandLineContaining(String)} … OS 上に
  *       まだ {@code yt-dlp} プロセスが生きているか。<b>こちらが欠かせない。</b>
  *       録画プロセスはアプリを再起動しても生き残る（{@code bin/service.sh stop} は JVM しか
  *       止めない）ため、1 だけだと「再起動直後、実際にはまだ録画中なのに追跡していない」
- *       ものを失敗と誤判定し、その後 {@code yt-dlp} が完成させても永久に失敗表示のままになる。</li>
+ *       ものを失敗と誤判定し、その後 {@code yt-dlp} が完成させても永久に失敗表示のままになる。
+ *       {@code yt-dlp} だけでなく詰め替えの {@code ffmpeg} も生き残るため、{@code FAILED} 行の
+ *       救済でも見る。</li>
  * </ol>
  * この 2 段階により、アプリ起動直後でも、配信の巡回・録画の開始と並行してでも安全に呼べる。
+ *
+ * <p><b>一覧を取った時点の状態を信じない。</b>予約を取った後に行を読み直し、状態が一覧と違う
+ * （または行が消えた）ものは触らない。予約を持っている間は録画・ダウンロードの側が状態を
+ * 書き換えないので、読み直した後に変わることも無い。一覧を取ってから 1 件ずつ詰め替える
+ * （外部コマンド 1 回ごとに最大 600 秒）ため、前の行の詰め替えの間に追跡中だった録画が終わると、
+ * 録画スレッドは詰め替えてから {@code PARTIAL} を記録して予約を外す。一覧の {@code RECORDING} の
+ * まま補正すると、詰め替え済みの mp4 を「最初から再生できる」と見て {@code COMPLETED} で
+ * 上書きしてしまう（全量レビューで見つかった）。
  *
  * <h2>配信の巡回とは別に、自分の周期で動く理由</h2>
  * 以前は配信の巡回（{@link com.example.monitor.scheduler.LiveStreamPollingScheduler}）の最初に
@@ -68,9 +79,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>巡回と別スレッドになっても同じ動画を二重に触らない。録画の開始（{@link StreamRecorder}）と
  * 手動ダウンロード（{@link VideoDownloadService}）は {@link ActiveVideoJobs} への予約を
  * {@code RECORDING} 行の作成より先に行い、完了・失敗の記録の後で外す。そのため
- * {@code RECORDING} 行を見つけた時点で進行中なら予約が見える。{@code FAILED} 行の動画が
+ * {@code RECORDING} 行を見つけた時点で進行中なら予約が取れない。{@code FAILED} 行の動画が
  * もう一度始まることも無い（自動録画は開始に成功した時点で録画済みの動画 ID を更新して同じ配信を
  * 録り直さず、手動ダウンロードは履歴にある動画を受け付けない）。
+ * 後始末の側も予約を取ってから触る。予約中に巡回が同じ動画の録画を試みると
+ * {@link StreamRecorder#startRecording} は「既に録画中」と見なして見送るが、今は {@code FAILED} 行の
+ * 動画がもう一度始まることは無いので実害は無い。
  */
 @Service
 @Profile("!cli")
@@ -172,10 +186,7 @@ public class RecordingReconciler {
      */
     public void reconcileOrphanedRecordings() {
         for (Recording recording : recordingRepository.findByStatus(RecordingStatus.RECORDING)) {
-            if (isStillInProgress(recording.getVideoId())) {
-                continue;
-            }
-            reconcileOne(recording, "録画中のまま更新されていなかった録画");
+            reconcileIfIdle(recording, "録画中のまま更新されていなかった録画");
         }
 
         for (Recording recording : recordingRepository.findByStatus(RecordingStatus.FAILED)) {
@@ -187,10 +198,59 @@ public class RecordingReconciler {
             if (isKnownUnsalvageable(recording)) {
                 continue;
             }
-            reconcileOne(recording, "失敗と記録されていた録画");
+            reconcileIfIdle(recording, "失敗と記録されていた録画");
         }
 
         generateMissingThumbnails();
+    }
+
+    /**
+     * 誰もこの動画を扱っていないことを確かめてから、録画 1 件を補正する。
+     *
+     * <p><b>{@link ActiveVideoJobs#isActive(String)} で確かめるだけにせず、予約を取ったまま補正する。</b>
+     * 確かめるだけだと、確かめた後・詰め替えの最中に同じ動画の録画・ダウンロードが始まりうる。
+     * 予約を持っている間は、録画（{@link StreamRecorder}）もダウンロード（{@link VideoDownloadService}）も
+     * この動画に手を付けられない。
+     *
+     * <p><b>予約を取った後に行を読み直し、一覧を取ったときの状態を信じない。</b>一覧を取ってから
+     * 1 件ずつ詰め替える（外部コマンド 1 回ごとに最大 600 秒）ため、前の行の詰め替えの間に、
+     * 追跡中だった録画が終わることがある。そのとき録画スレッドは詰め替えてから {@code PARTIAL} を
+     * 記録して予約を外すので、一覧の {@code RECORDING} のまま補正すると、詰め替え済みの mp4 を
+     * 「最初から再生できる」と見て {@code COMPLETED} で上書きしてしまう（全量レビューで見つかった）。
+     * 予約を持っている間は録画・ダウンロードの側が状態を書き換えないので、読み直した後に変わることも無い。
+     *
+     * <p><b>{@code FAILED} 行でも OS 上のプロセスを見る。</b>再起動前の JVM が始めた詰め替えの
+     * {@code ffmpeg} は、JVM を止めても残りうる（{@code bin/service.sh stop} は JVM しか止めない）。
+     * 見ずに詰め替えると、同じ作業ファイルへ 2 本目の {@code ffmpeg} が書き込み、混ざった出力で
+     * 元のファイルや断片を置き換え・削除しうる。
+     *
+     * @param listed  一覧を取ったときの行。状態の比較にだけ使う
+     * @param context ログに出す「どういう状態だったか」の説明
+     */
+    private void reconcileIfIdle(Recording listed, String context) {
+        String videoId = listed.getVideoId();
+        if (!activeVideoJobs.reserve(videoId)) {
+            log.debug("このアプリが追跡中の録画・ダウンロードのため補正の対象外とします: video={}", videoId);
+            return;
+        }
+        try {
+            if (processLauncher.isRunningWithCommandLineContaining(videoId)) {
+                // アプリ再起動をまたいで生き残っている録画プロセス、または再起動前の詰め替えの ffmpeg
+                log.info("追跡は失われていますが、この動画の録画・詰め替えのプロセスが稼働中のため補正の対象外とします: video={}",
+                        videoId);
+                return;
+            }
+            Optional<Recording> current = recordingRepository.findById(listed.getId());
+            if (current.isEmpty() || current.get().getStatus() != listed.getStatus()) {
+                log.info("一覧を取った後に録画の状態が変わっていたため補正しません: id={}, video={}, 一覧の状態={}, 今の状態={}",
+                        listed.getId(), videoId, listed.getStatus(),
+                        current.map(recording -> recording.getStatus().name()).orElse("削除済み"));
+                return;
+            }
+            reconcileOne(current.get(), context);
+        } finally {
+            activeVideoJobs.release(videoId);
+        }
     }
 
     /**
@@ -199,6 +259,8 @@ public class RecordingReconciler {
      * <p>このメソッドに入る時点で<b>録画プロセスが終わっていることが確認済み</b>でなければ
      * ならない。{@link RecordingSalvager} は出力ファイルを書き換えるため、
      * 進行中の録画に対して呼ぶと録画そのものを壊す。
+     * {@code reconcileIfIdle} が予約を取り、プロセスが無いことと行の状態が一覧と同じことを
+     * 確かめてから呼ぶ。予約は呼び出し元が持ったまま。
      *
      * @param recording 対象の録画履歴
      * @param context   ログに出す「どういう状態だったか」の説明
@@ -300,24 +362,5 @@ public class RecordingReconciler {
             log.info("録画の再生時間とサムネイルを生成しました: id={}, video={}, duration={}秒",
                     recording.getId(), recording.getVideoId(), durationSeconds);
         }
-    }
-
-    /**
-     * この動画の録画がまだ進行中かどうかを判定する。判定の 2 段階についてはクラスの JavaDoc を参照。
-     *
-     * @param videoId 対象の動画 ID
-     * @return まだ進行中なら {@code true}（補正の対象外にすべき）
-     */
-    private boolean isStillInProgress(String videoId) {
-        if (activeVideoJobs.isActive(videoId)) {
-            log.debug("このアプリが追跡中の録画・ダウンロードのため補正の対象外とします: video={}", videoId);
-            return true;
-        }
-        if (processLauncher.isRunningWithCommandLineContaining(videoId)) {
-            // アプリ再起動をまたいで生き残っている録画プロセス
-            log.info("追跡は失われていますが録画プロセスは稼働中のため、補正の対象外とします: video={}", videoId);
-            return true;
-        }
-        return false;
     }
 }
