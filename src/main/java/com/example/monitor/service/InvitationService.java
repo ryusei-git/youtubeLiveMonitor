@@ -194,7 +194,8 @@ public class InvitationService {
 
         log.info("招待から利用者を登録しました: id={}, user={}", invitation.getId(), name);
         // 登録した本人はまだログインしておらず、操作者にあたる第三者もいない
-        // （本人が自分自身を登録する経路）。userId・username・clientIp は空欄になる
+        // （本人が自分自身を登録する経路）。userId・username は空欄になる。
+        // clientIp は AuditLogger が要求の接続元で埋める（誰がどこから登録したかを追えるように）
         auditLogger.record(AuditAction.USER_CREATE, AuditOutcome.SUCCESS, null, null, null,
                 "USER", name, "招待id=" + invitation.getId());
     }
@@ -232,8 +233,8 @@ public class InvitationService {
     /**
      * ログイン中の管理者による操作として監査ログを1件記録する。
      *
-     * <p>招待の発行・取消は必ずログイン済みの管理者が行うため、操作者を
-     * {@link RequestContext#currentUsername()} と {@link AppUserRepository} から解決する。
+     * <p>招待の発行・取消は必ずログイン済みの管理者が行う。操作者と操作元の IP は
+     * {@link AuditLogger#recordByCurrentUser} がログイン中の主体と要求から埋める。
      *
      * @param action     操作の種別
      * @param targetType 操作対象の種類
@@ -241,9 +242,6 @@ public class InvitationService {
      * @param detail     補足の説明。無ければ {@code null}
      */
     private void recordAdminAction(AuditAction action, String targetType, String targetId, String detail) {
-        String username = com.example.monitor.util.RequestContext.currentUsername();
-        Long userId = username == null ? null
-                : appUserRepository.findByUsername(username).map(AppUser::getId).orElse(null);
-        auditLogger.record(action, AuditOutcome.SUCCESS, userId, username, null, targetType, targetId, detail);
+        auditLogger.recordByCurrentUser(action, AuditOutcome.SUCCESS, targetType, targetId, detail);
     }
 }
