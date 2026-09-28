@@ -463,7 +463,8 @@ public class DiscoveryService {
     }
 
     /**
-     * チャンネルを引く API の失敗を、利用者に返す 503 の例外へ読み替える。
+     * 手動の登録・判定で呼ぶ API（チャンネル・最初の動画の日時・見つけた動画のタイトル）の失敗を、
+     * 利用者に返す 503 の例外へ読み替える。
      *
      * <p>{@link IllegalStateException}（500 とスタックトレース付きの ERROR）にしないのは、YouTube 側の失敗は
      * このサービスの異常ではなく、待てば戻るため（{@code YouTubeSearchService} の検索と同じ扱い）。

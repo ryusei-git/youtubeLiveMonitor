@@ -63,6 +63,7 @@ import java.util.stream.Stream;
  *
  * <p>{@code search.list} の結果（動画 ID と次のページの印）は、詳細を取り終えるまで別に持つ。
  * 詳細の取得（{@code videos.list}・{@code channels.list}）だけが失敗したとき、やり直しで回数をもう 1 回使わないため。
+ * 使える時間は検索結果の使い回しと同じ（「ライブ中」は 15 分）。詳細だけを新しくしても、動画の顔ぶれは検索した時点のままのため。
  *
  * <h2>同じ条件の検索が重なったら、先の読み込みを待つ</h2>
  * 使い回しは結果を入れてから効くので、1 本目の応答が返る前に同じ条件の 2 本目が来ると、両方が外れて回数を 2 回使う
@@ -300,13 +301,17 @@ public class YouTubeSearchService {
         return cached != null && cached.isFresh(Instant.now(), searchCacheTtl(request, username)) ? cached.value() : null;
     }
 
-    /** 回数を使って API を呼び、結果を使い回しに入れる。 */
+    /**
+     * 回数を使って API を呼び、結果を使い回しに入れる。前回 {@code search.list} だけが取れていれば、
+     * 回数を使わずに詳細だけを取り直す（理由はクラスの JavaDoc「6 時間の使い回し」）。
+     */
     private Page fetchPage(YouTubeSearchRequest request, String pageToken, String username, List<String> key) {
         Instant now = Instant.now();
         requireApiKey();
-        // search.list の結果が残っていれば（前回は詳細の取得だけが失敗した）、回数を使わずに詳細から取り直す
+        // search.list の結果が残っていれば（前回は詳細の取得だけが失敗した）、回数を使わずに詳細から取り直す。
+        // 古さは searchCache と同じ時間で測る（「ライブ中」で 15 分を過ぎた ID に今の詳細を付けて、回数の残る人に返さないため）
         Cached<YouTubeSearchClient.SearchPage> ids = idCache.get(key);
-        if (ids == null || !ids.isFresh(now, SEARCH_CACHE_TTL)) {
+        if (ids == null || !ids.isFresh(now, searchCacheTtl(request, username))) {
             budget.acquireForUser(username);
             YouTubeSearchClient.SearchPage found = call(() -> client.searchVideoIds(request, pageToken), true);
             ids = new Cached<>(found, now);
