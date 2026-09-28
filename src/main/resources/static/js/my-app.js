@@ -59,6 +59,19 @@ const MY_RESUME_MIN_SECONDS = 30;
  */
 const MY_RESUME_MAX_RATIO = 0.95;
 
+/**
+ * ドックの速度の選択肢（倍）。Chrome の標準の操作部の速度と同じ並びにする。標準の操作部で選んだ速度も、
+ * 選択肢の表示と保存に合わせられるようにするため（Safari の標準の操作部の速度もこの中にある）。
+ */
+const MY_PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+
+/**
+ * 選んだ再生速度を残す localStorage のキー。倍速で流し見する人は録画を変えても同じ速度で見たいので、端末ごとの好みとして残す
+ * （Invidious・FreeTube の既定の再生速度と同じ考え方）。サーバーに持たないのは、端末によって向く速度が違う
+ * （スマホで聞き流す・パソコンで見る）ため。
+ */
+const MY_PLAYBACK_RATE_KEY = "myPlaybackRate";
+
 /** @returns {HTMLVideoElement} ドックの動画要素 */
 function myDockVideo() {
     return /** @type {HTMLVideoElement} */ (el("dockVideo"));
@@ -205,7 +218,116 @@ function myDockClose() {
     dock.classList.remove("is-full", "is-mini");
 }
 
-/** ドックのボタンと動画のイベントを結びつける。動画要素は 1 つのままなので、起動時に 1 回だけ呼ぶ。 */
+/**
+ * 残しておいた再生速度を読む。
+ * 残していない・読めない（プライベートブラウズやサイトのデータを消した端末では読めないことがある）・
+ * 選択肢に無い値のときは 1 倍にする。
+ *
+ * @returns {number} 再生速度（倍）
+ */
+function myLoadPlaybackRate() {
+    try {
+        const saved = Number(localStorage.getItem(MY_PLAYBACK_RATE_KEY));
+        return MY_PLAYBACK_RATES.includes(saved) ? saved : 1;
+    } catch {
+        return 1;
+    }
+}
+
+/**
+ * 再生速度を選択肢の 1 つ隣へ変える（キーの < と >）。端の速度ではそれ以上変えない。
+ * 選択肢に無い速度のときは、1 倍の隣へ動かす。
+ *
+ * @param {HTMLVideoElement} video ドックの動画
+ * @param {number} step 1 なら 1 つ速く、-1 なら 1 つ遅く
+ */
+function myStepPlaybackRate(video, step) {
+    const index = MY_PLAYBACK_RATES.indexOf(video.playbackRate);
+    const next = MY_PLAYBACK_RATES[(index === -1 ? MY_PLAYBACK_RATES.indexOf(1) : index) + step];
+    if (next !== undefined) video.playbackRate = next;
+}
+
+/** ドックの動画の再生と一時停止を切り替える（ミニプレーヤーの ▶ と、キーの K・スペース）。 */
+function myDockTogglePlay() {
+    const video = myDockVideo();
+    // 直後の一時停止で中断された等の失敗は、再生されないこと自体で分かるため何も出さない
+    if (video.paused) video.play().catch(() => {});
+    else video.pause();
+}
+
+/**
+ * 再生画面のキー操作。パソコンで見る人は YouTube と同じキーで操作しようとするので、YouTube・FreeTube と同じキーにする。
+ * K・スペースで再生と一時停止、J・L で 10 秒、←・→ で 5 秒戻す・進める、<・> で速度、0〜9 で長さの 0〜90% の位置、
+ * M で消音、F で全画面。
+ *
+ * <p>ドックが再生画面の大きさ（is-full）のときだけ効かせる。ミニプレーヤーを出しているほかの画面では、スペースと矢印キーは
+ * ページのスクロールに、文字は検索欄などの入力に使われるので、横取りすると困るため。
+ * 入力欄・選択肢（速度の選択を含む）にフォーカスがあるとき、Ctrl・Alt・Meta 付きのとき（ブラウザのショートカット）、
+ * 日本語入力の変換中、ダイアログを開いているときは何もしない。スペースは、ボタン・リンクにフォーカスがあるときも何もしない
+ * （ボタンはスペースで押されるので、再生の切り替えと二重になる）。
+ *
+ * <p>扱ったキーは preventDefault する。しないと、スペースでページがスクロールし、動画にフォーカスがあるときは
+ * ブラウザ標準の操作も同じキーで動いて、二重に進む・切り替わる。
+ * 標準の操作は動画要素の上でキーを受けるので、その前に preventDefault できるよう document に捕獲（capture）で付ける
+ * （{@link myDockInit}。泡立ちで付けると、動画要素にフォーカスがあるときに Chrome で二重になった）。
+ *
+ * @param {KeyboardEvent} ev キー入力
+ */
+function myDockShortcut(ev) {
+    if (ev.defaultPrevented || ev.ctrlKey || ev.altKey || ev.metaKey || ev.isComposing) return;
+    if (!myDockRecording || !el("playerDock").classList.contains("is-full")) return;
+    if (document.querySelector("dialog[open]")) return;
+    const target = ev.target instanceof Element ? ev.target : null;
+    if (target?.closest("input, textarea, select") || (target instanceof HTMLElement && target.isContentEditable)) return;
+    if (ev.key === " " && target?.closest("button, a, summary")) return;
+    const video = myDockVideo();
+    // 文字のキーは Shift・CapsLock で大文字になっても同じに扱う
+    const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+    switch (key) {
+        case " ":
+        case "k":
+            // 押し続けたときの繰り返しで切り替え続けないよう、最初の 1 回だけ扱う（M・F も同じ）
+            if (!ev.repeat) myDockTogglePlay();
+            break;
+        case "j":
+            seekVideoBy(video, -10);
+            break;
+        case "l":
+            seekVideoBy(video, 10);
+            break;
+        case "ArrowLeft":
+            seekVideoBy(video, -5);
+            break;
+        case "ArrowRight":
+            seekVideoBy(video, 5);
+            break;
+        case "<":
+            myStepPlaybackRate(video, -1);
+            break;
+        case ">":
+            myStepPlaybackRate(video, 1);
+            break;
+        case "m":
+            if (!ev.repeat) video.muted = !video.muted;
+            break;
+        case "f":
+            if (ev.repeat) break;
+            // 全画面にできなかった（断られた・対応していない）ことは、全画面にならないこと自体で分かるので何も出さない
+            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+            else if (typeof video.requestFullscreen === "function") video.requestFullscreen().catch(() => {});
+            break;
+        default:
+            if (!/^[0-9]$/.test(key)) return;
+            // 長さが分かる前（NaN）は動かせない
+            if (Number.isFinite(video.duration)) video.currentTime = video.duration * Number(key) / 10;
+    }
+    ev.preventDefault();
+}
+
+/**
+ * ドックのボタンと動画のイベントを結びつける。動画要素は 1 つのままなので、起動時に 1 回だけ呼ぶ。
+ * 再生画面のキー操作（{@link myDockShortcut}）も、ここで document に 1 回だけ付ける。
+ */
 function myDockInit() {
     const video = myDockVideo();
     const toggle = buttonEl("dockToggle");
@@ -217,11 +339,7 @@ function myDockInit() {
     };
     // 別の録画を読み込んだときは pause が来ずに止まる（emptied だけが来る）
     for (const type of ["play", "pause", "emptied"]) video.addEventListener(type, renderToggle);
-    toggle.addEventListener("click", () => {
-        // 直後の一時停止で中断された等の失敗は、再生されないこと自体で分かるため何も出さない
-        if (video.paused) video.play().catch(() => {});
-        else video.pause();
-    });
+    toggle.addEventListener("click", myDockTogglePlay);
     // 再生を始めた時点で「見た」とみなす（管理者の再生画面と同じ）。
     // 印が付かなくても再生には関係ないので、失敗しても画面にエラーは出さない
     video.addEventListener("play", () => {
@@ -264,6 +382,34 @@ function myDockInit() {
         if (document.visibilityState === "hidden") myDockSavePosition(true);
     });
     window.addEventListener("pagehide", () => myDockSavePosition(true));
+
+    buttonEl("dockBack").addEventListener("click", () => seekVideoBy(video, -10));
+    buttonEl("dockForward").addEventListener("click", () => seekVideoBy(video, 10));
+
+    const rateSelect = selectEl("dockRate");
+    for (const rate of MY_PLAYBACK_RATES) rateSelect.add(new Option(rate === 1 ? "標準" : `${rate}倍`, String(rate)));
+    rateSelect.addEventListener("change", () => { video.playbackRate = Number(rateSelect.value); });
+    // 速度は、選択肢・キー・ブラウザ標準の操作部のどれで変えても、ここで選択肢の表示と保存をそろえる。
+    // defaultPlaybackRate も合わせるのは、別の録画を読み込む（src を変える）と playbackRate が defaultPlaybackRate に戻るため。
+    // 選択肢に無い速度（拡張機能などで変えたもの）は、表示も保存もしない
+    video.addEventListener("ratechange", () => {
+        const rate = video.playbackRate;
+        if (!MY_PLAYBACK_RATES.includes(rate)) return;
+        rateSelect.value = String(rate);
+        if (video.defaultPlaybackRate !== rate) video.defaultPlaybackRate = rate;
+        try {
+            localStorage.setItem(MY_PLAYBACK_RATE_KEY, String(rate));
+        } catch {
+            // 残せなくても、開いている間の速度は変わっている
+        }
+    });
+    const savedRate = myLoadPlaybackRate();
+    rateSelect.value = String(savedRate);
+    video.defaultPlaybackRate = savedRate;
+    video.playbackRate = savedRate;
+
+    // 捕獲で付ける（理由は myDockShortcut の JSDoc）
+    document.addEventListener("keydown", myDockShortcut, true);
 }
 
 /* ============================================================
