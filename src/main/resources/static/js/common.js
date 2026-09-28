@@ -2359,6 +2359,13 @@ function renderUpcomingStreams(streams, box = el("upcomingStreams"),
     const rows = streams.map(s => {
         const start = splitScheduledStart(s.scheduledStartTime);
         const calendarUrl = googleCalendarUrl(s);
+        // 「カレンダーに追加」は行ごとに同じ文字のリンクが並ぶので、読み上げ（Tab での移動・リンクの一覧）でどの配信の予定か
+        // 分かるよう、名前に配信を含める（録画の「停止」・動画の「再生」と同じ）。externalLink は aria-label を付けられないので
+        // ここで組み立てる（URL は googleCalendarUrl が作る https の URL だけなので、externalLink の確かめは要らない）
+        const calendarLink = calendarUrl
+            ? `<a href="${escapeHtml(calendarUrl)}" target="_blank" rel="noopener noreferrer"`
+                + ` aria-label="${escapeHtml(`${s.channelName}「${s.title ?? "タイトル不明"}」をカレンダーに追加`)}">カレンダーに追加</a>`
+            : "-";
         return `
         <tr data-focus-key="${escapeHtml(s.watchUrl)}">
             <td>${escapeHtml(start.date)}</td>
@@ -2368,7 +2375,7 @@ function renderUpcomingStreams(streams, box = el("upcomingStreams"),
             <td><span class="channelWithIcon">${channelIcon(s.channelIconUrl)}${externalLink(s.channelName, s.channelUrl)}</span></td>
             <td>${escapeHtml(s.genre || "未設定")}</td>
             <td>${externalLink(s.title ?? "（タイトル不明）", s.watchUrl)}</td>
-            <td>${calendarUrl ? externalLink("カレンダーに追加", calendarUrl) : "-"}</td>
+            <td>${calendarLink}</td>
         </tr>`;
     }).join("");
     box.innerHTML = `
