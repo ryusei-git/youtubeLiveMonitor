@@ -49,6 +49,10 @@ import static org.mockito.Mockito.when;
  *
  * <p>Gradle のテストは端末につながらないので {@code System.console()} が {@code null} になり、picocli は
  * 入力を標準入力から 1 行読む。{@code System.setIn} で置いた行が、実行後に打ったパスワードの代わりになる。
+ * {@code null} になるのは、今テストを動かす JDK 21（{@code build.gradle} の toolchain）の動き。JDK 22 からは
+ * 端末につながっていなくても {@code System.console()} が {@code null} を返さないことがあり、そのとき picocli は
+ * {@code System.console()} から読むので、{@code System.setIn} の行は読まれない。JDK を上げて
+ * {@link PasswordOption} が止まる・落ちるようになったら、まずこれを疑うこと。
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("SetPasswordCommand")
