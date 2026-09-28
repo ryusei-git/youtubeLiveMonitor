@@ -5,13 +5,16 @@ import com.google.api.client.util.DateTime;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.Channel;
 import com.google.api.services.youtube.model.PlaylistItem;
+import com.google.api.services.youtube.model.Video;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -27,6 +30,8 @@ public class DiscoveryYouTubeClient {
 
     /** {@code channels.list} の 1 回で引ける ID の数（API の上限）。 */
     public static final int CHANNELS_PER_REQUEST = 50;
+    /** {@code videos.list} の 1 回で引ける ID の数（API の上限）。 */
+    public static final int VIDEOS_PER_REQUEST = 50;
 
     private final YouTube youtube;
 
@@ -81,6 +86,30 @@ public class DiscoveryYouTubeClient {
             if (response.getItems() != null) channels.addAll(response.getItems());
         }
         return channels;
+    }
+
+    /**
+     * 動画のタイトルを引く（{@code videos.list} の {@code snippet}、{@value #VIDEOS_PER_REQUEST} 件で 1 単位）。
+     * 新人発掘の「見つけた動画」を 30 日の決まりで取り直すために使う。削除・非公開になった動画は結果に含まれない。
+     *
+     * @param videoIds 動画 ID（何件でもよい。{@value #VIDEOS_PER_REQUEST} 件ずつに分けて引く。空なら API を呼ばない）
+     * @return 動画 ID → タイトル（API の値のまま）
+     * @throws IOException API の呼び出しに失敗した場合
+     */
+    public Map<String, String> videoTitles(List<String> videoIds) throws IOException {
+        Map<String, String> titles = new HashMap<>();
+        for (int i = 0; i < videoIds.size(); i += VIDEOS_PER_REQUEST) {
+            var response = youtube.videos().list(List.of("snippet"))
+                    .setId(videoIds.subList(i, Math.min(i + VIDEOS_PER_REQUEST, videoIds.size())))
+                    .execute();
+            if (response.getItems() == null) continue;
+            for (Video video : response.getItems()) {
+                if (video.getId() != null && video.getSnippet() != null) {
+                    titles.put(video.getId(), video.getSnippet().getTitle());
+                }
+            }
+        }
+        return titles;
     }
 
     /**

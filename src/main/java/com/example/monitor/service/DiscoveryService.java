@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -275,9 +276,15 @@ public class DiscoveryService {
 
     /**
      * 毎日の見回り（30 日の決まり、規約 III.E.4.d）。判定されないまま古くなった候補を消し、
-     * 取り直しの時期が来た候補・VTuber を {@code channels.list} で取り直す。消えたチャンネルは行を消す。
+     * 取り直しの時期が来た候補・VTuber の API の値をすべて取り直す（チャンネルの値は {@code channels.list}、
+     * 見つけた動画のタイトルは {@code videos.list}、最初の投稿日は {@code playlistItems.list}）。
+     * 消えたチャンネルは行を消し、削除・非公開になった見つけた動画は値を消す。
+     * 一部の値だけ取り直して取り直した時刻を進めると、残りの値が 30 日を超えて残るため。
      *
      * <p>API の呼び出しに失敗したら何も消さない（「消えた」と「確かめられなかった」を区別する）。
+     * 途中でクォータを使い切ったら、残りの行は取り直した時刻を進めずに次の見回りへ回す。
+     * API を呼んでいる間に判定・手動の登録で状態か取り直した時刻が変わった行は書き戻さない
+     * （読んだ時点の値で利用者の判定を消さないため）。
      */
     public synchronized void sweep() {
         Instant now = Instant.now();
@@ -291,9 +298,12 @@ public class DiscoveryService {
         int gone = 0;
         if (!stale.isEmpty()) {
             Map<String, Channel> found;
+            Map<String, String> sampleTitles;
             try {
                 found = youtube.channels(stale.stream().map(DiscoveryCandidate::getChannelId).toList()).stream()
                         .collect(Collectors.toMap(Channel::getId, Function.identity(), (a, b) -> a));
+                sampleTitles = youtube.videoTitles(stale.stream().map(DiscoveryCandidate::getSampleVideoId)
+                        .filter(Objects::nonNull).distinct().toList());
             } catch (IOException e) {
                 log.warn("発掘の候補を取り直せませんでした（次の見回りで再試行します）: reason={}",
                         DiscoveryYouTubeClient.describe(e));
@@ -304,11 +314,29 @@ public class DiscoveryService {
                 if (channel == null) {
                     candidates.delete(candidate);
                     gone++;
-                } else {
-                    fill(candidate, channel);
-                    candidates.save(candidate);
-                    refreshed++;
+                    continue;
                 }
+                Instant firstUploadAt;
+                try {
+                    firstUploadAt = firstUpload(channel);
+                } catch (IOException e) {
+                    // firstUpload が投げるのは quotaExceeded だけ。残りの行は取り直した時刻を進めず、次の見回りでやり直す
+                    budget.markExhausted();
+                    log.warn("YouTube のクォータを使い切ったので、発掘の見回りの取り直しを打ち切ります（残りは次の見回りで取り直します）");
+                    break;
+                }
+                // API を呼んでいる間に判定・手動の登録で変わった行は書き戻さない。見回りの初めに読んだ行を save すると、
+                // その間の「ちがう」「VTuber」を古い状態で消してしまう（docs/pitfalls.md「監視ループから save(entity) を呼ばない」と同じ理由）
+                DiscoveryCandidate current = candidates.findById(candidate.getChannelId()).orElse(null);
+                if (current == null || current.getStatus() != candidate.getStatus()
+                        || !Objects.equals(current.getRefreshedAt(), candidate.getRefreshedAt())) {
+                    continue;
+                }
+                fill(current, channel);
+                current.setFirstUploadAt(firstUploadAt);
+                applySampleTitle(current, sampleTitles);
+                candidates.save(current);
+                refreshed++;
             }
         }
         log.info("発掘の見回りを終えました: 期限切れで削除={}件, 取り直し={}件, 消えたチャンネルを削除={}件",
@@ -331,7 +359,8 @@ public class DiscoveryService {
     }
 
     /**
-     * 候補を判定する。「ちがう」なら判定以外の値を消す。値を消した行を判定し直すときは、API で取り直す。
+     * 候補を判定する。候補に戻すときは見つけた日時を今にする（判定されない候補を消す期限を、候補に戻した日から数えるため）。
+     * 「ちがう」なら判定以外の値を消す。値を消した行を判定し直すときは、API で取り直す。
      *
      * @param channelId チャンネル ID
      * @param status    {@code VTUBER}・{@code REJECTED}・{@code CANDIDATE}（取り消し）
@@ -344,11 +373,16 @@ public class DiscoveryService {
         Status parsed = parse(status);
         DiscoveryCandidate candidate = candidates.findById(channelId)
                 .orElseThrow(() -> new NoSuchElementException("候補が見つかりません: " + channelId));
+        Status previous = candidate.getStatus();
         if (parsed == Status.REJECTED) {
             candidate.clearApiData();
         } else if (candidate.getRefreshedAt() == null) {
             fill(candidate, fetchChannel(channelId));
             // 値を消した日から数え直す。discoveredAt が空だと 30 日の見回りに掛からないため
+            candidate.setDiscoveredAt(Instant.now());
+        }
+        if (parsed == Status.CANDIDATE && previous != Status.CANDIDATE) {
+            // 候補に戻した日から数え直す。見つけた日のままだと、30 日より前に見つけた行は翌朝の見回りで消えるため
             candidate.setDiscoveredAt(Instant.now());
         }
         candidate.setStatus(parsed);
@@ -360,6 +394,7 @@ public class DiscoveryService {
 
     /**
      * URL・ハンドル・チャンネル ID から候補を手動で登録する。検索の回数は使わない。
+     * 既にある行を足し直したときも、最初の投稿日と見つけた動画のタイトルを取り直す（取り直した時刻が進むため）。
      * 登録者・動画の数・語の条件は掛けない（人が選んだものなので）。「ちがう」だった行は候補に戻す。
      *
      * @param input 利用者の入力
@@ -378,11 +413,17 @@ public class DiscoveryService {
         fill(candidate, channel);
         if (candidate.getMatchedWords() == null) candidate.setMatchedWords(joinWords(matchWords(description(channel))));
         if (candidate.getDiscoveredAt() == null) candidate.setDiscoveredAt(Instant.now());
-        if (candidate.getFirstUploadAt() == null) {
+        // fill で取り直した時刻を進めたので、既にある行でも最初の投稿日と見つけた動画を取り直す（30 日の決まり）
+        try {
+            candidate.setFirstUploadAt(firstUpload(channel));
+        } catch (IOException e) {
+            throw new IllegalStateException("YouTube のクォータを使い切っています");
+        }
+        if (candidate.getSampleVideoId() != null) {
             try {
-                candidate.setFirstUploadAt(firstUpload(channel));
+                applySampleTitle(candidate, youtube.videoTitles(List.of(candidate.getSampleVideoId())));
             } catch (IOException e) {
-                throw new IllegalStateException("YouTube のクォータを使い切っています");
+                throw new IllegalStateException("YouTube から動画を取得できません: " + DiscoveryYouTubeClient.describe(e));
             }
         }
         if (candidate.getStatus() == Status.REJECTED) {
@@ -465,6 +506,20 @@ public class DiscoveryService {
             log.warn("最初の動画の日時を取れませんでした: channel={}, reason={}", channel.getId(), DiscoveryYouTubeClient.describe(e));
             return null;
         }
+    }
+
+    /**
+     * 見つけた動画のタイトルを取り直した値にする（30 日の決まり）。動画が削除・非公開になっていれば、見つけた動画ごと消す
+     * （古いタイトルを残すと 30 日を超えるため）。
+     *
+     * @param candidate 候補
+     * @param titles    動画 ID → タイトル（{@code DiscoveryYouTubeClient.videoTitles} の結果）
+     */
+    private static void applySampleTitle(DiscoveryCandidate candidate, Map<String, String> titles) {
+        if (candidate.getSampleVideoId() == null) return;
+        String title = titles.get(candidate.getSampleVideoId());
+        if (title == null) candidate.setSampleVideoId(null);
+        candidate.setSampleVideoTitle(title);
     }
 
     private String description(Channel channel) {
