@@ -26,6 +26,7 @@ import java.time.ZoneId;
  * 発掘の枠（{@code discovery-limit}）は、その場の検索の上限を {@code daily-limit - discovery-limit}
  * にして確保する。友人が昼に検索を使い切っても、定期の発掘が止まらないようにするため。
  * 1 人あたりの上限は、1 人が全員分の枠を使い切らないようにするため。
+ * 管理者のチャンネル名検索も対話の枠から使う（{@link #acquireForAdmin()}）。発掘の枠を食わせないため。
  *
  * <h2>数え方</h2>
  * {@link YouTubeCatalogQuota} と同じく {@code VIDEO_COLLECTION_QUOTA} の表に行を足して数える
@@ -33,9 +34,15 @@ import java.time.ZoneId;
  * 対話 {@code youtube-search-interactive}・発掘 {@code youtube-search-discovery}・
  * 利用者ごと {@code youtube-search-user:<username>}。日付の区切りは米国太平洋時間の 0 時
  * （YouTube のクォータが戻る時刻）。
+ * CLI（{@code channel search}）も同じ表の同じ行を数える（H2 を {@code AUTO_SERVER=TRUE} で開いているので、
+ * 常駐のサービスと同じ DB を読み書きする）。ただし {@code synchronized} は JVM をまたいで効かない
+ * （{@link #acquireForAdmin()} を参照）。
  *
  * <p>定期実行から呼んでよいのは {@link #tryAcquireForDiscovery()} だけ
  * （{@code docs/pitfalls.md}「クォータを消費する API を監視ループに入れない」）。
+ *
+ * <p><b>{@code search.list} を呼ぶ箇所を増やすときは、必ずこのクラスの取得のどれかを通す。</b>
+ * 管理者のチャンネル名検索が数えられずに抜けていたことがある。
  */
 @Component
 public class YouTubeSearchBudget {
@@ -88,6 +95,36 @@ public class YouTubeSearchBudget {
         increment(total);
         increment(interactive);
         increment(user);
+    }
+
+    /**
+     * 管理者のチャンネル名検索（管理画面の {@code GET /api/channels/search} と CLI の {@code channel search}）が
+     * 検索を 1 回使う前に、全体と対話の回数を 1 ずつ増やす。
+     *
+     * <p>数えないと全体の上限（{@code daily-limit}）の前提が崩れる。旧方式なら 1 回 100 単位で、監視・通知に
+     * 残した単位を食う。新方式でも専用の 1 日 100 回の枠を数えずに使う。どちらでも、利用者の検索が先に YouTube の
+     * {@code quotaExceeded} を受け、{@link #markExhausted()} でその日の検索がすべて止まる。
+     *
+     * <p>対話の行も数えるのは、発掘の枠（{@code discovery-limit}）を管理者の検索にも食わせないため。
+     * 1 人ごとの行を数えないのは、CLI にはログイン ID が無く、1 人ごとの上限は友人どうしで枠を分け合うための
+     * 決まりだから。利用者の画面の「今日の残り」（{@link #status(String)}）も、管理者が使った分だけ減る。
+     *
+     * <p>CLI は常駐のサービスと別の JVM で動くので、{@code synchronized} は両者の間では効かない。
+     * 同じ瞬間に両方が数えると、1 回ぶん数え漏れうる（行を読んでから保存するまでの間に割り込まれるため）。
+     * 手動の検索が偶然重なったときだけで、ずれても YouTube の {@code quotaExceeded} を受けた
+     * {@link #markExhausted()} が最後の歯止めになるので、DB の条件付き更新にはしていない。
+     *
+     * @throws SearchQuotaExceededException 全体か対話の回数が本日の上限に達している場合
+     */
+    public synchronized void acquireForAdmin() {
+        LocalDate today = today();
+        VideoCollectionQuota total = load(TOTAL_ID, today);
+        VideoCollectionQuota interactive = load(INTERACTIVE_ID, today);
+        if (total.getRequests() >= limits.dailyLimit() || interactive.getRequests() >= interactiveLimit()) {
+            throw new SearchQuotaExceededException();
+        }
+        increment(total);
+        increment(interactive);
     }
 
     /**
