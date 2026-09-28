@@ -588,7 +588,7 @@ function thumbnailContent(recording) {
  * 録画 1 件分のカードを組み立てる。録画一覧と再生画面の「同じチャンネルの録画」で共通して使う。
  *
  * @param {Recording} recording 録画履歴 1 件
- * @param {(() => void)|null} onDelete 削除後に呼ぶ処理。省略すると削除ボタン自体を出さない
+ * @param {(() => void)|null} onDelete 削除・停止の後に呼ぶ処理。省略（null）すると削除・停止のボタン自体を出さない（渡すのは管理画面のアーカイブ一覧だけ）
  * @param {boolean} linkToPlayer サムネイルと題名を再生画面（{@code /player.html}）への
  *        リンクにするか。{@code false} にすると素の要素になり、カード側で
  *        クリックを拾ってその場で再生できる（利用者向けの画面はこちら。
@@ -629,8 +629,12 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null,
         ? `<a href="${href}">${escapeHtml(recording.videoTitle)}</a>`
         : escapeHtml(recording.videoTitle);
     const status = recordingStatusLabel(recording.status);
-    // 録画中は中断させたくないので削除ボタンを出さない（API 側も 409 で弾く）
+    // 録画中は削除の代わりに停止を出す（削除は API 側も 409 で弾く）。どちらも管理画面の一覧（onDelete を渡す画面）だけ
     const deletable = onDelete !== null && recording.status !== "RECORDING";
+    const stopButton = onDelete !== null && recording.status === "RECORDING"
+        ? `<button type="button" class="stopBtn removeBtn"`
+          + ` aria-label="${escapeHtml(recording.videoTitle)}の録画を停止する">停止</button>`
+        : "";
     const playable = PLAYABLE_RECORDING_STATUSES.includes(recording.status);
     // 再生できない録画でもボタン自体は出す。消してしまうと「なぜ操作できないか」が
     // スクリーンリーダーにも見た目にも伝わらない。disabled にして title で理由を添える
@@ -647,7 +651,7 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null,
           <div class="muted">${channelLink(recording.channelName, recording.channelUrl)}</div>
           <div class="muted">${datetimeCell(recording.startedAt)} ・ ${status}`
         + ` ・ ${formatFileSize(recording.fileSizeBytes)} ・ <span class="playCount">再生 ${Number(recording.playCount)} 回</span></div>
-          <div class="cardActions">${playButton}${deletable ? '<button class="deleteBtn">削除</button>' : ""}</div>
+          <div class="cardActions">${playButton}${deletable ? '<button class="deleteBtn">削除</button>' : ""}${stopButton}</div>
         </div>
     `;
 
@@ -664,6 +668,10 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null,
     const deleteBtn = card.querySelector(".deleteBtn");
     if (deleteBtn && onDelete) {
         deleteBtn.addEventListener("click", () => deleteRecording(recording, onDelete));
+    }
+    const stopBtn = card.querySelector(".stopBtn");
+    if (stopBtn && onDelete) {
+        stopBtn.addEventListener("click", () => stopRecording(recording, onDelete));
     }
     return card;
 }
@@ -682,6 +690,28 @@ async function deleteRecording(recording, onDelete) {
         clearError();
         showToast(`「${recording.videoTitle}」を削除しました`, "danger");
         onDelete();
+    } catch (e) {
+        showError(errorMessage(e));
+    }
+}
+
+/**
+ * 確認してから録画中の録画を止める。アーカイブ一覧のカードと表の両方から呼ぶため、
+ * 確認文言・通知の出し方を 1 か所にまとめている（{@link deleteRecording} と同じ）。
+ *
+ * <p>サーバーは止め始めた時点で 202 を返し、止め終わるまで（最大 30 秒）待たせない。
+ * 状態が「途中まで」に変わるのは、録画中の間 10 秒ごとに読み直す一覧（recordings.js）で分かる。
+ *
+ * @param {Recording} recording 止める録画
+ * @param {() => void} onStop 止め始めた後に呼ぶ処理
+ */
+async function stopRecording(recording, onStop) {
+    if (!confirm("この録画を止めますか？\nそこまでの内容は「途中まで」として残ります。この配信の続きは録画されません。")) return;
+    try {
+        await apiPost(`/api/recordings/${recording.id}/stop`, {});
+        clearError();
+        showToast(`「${recording.videoTitle}」の録画を止めています`);
+        onStop();
     } catch (e) {
         showError(errorMessage(e));
     }

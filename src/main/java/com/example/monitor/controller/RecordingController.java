@@ -8,16 +8,19 @@ import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.entity.RecordingMark;
 import com.example.monitor.service.RecordingHistoryService;
+import com.example.monitor.service.StreamRecorder;
 import com.example.monitor.util.RecordingSearchParams;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 録画履歴を参照する REST API。
+ * 録画履歴を参照・削除し、録画中の録画を止める REST API。
  *
  * <p>実際の動画ファイルは REST API ではなく静的リソースとして配信する
  * （{@link com.example.monitor.config.RecordingResourceConfig}参照）。ここで返す
@@ -42,6 +45,7 @@ public class RecordingController {
     static final int MAX_PAGE_SIZE = 100;
 
     private final RecordingHistoryService recordingHistoryService;
+    private final StreamRecorder streamRecorder;
 
     /**
      * 録画履歴を条件で絞り込んで取得する。どの条件も省略でき、組み合わせられる。
@@ -141,6 +145,31 @@ public class RecordingController {
     public ResponseEntity<Void> deleteRecording(@PathVariable Long id) {
         recordingHistoryService.deleteRecording(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 録画中の録画を止める。止めた録画は削除せず、そこまでを「途中まで」（{@code PARTIAL}）として残す。
+     *
+     * <p>止め終わるまで最大 30 秒かかるため、受け付けたら 202 を返す（結果は一覧の状態で分かる。
+     * 画面は録画中の録画がある間、一覧を 10 秒ごとに読み直している）。
+     * 止められないときは例外にせず 409 を返す。「録画中でない」「プロセスが無い」はどちらも
+     * 画面の表示と今の状態の食い違いで、サーバーの異常ではないため（{@code DiscoveryController#run} の 409 と同じ返し方）。
+     * 理由は {@link StreamRecorder#stopRecording(Long)} が WARN でログに残す。
+     *
+     * @param id 録画履歴の主キー
+     * @return 受け付けたら 202、止められなければ 409（本文は {@code {"error": "理由"}}）
+     * @throws com.example.monitor.exception.RecordingNotFoundException 指定 ID が存在しない場合（404）
+     */
+    @PostMapping("/{id:\\d+}/stop")
+    public ResponseEntity<Map<String, String>> stopRecording(@PathVariable Long id) {
+        return switch (streamRecorder.stopRecording(id)) {
+            case STOPPING -> ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(Map.of("message", "録画を止めています。少し待つと一覧の状態が変わります"));
+            case NOT_RECORDING -> ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "録画中ではないため止められません"));
+            case NO_PROCESS -> ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "録画プロセスが見つかりませんでした。既に終わっている可能性があります（数分で一覧の状態が直ります）"));
+        };
     }
 
     /**
