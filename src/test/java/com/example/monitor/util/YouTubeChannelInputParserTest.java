@@ -37,7 +37,7 @@ class YouTubeChannelInputParserTest {
             assertThat(YouTubeChannelInputParser.normalize("https://www.youtube.com/@seldea/streams"))
                     .isEqualTo("@seldea");
             assertThat(YouTubeChannelInputParser.normalize(
-                    "https://www.youtube.com/channel/UCxxxxxxxx/live")).isEqualTo("UCxxxxxxxx");
+                    "https://www.youtube.com/channel/UCSJ4gkVC6NrvII8umztf0Ow/live")).isEqualTo("UCSJ4gkVC6NrvII8umztf0Ow");
         }
 
         @Test
