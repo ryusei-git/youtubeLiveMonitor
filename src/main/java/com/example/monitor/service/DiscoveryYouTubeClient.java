@@ -1,5 +1,6 @@
 package com.example.monitor.service;
 
+import com.example.monitor.util.HtmlEntities;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.util.DateTime;
 import com.google.api.services.youtube.YouTube;
@@ -40,13 +41,17 @@ public class DiscoveryYouTubeClient {
      *
      * @param videoId    動画 ID
      * @param channelId  チャンネル ID
-     * @param videoTitle 動画のタイトル（API の値のまま）
+     * @param videoTitle 動画のタイトル（HTML の文字参照を戻した値。{@link HtmlEntities#unescape(String)}）
      */
     public record SearchHit(String videoId, String channelId, String videoTitle) {}
 
     /**
      * 新しい順に動画を検索する（{@code search.list}。検索 1 回）。次のページは取らない
      * （検索は網羅ではなく「種まき」と割り切る。親 #485）。
+     *
+     * <p>タイトルは {@link HtmlEntities#unescape(String)} で文字参照を戻して返す。{@code search.list} だけが
+     * {@code &#39;} のような形で返し、そのままだと画面に文字参照が見え、語の一致（{@code DiscoveryService}）も
+     * {@code '} や {@code &} を含む語で外れるため。
      *
      * @param term           検索語
      * @param publishedAfter この時刻より後に公開された動画だけ
@@ -63,7 +68,7 @@ public class DiscoveryYouTubeClient {
         if (response.getItems() == null) return hits;
         for (var item : response.getItems()) {
             if (item.getId() == null || item.getSnippet() == null || item.getSnippet().getChannelId() == null) continue;
-            hits.add(new SearchHit(item.getId().getVideoId(), item.getSnippet().getChannelId(), item.getSnippet().getTitle()));
+            hits.add(new SearchHit(item.getId().getVideoId(), item.getSnippet().getChannelId(), HtmlEntities.unescape(item.getSnippet().getTitle())));
         }
         return hits;
     }
