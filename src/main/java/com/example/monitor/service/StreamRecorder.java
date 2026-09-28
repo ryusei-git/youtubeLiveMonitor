@@ -88,6 +88,12 @@ public class StreamRecorder {
     /** Logback の SiftingAppender がログの振り分け先を決めるために参照する MDC のキー。 */
     private static final String MDC_CHANNEL_ID_KEY = "channelId";
 
+    /**
+     * 録画の失敗を知らせるときに添える、yt-dlp の出力の末尾のバイト数。
+     * Discord の埋め込みの本文は 4096 文字までなので、定型の文面と合わせても収まる大きさにしている。
+     */
+    private static final int FAILURE_ALERT_LOG_TAIL_BYTES = 1500;
+
     private final MonitorProperties monitorProperties;
     private final ProcessLauncher processLauncher;
     private final RecordingHistoryService recordingHistoryService;
@@ -117,6 +123,15 @@ public class StreamRecorder {
      * 知らせ済みかを DB に持たないので、アプリを再起動すると下回ったままでも 1 回送り直す。
      */
     private final AtomicBoolean lowDiskAlerted = new AtomicBoolean(false);
+
+    /**
+     * 録画を始められない（yt-dlp を起動できない・録画フォルダを作れない）ことを管理者へ知らせ済みか。
+     *
+     * <p>{@code false} を返すと呼び出し元は次の巡回で再び試みるので、直らない限り 2 分ごとに失敗する。
+     * 毎回送ると通知が溢れるため、{@link #lowDiskAlerted} と同じく 1 回だけ知らせ、起動できたときに戻す。
+     * 送信に失敗しても戻さない（理由も {@link #lowDiskAlerted} と同じ）。
+     */
+    private final AtomicBoolean startFailureAlerted = new AtomicBoolean(false);
 
     /**
      * 録画を始めるのに必要な空き容量（GB）。これを下回っていれば録画を始めない。
@@ -195,6 +210,10 @@ public class StreamRecorder {
      * 容量の取得だけが壊れた環境で録画が一切始まらなくなるため（「配信していない」と
      * 「判定できなかった」を区別するのと同じ考え方）。
      *
+     * <p><b>yt-dlp を起動できない・録画フォルダを作れないときは、管理者へ 1 回だけ知らせる。</b>
+     * {@code false} を返すと次の巡回で再び試みるので、直るまでは失敗が続く。ログだけでは気付けないため
+     * （{@link #startFailureAlerted} 参照）。
+     *
      * @param channel  録画対象のチャンネル
      * @param watchUrl 録画対象の視聴 URL。形式がプラットフォームごとに異なるため、
      *                 検知結果（{@link com.example.monitor.dto.LiveStreamDetection#watchUrl()}）が運んだものを受け取る
@@ -239,6 +258,8 @@ public class StreamRecorder {
             } catch (IOException e) {
                 log.error("録画用ディレクトリの作成に失敗しました: channel={}, directory={}",
                         channel.getYoutubeChannelId(), outputDirectory, e);
+                alertStartFailureOnce("録画フォルダを作れないため、録画を始められません: " + outputDirectory + "（" + e + "）。"
+                        + "直るまで巡回のたびに試みますが、この通知は録画を始められるまで再び送りません。");
                 return false;
             }
 
@@ -253,10 +274,18 @@ public class StreamRecorder {
             } catch (IOException e) {
                 log.error("録画プロセスの起動に失敗しました（yt-dlp が無いか、出力先のログファイルを作れない可能性があります）: "
                         + "channel={}, video={}", channel.getChannelName(), videoId, e);
+                // getMessage() ではなく例外の種類ごと載せる。logs/yt-dlp/ を作れないときの AccessDeniedException は
+                // メッセージがパスだけで、理由が読めないため（録画フォルダの通知と同じ形）
+                alertStartFailureOnce("録画プロセス（yt-dlp）を起動できないため、録画を始められません: "
+                        + channel.getChannelName() + "（" + videoId + "）。"
+                        + "yt-dlp が入っていてサービスの PATH から見えるか、logs/yt-dlp/ に書き込めるかを確かめてください（"
+                        + e + "）。直るまで巡回のたびに試みますが、この通知は録画を始められるまで再び送りません。");
                 return false;
             }
             log.info("録画を開始しました: channel={}, video={}, directory={}",
                     channel.getChannelName(), videoId, outputDirectory);
+            // 直ったので、次に起動できなくなったときに改めて知らせる
+            startFailureAlerted.set(false);
 
             Recording recording;
             try {
@@ -364,6 +393,10 @@ public class StreamRecorder {
      * 止めた yt-dlp は完成ファイルを残さないことが多く、そのままでは「最初からの録画に失敗した」と見て録り直してしまい、
      * 削除したチャンネルを録り続ける。記録しても更新する行が無い。
      *
+     * <p><b>途中の例外（DB の失敗など）は捕まえてログに残す。</b>捕まえないと仮想スレッドの既定の処理で
+     * 標準エラーに出るだけで、チャンネル別ログにも {@code /logs} 画面にも残らない。記録できずに
+     * {@code RECORDING} のまま残った行は、予約を外した後に {@link RecordingReconciler} が補正する。
+     *
      * <p>MDC はスレッドローカルなため、このメソッドは呼び出し元（監視ループのスレッド）とは
      * 別スレッドで動く仮想スレッドの中から呼ばれる。呼び出し元が設定していた MDC の値を
      * 引数で受け取って改めて設定しないと、チャンネル別ログへの振り分けが効かなくなる。
@@ -411,6 +444,12 @@ public class StreamRecorder {
             }
 
             recordOutcome(recordingId, channel, videoId, salvage, resumedMidway, exit.exitCode());
+        } catch (RuntimeException e) {
+            // DB の確認・記録（exists・mark*）が失敗しても、仮想スレッドの既定の処理（標準エラー）に流さず
+            // チャンネル別ログに残す（finally より前なので MDC がまだ効いている）。RECORDING のまま残った行は、
+            // 予約を外した後に RecordingReconciler が完成ファイルの有無で補正する
+            log.error("録画の結果を記録できませんでした。録画履歴は後始末（RecordingReconciler）が補正します: channel={}, video={}",
+                    channel.getChannelName(), videoId, e);
         } finally {
             // 結果を記録し終えてから追跡を外す。順序を逆にすると、その隙に
             // RecordingReconciler が「追跡されていないのに RECORDING のまま＝置き去り」と
@@ -503,6 +542,7 @@ public class StreamRecorder {
                             + "channel={}, video={}, exitCode={}",
                     channel.getChannelName(), videoId, exitCode);
             recordingHistoryService.markFailed(recordingId);
+            alertRecordingFailed(channel, videoId, exitCode);
             return;
         }
 
@@ -531,6 +571,59 @@ public class StreamRecorder {
             log.info("一部に失敗がありましたが録画ファイルは完成したため完了として記録します: "
                             + "channel={}, video={}, size={}, exitCode={}",
                     channel.getChannelName(), videoId, salvage.fileSizeBytes(), exitCode);
+        }
+    }
+
+    /**
+     * 録画を始められないことを管理者へ知らせる。直るまでは 2 回目以降を送らない（{@link #startFailureAlerted} 参照）。
+     *
+     * @param message 知らせる本文
+     */
+    private void alertStartFailureOnce(String message) {
+        if (!startFailureAlerted.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            discordNotifier.sendAdminAlert(message);
+        } catch (RuntimeException e) {
+            // 通知の失敗で録画の判断（false を返す）を変えない
+            log.warn("録画を始められないことを管理者へ通知できませんでした", e);
+        }
+    }
+
+    /**
+     * 録画に失敗した（再生できるファイルが残らなかった）ことを管理者へ知らせる。
+     *
+     * <p>失敗はダッシュボードの「直近の録画失敗」にも出るが、開かないと気付けない。yt-dlp は YouTube 側の変更で
+     * 壊れやすく、壊れると以降の録画がすべて失敗する。気付くのが遅れるほど取り返せない配信が増えるため、その場で知らせる。
+     *
+     * <p>空き容量のような「1 回だけ」の抑制はしない。呼び出し元の巡回は録画を始めた時点で
+     * {@code lastRecordedVideoId} を更新済みで、同じ配信を録り直さないため、通知は失敗した配信 1 本につき 1 回で済む。
+     * 固まって止めた録画が失敗に終わったときは、止めたことの通知（{@link #awaitExit}）に続けてこの通知も届く。
+     * 止めた結果どうなったかが分かるので、1 通にまとめない。
+     *
+     * <p>yt-dlp の出力の末尾を添えるのは、失敗の理由を Discord だけで読めるようにするため。全文は
+     * {@link YtDlpLogFile#of(String)} のファイルにある。
+     *
+     * @param channel  録画対象のチャンネル
+     * @param videoId  録画対象の動画 ID
+     * @param exitCode {@code yt-dlp} の終了コード。取得できなかった場合は {@code null}
+     */
+    private void alertRecordingFailed(MonitoredChannel channel, String videoId, Integer exitCode) {
+        StringBuilder message = new StringBuilder()
+                .append("録画に失敗しました（再生できるファイルが残りませんでした）: ")
+                .append(channel.getChannelName()).append("（").append(videoId).append("）、終了コード ")
+                .append(exitCode == null ? "不明" : exitCode)
+                .append("。yt-dlp の出力: ").append(YtDlpLogFile.of(videoId));
+        String tail = YtDlpLogFile.tail(videoId, FAILURE_ALERT_LOG_TAIL_BYTES);
+        if (!tail.isEmpty()) {
+            message.append("\n```\n").append(tail).append("\n```");
+        }
+        try {
+            discordNotifier.sendAdminAlert(message.toString());
+        } catch (RuntimeException e) {
+            // 通知の失敗で録画の記録を妨げない（失敗の記録は済んでいる）
+            log.warn("録画の失敗を管理者へ通知できませんでした: video={}", videoId, e);
         }
     }
 }
