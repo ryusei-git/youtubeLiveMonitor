@@ -283,6 +283,10 @@ public class SecurityConfig {
                 // ブラウザがどの画面でも取りに行く。ログイン画面へ転送しても意味が無いので、
                 // 未ログインでもそのまま返す（ファイルは無いので 404）
                 .requestMatchers("/favicon.ico").permitAll()
+                // ホーム画面に追加（PWA）の manifest とアイコン。ブラウザは manifest を Cookie なしで取りに行くため
+                // （<link rel="manifest"> に crossorigin="use-credentials" を付けない限り）、ログインを求めると
+                // ログイン画面の HTML を manifest として読んで追加に失敗する。中身は名前・色・画像だけで秘密は無い
+                .requestMatchers("/manifest.json", "/icons/**").permitAll()
                 // 巡回の生存（#412）。外の見張り（cron・bin/service.sh status）がログイン無しで叩く。
                 // 返すのは状態と経過秒だけ
                 .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
