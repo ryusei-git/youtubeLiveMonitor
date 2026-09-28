@@ -52,7 +52,8 @@ import java.util.stream.Collectors;
  *       転じたら消す</li>
  *   <li>配信中であれば、{@link RecordingIntentResolver} が「録画を希望する誰か（チャンネル単位の
  *       設定または購読者）の条件に合う」と判断した場合に {@link StreamRecorder} で録画を開始する
- *       （通知の成否とは無関係。動画 ID が変わるたびに 1 回だけ）</li>
+ *       （通知の成否とは無関係。動画 ID が変わるたびに 1 回だけ）。<b>録画の開始で例外が出ても
+ *       捕まえて、以降の通知へ進む</b></li>
  *   <li>配信中であれば、購読していて Webhook を登録している利用者へ、まだ送っていなければ
  *       配信開始を送る（{@link UserNotificationService}。以降の全体向けの判定とは独立）</li>
  *   <li>配信中で、かつ前回通知した動画と異なれば「新しい配信」と判断する</li>
@@ -70,6 +71,8 @@ import java.util.stream.Collectors;
  *
  * <h2>失敗しても止まらない設計</h2>
  * 1 チャンネルの処理で例外が出ても捕まえて次のチャンネルへ進む。
+ * 同じチャンネルの中でも、視聴先の保存と録画の開始は例外を捕まえて通知へ進む
+ * （通知はこのアプリの本来の役目なので、付随する処理の失敗で止めない）。
  * また通知・録画開始のどちらも失敗したときは対応する「済み」の動画 ID を更新しないため、
  * 次のサイクルで同じ配信が再び「新しい配信」と判定され、自動的に再試行される。
  * 専用のリトライ処理を書かずに済ませるための工夫。
@@ -303,8 +306,16 @@ public class LiveStreamPollingScheduler {
         String videoId = detection.videoId();
         int notificationFailureCount = failureCountForThisStream(channel, videoId, previousLiveVideoId);
 
-        // 録画は通知の成否と無関係に、動画IDが変わるたびに1回だけ試みる
-        maybeStartRecording(channel, detection);
+        // 録画は通知の成否と無関係に、動画IDが変わるたびに1回だけ試みる。
+        // 逆向きも同じで、録画の開始で例外が出ても（録画履歴の登録失敗・購読の読み出し失敗など）通知へ進む。
+        // ここで抜けると lastRecordedVideoId が更新されず、次の巡回も同じ例外で抜けるため、
+        // 原因が続く限りこの配信の通知が一度も届かなくなる
+        try {
+            maybeStartRecording(channel, detection);
+        } catch (RuntimeException e) {
+            log.error("録画の開始処理で例外が発生しました。通知は継続します: name={}, video={}",
+                    channel.getChannelName(), videoId, e);
+        }
 
         Supplier<Optional<LiveStreamDetails>> details = fetchDetailsOnce(platform, channel, videoId);
 
@@ -543,6 +554,8 @@ public class LiveStreamPollingScheduler {
      *
      * @param channel   対象チャンネル
      * @param detection 検知結果（配信中であることが確定しているもの）
+     * @throws RuntimeException 録画希望の判定（購読の読み出し）・録画履歴の登録・録画済み動画 ID の記録に
+     *                          失敗した場合。呼び出し側（{@code checkChannelAndNotify}）で捕まえ、通知は続ける
      */
     private void maybeStartRecording(MonitoredChannel channel, LiveStreamDetection detection) {
         String videoId = detection.videoId();
