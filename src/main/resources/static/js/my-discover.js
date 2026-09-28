@@ -159,7 +159,7 @@ const myDiscoverView = {
                 clearError();
             } catch (e) {
                 if (!list.isConnected) return;
-                showError(errorMessage(e));
+                showError(errorMessage(e), { reveal: true });
                 button.disabled = false;
             }
         });
@@ -184,7 +184,7 @@ const myDiscoverView = {
                 showToast(item.status === "VTUBER" ? `${item.title} は VTuber と判定済みです（値を取り直しました）`
                     : `${item.title} を候補に足しました`);
             } catch (e) {
-                if (list.isConnected) showError(errorMessage(e));
+                if (list.isConnected) showError(errorMessage(e), { reveal: true });
             } finally {
                 submit.disabled = false;
             }
