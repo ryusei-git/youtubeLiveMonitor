@@ -61,7 +61,9 @@ import java.util.stream.Collectors;
  *       全体向けの判定は詳細取得より前に行うので、対象外の配信のために全体向けの詳細取得は
  *       走らない（利用者向けの通知が詳細を必要とした場合は、その 1 回だけ取得する）</li>
  *   <li>{@link StreamPlatform#fetchDetails} で通知に必要な詳細情報を取得する
- *       （YouTube はここでクォータを 1 消費する）</li>
+ *       （YouTube はここでクォータを 1 消費する）。API で取れなければ
+ *       {@link StreamPlatform#fallbackDetails} で検知結果から組み立てる。API が配信開始前（待機所）と
+ *       答えたら通知しない</li>
  *   <li>{@link NotificationDispatcher} で通知し、結果を履歴に残す</li>
  *   <li>通知に成功した場合のみ「通知済みの動画 ID」を更新する</li>
  * </ol>
@@ -105,6 +107,9 @@ public class LiveStreamPollingScheduler {
      * 一時的な通信不良なら数回のうちに復帰するはずなので、そこを救える程度の回数にしている。
      */
     private static final int MAX_NOTIFICATION_ATTEMPTS = 3;
+
+    /** {@code videos.list} の {@code liveBroadcastContent} で、配信開始前（待機所）を表す値。 */
+    private static final String BROADCAST_STATUS_UPCOMING = "upcoming";
 
     private final MonitoredChannelRepository monitoredChannelRepository;
     private final StreamPlatformRegistry streamPlatformRegistry;
@@ -317,7 +322,7 @@ public class LiveStreamPollingScheduler {
                     channel.getChannelName(), videoId, e);
         }
 
-        Supplier<Optional<LiveStreamDetails>> details = fetchDetailsOnce(platform, channel, videoId);
+        Supplier<Optional<LiveStreamDetails>> details = fetchDetailsOnce(platform, channel, detection);
 
         // 利用者ごとの通知は、全体向けの「通知済み」・失敗回数・フィルターとは切り離して判定する
         // （UserNotificationService 参照）。全体向けの打ち切り（notifyChannelWide の中の return）より
@@ -431,6 +436,7 @@ public class LiveStreamPollingScheduler {
      * <p>送信に失敗しても通知済みにはしない。次の巡回で再送信されるが、失敗回数が
      * {@code MAX_NOTIFICATION_ATTEMPTS} に達したら諦める（直らない失敗を試行し続けないため）。
      * 詳細が取れず本文を作れなかった場合も失敗として数える。
+     * API が配信開始前（待機所）と答えた場合も同じ（{@code resolveDetails} 参照）。
      *
      * <p><b>履歴の保存（{@code recordAttempt}）の失敗は捕まえて、通知済み・失敗回数の記録へ進む。</b>
      * 履歴は原因を調べるための記録で、残せなくても送信の結果は変わらないため。逆にここで抜けると、
@@ -465,8 +471,9 @@ public class LiveStreamPollingScheduler {
 
         Optional<LiveStreamDetails> liveStream = details.get();
         if (liveStream.isEmpty()) {
-            // 詳細が取れないと通知本文を作れない。これも失敗として数え、際限なく試行しないようにする
-            log.warn("配信の詳細情報を取得できなかったため、今回の通知を見送ります: video={}", videoId);
+            // 詳細が無い（API でも検知結果からも作れなかった、または API が配信開始前と答えた）と通知しない。
+            // これも失敗として数え、際限なく試行しないようにする
+            log.warn("配信の詳細を用意できなかったため、今回の通知を見送ります: video={}", videoId);
             DatabaseUpdateVerifier.verify(
                     monitoredChannelRepository.incrementNotificationFailureCount(channel.getId()),
                     "通知失敗回数の加算（詳細取得の失敗）", channel.getId());
@@ -510,20 +517,68 @@ public class LiveStreamPollingScheduler {
      * （通知済み・フィルター対象外など）でクォータを使わないため（全体向けの「フィルターの判定は
      * 詳細取得より前」の順序もこれで保たれる）。
      *
-     * @param platform このチャンネルを担当するプラットフォーム実装
-     * @param channel  対象チャンネル
-     * @param videoId  配信の動画 ID
+     * @param platform  このチャンネルを担当するプラットフォーム実装
+     * @param channel   対象チャンネル
+     * @param detection 配信中と判定された検知結果
      * @return 取り出すたびに同じ結果を返す入れ物
      */
     private static Supplier<Optional<LiveStreamDetails>> fetchDetailsOnce(
-            StreamPlatform platform, MonitoredChannel channel, String videoId) {
+            StreamPlatform platform, MonitoredChannel channel, LiveStreamDetection detection) {
         AtomicReference<Optional<LiveStreamDetails>> fetched = new AtomicReference<>();
         return () -> {
             if (fetched.get() == null) {
-                fetched.set(platform.fetchDetails(channel.getYoutubeChannelId(), videoId));
+                fetched.set(resolveDetails(platform, channel, detection));
             }
             return fetched.get();
         };
+    }
+
+    /**
+     * 通知本文に使う詳細を用意する。API で取れなければ検知結果から組み立て、API が待機所と答えたら空を返す。
+     *
+     * <p><b>API が {@code "upcoming"} と答えたら空を返し、{@link StreamPlatform#fallbackDetails} にも回さない。</b>
+     * 配信ページでの待機所の判定は YouTube の内部の値に頼っているので、HTML の構造が変わると壊れやすい。
+     * 効かなくなると、待機所を配信中と誤判定し、開始のずっと前に通知が飛ぶ（{@code docs/pitfalls.md}
+     * 「待機所」の項。実際に 146 日前の誤通知が起きた）。通知の直前に取る詳細に含まれる公式の値で、もう一段防ぐ。
+     *
+     * <p>空を返すと、呼び出し側（全体向け・利用者向け）はこれを失敗として数える。そのため、同じ待機所に対して
+     * {@code videos.list} を呼ぶのは最大 3 回で止まる。失敗と数えずに見送る形にすると、判定が壊れている間は
+     * 巡回のたびにクォータを 1 ずつ使い続ける。配信開始の直後に API の反映が遅れて {@code "upcoming"} が
+     * 返ることがあっても、3 回（既定の間隔で約 4 分）のうちに {@code "live"} に変わる想定。
+     *
+     * <p>代わりに失うもの。上限まで見送った待機所が同じ動画 ID のまま本当に始まっても、その配信には通知しない
+     * （判定が壊れている間は、待機所と配信中を見分けられないため）。今までは待機所の時点で誤通知して
+     * 「通知済み」になり、本当の開始は送られなかったので、送られないこと自体は変わらない。
+     *
+     * <p>API で取れなかったときは {@link StreamPlatform#fallbackDetails} を使う。<b>WARN を残すのは、
+     * 通知が簡略版になったことがここでしか分からないため。</b>API キーの失効やクォータ切れに気付けるようにする
+     * （{@code YouTubeApiClient} も失敗を記録するが、通知をどう送ったかまでは分からない）。
+     *
+     * @param platform  このチャンネルを担当するプラットフォーム実装
+     * @param channel   対象チャンネル
+     * @param detection 配信中と判定された検知結果
+     * @return 通知本文に使う詳細。用意できない、または API が配信開始前と答えた場合は {@link Optional#empty()}
+     */
+    private static Optional<LiveStreamDetails> resolveDetails(
+            StreamPlatform platform, MonitoredChannel channel, LiveStreamDetection detection) {
+        String videoId = detection.videoId();
+        Optional<LiveStreamDetails> details = platform.fetchDetails(channel.getYoutubeChannelId(), videoId);
+        if (details.isPresent()) {
+            if (BROADCAST_STATUS_UPCOMING.equals(details.get().getBroadcastStatus())) {
+                log.warn("配信ページでは配信中と判定しましたが、API では配信開始前（待機所）のため通知を見送ります。"
+                                + "待機所の判定（LiveStreamDetector の \"isUpcoming\":true）が効いていない可能性があります: "
+                                + "name={}, video={}",
+                        channel.getChannelName(), videoId);
+                return Optional.empty();
+            }
+            return details;
+        }
+        Optional<LiveStreamDetails> fallback = platform.fallbackDetails(channel.getChannelName(), detection);
+        if (fallback.isPresent()) {
+            log.warn("配信の詳細を API で取得できなかったため、配信ページから読んだ値だけで通知します: name={}, video={}",
+                    channel.getChannelName(), videoId);
+        }
+        return fallback;
     }
 
     /**
