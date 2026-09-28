@@ -18,7 +18,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * {@code .env} ファイルへの設定値の書き込みを担当する。
+ * {@code .env} ファイルの設定値の読み書きを担当する。
  *
  * <p>このアプリの設定（{@link com.example.monitor.config.MonitorProperties}）は
  * Spring Boot 起動時に一度だけ {@code .env} から読み込まれ、以降は実行中のプロセスへ
@@ -117,6 +117,62 @@ public class EnvironmentSettingsService {
         }
 
         writeAtomically(result);
+    }
+
+    /**
+     * {@code .env} に今書かれている値を読む。
+     *
+     * <p>{@link com.example.monitor.config.MonitorProperties} は起動時に読んだ値しか持たない。
+     * 設定画面に「保存したが再起動を待っている値」を出すには、ファイルを直接読むしかない。
+     * {@code .env.example} は読まない。そこに書かれた値はアプリに読み込まれないので、保存済みの値ではない。
+     *
+     * <p>戻り値には秘密情報（API キー・Webhook URL・パスワード）の値も入る。呼び出し側は比べるためだけに使い、
+     * 応答やログには載せないこと。
+     *
+     * @return キーと値の組。同じキーが複数の行にあれば後の行の値（アプリが読む dotenv-java と同じ）。
+     *         {@code .env} が無いか読めない場合は空のマップ
+     */
+    public Map<String, String> readEnvValues() {
+        if (!Files.isRegularFile(envFile)) {
+            return Map.of();
+        }
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(envFile, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.warn(".envファイルを読めなかったため、保存済みの設定値を表示しません: {}", envFile, e);
+            return Map.of();
+        }
+        Map<String, String> values = new LinkedHashMap<>();
+        for (String line : lines) {
+            String key = extractKey(line);
+            if (key != null) {
+                String trimmed = line.strip();
+                values.put(key, parseValue(trimmed.substring(trimmed.indexOf('=') + 1).strip()));
+            }
+        }
+        return values;
+    }
+
+    /**
+     * {@code =} より後ろの部分を、アプリ（dotenv-java 3.2.0）が読むのと同じ値にする。
+     *
+     * <p>この値を起動時に読んだ値と比べて「再起動待ち」かを決めるため、読み方がアプリとずれると、
+     * 再起動しても消えない「再起動待ち」が出てしまう。dotenv-java 3.2.0 は二重引用符だけを外し
+     * （単一引用符は値に残す）、引用符の無い値は {@code #} から後ろをコメントとして捨てる。
+     *
+     * @param rawValue {@code =} より後ろの部分（前後の空白は除いたもの）
+     * @return アプリが読む値
+     */
+    private String parseValue(String rawValue) {
+        if (rawValue.startsWith("\"")) {
+            int closing = rawValue.indexOf('"', 1);
+            if (closing > 0) {
+                return rawValue.substring(1, closing);
+            }
+        }
+        int comment = rawValue.indexOf('#');
+        return (comment < 0 ? rawValue : rawValue.substring(0, comment)).strip();
     }
 
     /**
