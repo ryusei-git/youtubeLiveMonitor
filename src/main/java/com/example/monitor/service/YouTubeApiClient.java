@@ -186,8 +186,15 @@ public class YouTubeApiClient {
      * <p>取れなかったら {@link Optional#empty()} を返し、登録は続けさせる。名前は表示のためだけのものなので、
      * ここで失敗させると、API キーが無いだけで {@code UC...} 形式の購読までできなくなる。
      *
+     * <p>{@code IOException} だけでなく実行時例外も捕まえる。Google のクライアントは、2xx の応答の
+     * 本文を解析できないとき、{@code IOException} ではなく {@code IllegalArgumentException}（本文が
+     * 空・型の不一致・日時の書式違い）や {@code NullPointerException}（途中で切れた JSON）を投げる
+     * ことがあるため。捕まえないと {@code StreamPlatform.fetchChannelTitle} の「例外を投げない」約束が
+     * 破れ、名前が取れないだけで購読が 400・500 で失敗する。
+     *
      * @param channelId {@code UC...} 形式のチャンネル ID
-     * @return チャンネル名。見つからない／空／通信に失敗した場合は {@link Optional#empty()}
+     * @return チャンネル名。見つからない／空／通信に失敗した／応答を解析できなかった場合は
+     *         {@link Optional#empty()}
      */
     public Optional<String> fetchChannelTitle(String channelId) {
         try {
@@ -205,7 +212,7 @@ public class YouTubeApiClient {
             String title = snippet == null ? null : snippet.getTitle();
             return title == null || title.isBlank() ? Optional.empty() : Optional.of(title.strip());
 
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             log.warn("チャンネル名の取得に失敗しました: channel={}, reason={}", channelId, ApiKeyRedactor.describe(e));
             return Optional.empty();
         }
