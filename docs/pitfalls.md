@@ -431,7 +431,9 @@ Range リクエスト対応とパストラバーサル対策を最初から持�
 以前は止めておらず、録画履歴の行が消えて画面から見えないまま録り続けた（2026-09-26、削除したチャンネルの
 `--live-from-start` が約 1 時間で 6.9GB を書いた）。`MonitoredChannelService.remove()` が削除の前に
 `RECORDING` の動画 ID を集め、削除後に `ProcessLauncher.findYtDlpProcessesWithCommandLineContaining()` で
-yt-dlp だけを探して `ProcessTermination.terminateTreeAndAwait()` で止める（仮想スレッドで、応答は待たせない）。
+yt-dlp だけを探して `ProcessTermination.terminateTreeAndAwait()` で止める（仮想スレッドで止め、Web は応答を待たせない。`remove()` は止め終わりを `CompletableFuture` で返し、CLI の `channel remove` は
+止め終わるまで最大 2 分待つ。CLI はすぐ `System.exit` するので、待たないと止める処理ごと打ち切られる。
+短命のプロセスから `remove()` を呼ぶ経路を足すなら、同じように待つこと）。
 止めた録画のファイルは消さないので、上の孤立ファイルの削除で片付ける。
 追跡中の録画スレッドは、行が無いことを見て記録も録り直しもしない（`StreamRecorder.awaitCompletion`）。
 
