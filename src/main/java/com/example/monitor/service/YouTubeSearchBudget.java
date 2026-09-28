@@ -12,7 +12,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 
 /**
- * YouTube の検索（{@code search.list}）の回数を数え、全体・用途ごと・1 人ごとの上限で止める。
+ * YouTube の検索（{@code search.list}）と視聴画面の動画の詳細の回数を数え、全体・用途ごと・1 人ごとの上限で止める。
  *
  * <h2>なぜ既定値が 52 回（発掘 12 回・その場の検索 40 回・1 人 10 回）か</h2>
  * 2026-06-01 から {@code search.list} は 1 回 1 単位の専用の枠（1 日 100 回）に変わったが、
@@ -21,6 +21,11 @@ import java.time.ZoneId;
  * 52 回 × 100 単位 = 5,200 単位で、動画の収集（{@link YouTubeCatalogQuota}）の 3,000 単位と
  * 合わせても 8,200 単位。残りの 1,800 単位を監視・通知の呼び出しに残せる。
  * 新方式と確かめられたら {@code .env} で増やせばよい。
+ *
+ * <p>視聴画面の動画の詳細（{@link YouTubeSearchService#findVideo}）も同じ共有の枠を使う。
+ * 1 件で最大 2 単位（{@code videos.list} と {@code channels.list}）なので、1 日 400 件（800 単位まで）・
+ * 1 人 100 件に抑える。検索の 5,200 単位・収集の 3,000 単位と合わせて 9,000 単位で、
+ * 残りの 1,000 単位を監視・通知（配信を検知したときの {@code videos.list} など）に残す。
  *
  * <h2>なぜ枠を分けるか</h2>
  * 発掘の枠（{@code discovery-limit}）は、その場の検索の上限を {@code daily-limit - discovery-limit}
@@ -32,7 +37,8 @@ import java.time.ZoneId;
  * {@link YouTubeCatalogQuota} と同じく {@code VIDEO_COLLECTION_QUOTA} の表に行を足して数える
  * （再起動しても数え直しにならない）。行の id は、全体 {@code youtube-search}・
  * 対話 {@code youtube-search-interactive}・発掘 {@code youtube-search-discovery}・
- * 利用者ごと {@code youtube-search-user:<username>}。日付の区切りは米国太平洋時間の 0 時
+ * 利用者ごと {@code youtube-search-user:<username>}・詳細の全体 {@code youtube-detail}・
+ * 詳細の利用者ごと {@code youtube-detail-user:<username>}。日付の区切りは米国太平洋時間の 0 時
  * （YouTube のクォータが戻る時刻）。
  * CLI（{@code channel search}）も同じ表の同じ行を数える（H2 を {@code AUTO_SERVER=TRUE} で開いているので、
  * 常駐のサービスと同じ DB を読み書きする）。ただし {@code synchronized} は JVM をまたいで効かない
@@ -58,6 +64,14 @@ public class YouTubeSearchBudget {
     private static final String DISCOVERY_ID = "youtube-search-discovery";
     /** 利用者ごとの行の接頭辞。後ろにログイン ID を付ける。 */
     private static final String USER_ID_PREFIX = "youtube-search-user:";
+    /** 視聴画面の動画の詳細の全体の行。 */
+    private static final String DETAIL_TOTAL_ID = "youtube-detail";
+    /** 視聴画面の動画の詳細の、利用者ごとの行の接頭辞。後ろにログイン ID を付ける。 */
+    private static final String DETAIL_USER_ID_PREFIX = "youtube-detail-user:";
+    /** 視聴画面の動画の詳細を API から取ってよい 1 日の件数（全員の合計）。理由はクラスの JavaDoc。 */
+    private static final int DETAIL_DAILY_LIMIT = 400;
+    /** 視聴画面の動画の詳細を API から取ってよい 1 人 1 日の件数。1 人が全員の分を使い切らないため。 */
+    private static final int DETAIL_PER_USER_LIMIT = 100;
 
     private final VideoCollectionQuotaRepository repository;
     private final SearchProperties limits;
@@ -144,6 +158,29 @@ public class YouTubeSearchBudget {
         increment(total);
         increment(discovery);
         return true;
+    }
+
+    /**
+     * 視聴画面の動画の詳細を API から 1 件取る前に、全体とその利用者の回数を 1 ずつ増やす。
+     *
+     * <p>検索の回数とは別に数える。詳細は検索を使わないが、{@code videos.list} と
+     * {@code channels.list}（1 件で最大 2 単位）で共有の枠を使う。ログインしていれば誰でも呼べるので、
+     * 上限が無いと、ID を変えながら叩かれて監視・通知の分まで使い切られる。
+     * 2 つの行をどちらも確かめてから増やす（{@link #acquireForUser} と同じ理由）。
+     *
+     * @param username 詳細を開く利用者のログイン ID
+     * @throws SearchQuotaExceededException どちらかが本日の上限に達している場合
+     */
+    public synchronized void acquireDetailForUser(String username) {
+        LocalDate today = today();
+        VideoCollectionQuota total = load(DETAIL_TOTAL_ID, today);
+        VideoCollectionQuota user = load(DETAIL_USER_ID_PREFIX + username, today);
+        if (total.getRequests() >= DETAIL_DAILY_LIMIT || user.getRequests() >= DETAIL_PER_USER_LIMIT) {
+            throw new SearchQuotaExceededException(
+                    "本日、動画の詳細を読み込める回数の上限に達しました（16〜17 時ごろに戻ります）。動画はこのまま再生できます");
+        }
+        increment(total);
+        increment(user);
     }
 
     /**
