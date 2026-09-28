@@ -345,7 +345,9 @@ public class StreamRecorder {
                 if (waiting != null) {
                     waiting.complete(null);
                 }
-                log.info("削除したチャンネルの録画が予約を押さえているため、次の巡回で録り始めます: "
+                // 「次の巡回で」とは書かない。詰め替えの最中なら予約が外れるまで巡回のたびにここへ来て、
+                // 同じ行が数回続くため
+                log.info("削除したチャンネルの録画が予約を押さえているため、予約が外れた後の巡回で録り始めます: "
                         + "channel={}, video={}", channel.getChannelName(), videoId);
                 return false;
             }
