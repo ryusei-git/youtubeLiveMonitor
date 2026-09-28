@@ -70,7 +70,11 @@ public class Invitation {
     @Column(nullable = false)
     private LocalDateTime expiresAt;
 
-    /** 使われた時刻。入っていれば使用済みで、二度目は受け付けない。 */
+    /**
+     * 使われた時刻。入っていれば使用済みで、二度目は受け付けない。
+     * 書き込みは {@code InvitationRepository.markAccepted} の条件付き UPDATE だけで行い、
+     * setter で書いて {@code save} しない（同時の登録で両方が通ってしまうため）。
+     */
     private LocalDateTime acceptedAt;
 
     /** この招待で作られた利用者名。誰がどの招待を使ったかを後から追えるようにするため。 */

@@ -13,6 +13,7 @@ import com.example.monitor.util.SecureTokens;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,6 +55,13 @@ public class InvitationService {
 
     /** 利用者名の最大文字数（DB の列長と揃えている）。 */
     private static final int MAX_USERNAME_LENGTH = 64;
+
+    /** 使用済みの招待を断るときの文言。 */
+    private static final String ALREADY_USED_MESSAGE =
+            "この招待リンクは既に使われています。登録済みのアカウントでログインしてください。";
+
+    /** 利用者名が既に使われていて断るときの文言。 */
+    private static final String USERNAME_TAKEN_MESSAGE = "この利用者名は既に使われています。別の名前にしてください。";
 
     private final InvitationRepository invitationRepository;
     private final AppUserRepository appUserRepository;
@@ -141,6 +149,11 @@ public class InvitationService {
      * パスワードは BCrypt でハッシュ化して保存し、平文は残さない
      * （管理者にも本人のパスワードは分からない）。
      *
+     * <p><b>1 回限りは UPDATE の条件で守る。</b>未使用の確認と使用済みの書き込みを
+     * {@link InvitationRepository#markAccepted} の 1 本にまとめている。同じ招待で同時に登録されると、
+     * 読んでから書く 2 段では両方が通るため。利用者名が一意制約に当たったときは例外でトランザクションごと
+     * 巻き戻るので、招待は使われないまま残る。
+     *
      * @param token    招待リンクに載っていた文字列
      * @param username 希望する利用者名
      * @param password 本人が決めたパスワード
@@ -159,17 +172,25 @@ public class InvitationService {
         String name = username == null ? "" : username.trim();
         validateUsername(name);
         PasswordPolicy.validate(password);
+        // 重い処理を招待の行ロックより前に済ませ、ロックを持つ時間を短くする
+        String passwordHash = passwordEncoder.encode(password);
 
         if (appUserRepository.findByUsername(name).isPresent()) {
-            throw new IllegalArgumentException("この利用者名は既に使われています。別の名前にしてください。");
+            throw new IllegalArgumentException(USERNAME_TAKEN_MESSAGE);
         }
 
-        appUserRepository.save(new AppUser(name, passwordEncoder.encode(password), AppUser.Role.USER));
+        // 読んでから書くまでに同じ招待が使われていたら 0 件になる（1 回限りを UPDATE の条件で守る）
+        if (invitationRepository.markAccepted(invitation.getId(), name, now) != 1) {
+            throw new IllegalArgumentException(ALREADY_USED_MESSAGE);
+        }
 
-        // 使い回しを防ぐため、同じ招待は二度と使えないようにする
-        invitation.setAcceptedAt(now);
-        invitation.setAcceptedUsername(name);
-        invitationRepository.save(invitation);
+        try {
+            appUserRepository.saveAndFlush(new AppUser(name, passwordHash, AppUser.Role.USER));
+        } catch (DataIntegrityViolationException e) {
+            // 利用者名の確認の後に、別の招待から同じ利用者名が先に登録（コミット）された。
+            // 例外で抜けるので招待の使用済みの更新も巻き戻り、招待は未使用に戻る
+            throw new IllegalArgumentException(USERNAME_TAKEN_MESSAGE, e);
+        }
 
         log.info("招待から利用者を登録しました: id={}, user={}", invitation.getId(), name);
         // 登録した本人はまだログインしておらず、操作者にあたる第三者もいない
@@ -187,7 +208,7 @@ public class InvitationService {
      */
     private Optional<String> rejectionReason(Invitation invitation, LocalDateTime now) {
         if (invitation.getAcceptedAt() != null) {
-            return Optional.of("この招待リンクは既に使われています。登録済みのアカウントでログインしてください。");
+            return Optional.of(ALREADY_USED_MESSAGE);
         }
         if (!now.isBefore(invitation.getExpiresAt())) {
             return Optional.of("この招待リンクは期限が切れています。管理者に再発行を依頼してください。");
