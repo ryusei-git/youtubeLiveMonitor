@@ -51,3 +51,14 @@
   内部で `when(...)` を使うヘルパーを外側の `when(...)` の引数として直接書くと、
   スタブが入れ子になり `UnfinishedStubbingException` になる。
   先にローカル変数へ受けてから渡すこと（`VideoMetadataExtractorTest` 参照）。
+- **完了待ちの仮想スレッドが呼ぶスタブは、録り直しに進まずに終わる値にする**（実際に発生した）:
+  `StreamRecorder.startRecording()` は起動に成功すると、裏の仮想スレッドで `awaitCompletion()` を動かす。
+  そこで呼ばれる `recordingSalvager.ensurePlayable()` をスタブしないと `null` が返り、NPE でスレッドが落ちる。
+  `StreamRecorderTest` の起動系のテストは、長いあいだこの NPE で止まることに頼って、`launch` の回数の検証を安定させていた。
+  「再生できない」とスタブすると、裏で録り直しの `launch` が走り、検証がタイミングしだいで落ちる。
+  起動系のテストでは「最初から再生できた」を `lenient()` で返す（`StreamRecorderTest.StartRecording` の `@BeforeEach`）。
+- **録画スレッドが巡回の合図を待つ処理は、待ち時間を決め打ちせずに進める**: `StreamRecorder` の録り直しは、
+  巡回の間隔の 3 倍まで `confirmStillLive()` の合図を待つ。合図が来ない場合は、間隔 0 の `MonitorProperties` で作れば待たずに進む。
+  合図が来る場合は、完了待ちを別スレッドで動かし、終わるまで `confirmStillLive()` を送り続ける
+  （待つスレッドが無ければ何もしないので、送り続けてよい。`StreamRecorderTest` の `awaitCompletionWhileConfirming`）。
+  `Thread.sleep` で待ち始めを見計らわない。
