@@ -77,6 +77,20 @@ import java.util.function.Consumer;
  *   <li>検出器の新しい候補は、写した候補の近くにも作らない（答えのある候補の近くに作らないのと同じ理由）。</li>
  * </ul>
  *
+ * <h2>版を上げたら、検出を待たずに答えだけ先に写す理由（Issue #551）</h2>
+ * 付け直し（{@code saveCandidates}）のときにしか写さないと、版を上げてからその録画を付け直すまでの間、一覧は今の版の候補を
+ * 0 件で返し、答えた候補まで画面から消える。付け直しは 1 本ずつで、録画中は始めない（「1 本ずつ、録画中は処理しない理由」）ので、
+ * 古い録画の番が来るのは何時間も後になりうる。そこで見回りのはじめ（{@link #processPending()}）に、今の版で検出の済んでいない
+ * 録画すべてへ、答えのある候補だけを先に写す。DB の読み書きだけで検出器は動かさないので、録画中でも、ファイルが無くても行う。
+ * <ul>
+ *   <li>答えの無い候補は写さない。付け直せば今の版の検出器が出し直すもので、前の版の外れを先に聞かせる値打ちは低いため。</li>
+ *   <li>前の版の候補をそのまま一覧に出す方法は取らない。答え（{@link #answer}）を前の版の行にも受け付けることになり、
+ *       写し元の決まり（{@link SoundCandidateRepository#findAnsweredInOtherVersions}。写した後の元の行は、写した時点の
+ *       答えのまま止まっている）が崩れるため。</li>
+ *   <li>先に写した候補は、付け直しで「答えのある候補（写したもの）」として残るので、二重に写らない。検出器の新しい候補も、
+ *       その近くには作らない。</li>
+ * </ul>
+ *
  * <h2>検出をトランザクションの外で行う理由</h2>
  * 検出は数十秒かかる。その間 DB の接続を握ると、接続の少ないプール（5 本）を画面の API と取り合う。
  * 保存（候補の入れ替えと実行記録の完了）だけを 1 つのトランザクションにして、途中の状態を見せない。
@@ -177,12 +191,18 @@ public class SoundDetectionService {
      * 既存の録画も、この見回りで順に処理される。録画が始まったら、その回はそこでやめる（残りは次の回）。
      *
      * <p>初めに、前回のアプリの終了で止めた検出を回数から外す（{@link #forgiveStoppedRun()}）。外した録画がこの回の対象に入るよう、対象を引く前に行う。
+     *
+     * <p>検出の前に、対象の録画すべてへほかの版の答えを写す（クラスの説明「版を上げたら、検出を待たずに答えだけ先に写す理由」）。
+     * こちらは録画中でも、ファイルが無くても行う。ファイルも CPU もほとんど使わないため。1 本で失敗しても、ほかの録画は続ける。
      */
     public void processPending() {
         forgiveStoppedRun();
         String version = EarKissModel.load().version();
         List<Recording> pending = soundDetectionRunRepository.findPendingRecordings(
                 KIND, version, SoundDetectionRun.MAX_ATTEMPTS);
+        for (Recording recording : pending) {
+            carryAnswersAhead(recording, version);
+        }
         for (int i = 0; i < pending.size(); i++) {
             if (stopping) {
                 return;
@@ -257,7 +277,10 @@ public class SoundDetectionService {
      * 録画に付いた、今の版の候補を位置の順に返す。今の版の検出が済んだか（{@code state}）も一緒に返す。
      *
      * <p>古い版の候補は返さない。学び直しで版を上げると新しい版で付け直すので、混ぜると同じ音に候補が 2 つ並ぶため。
-     * 古い版の答えは、付け直しで今の版へ写してあるので、ここに出る（Issue #481）。
+     * 古い版の答えは、見回りのはじめ（検出の前）と付け直しで今の版へ写すので、ここに出る（Issue #481・#551）。
+     *
+     * <p>{@link #MAX_DURATION_SECONDS} を超える録画は、実行記録によらず {@code UNSUPPORTED} にする。見回りは失敗として
+     * 記録する（{@link #detect}）が、やり直しても変わらないので、画面で失敗と分けて出すため。
      *
      * @param recordingId 録画の主キー
      * @param kind        種類（{@code EAR_KISS}）
@@ -271,10 +294,13 @@ public class SoundDetectionService {
         Recording recording = requireRecording(recordingId);
         AppUser user = currentAppUser.require();
         String version = EarKissModel.load().version();
-        SoundCandidateListResponse.State state = soundDetectionRunRepository
-                .findByRecordingAndKindAndDetectorVersion(recording, KIND, version)
-                .map(SoundDetectionService::stateOf)
-                .orElse(SoundCandidateListResponse.State.PENDING);
+        Integer duration = recording.getDurationSeconds();
+        SoundCandidateListResponse.State state = duration != null && duration > MAX_DURATION_SECONDS
+                ? SoundCandidateListResponse.State.UNSUPPORTED
+                : soundDetectionRunRepository
+                        .findByRecordingAndKindAndDetectorVersion(recording, KIND, version)
+                        .map(SoundDetectionService::stateOf)
+                        .orElse(SoundCandidateListResponse.State.PENDING);
         List<SoundCandidateResponse> candidates = soundCandidateRepository
                 .findByRecordingAndKindAndDetectorVersion(recording, KIND, version).stream()
                 .sorted(Comparator.comparingLong(SoundCandidate::getPositionMs).thenComparing(SoundCandidate::getId))
@@ -576,12 +602,7 @@ public class SoundDetectionService {
                 kept.add(candidate.getPositionMs());
             }
         }
-        for (SoundCandidate answered : soundCandidateRepository.findAnsweredInOtherVersions(recording, KIND, version)) {
-            if (isFree(kept, answered.getPositionMs())) {
-                soundCandidateRepository.save(SoundCandidate.carryOver(answered, version));
-                kept.add(answered.getPositionMs());
-            }
-        }
+        carryAnswers(recording, version, kept);
         for (EarKissDetector.FinalCandidate found : finals) {
             if (isFree(kept, found.positionMs())) {
                 soundCandidateRepository.save(
@@ -589,6 +610,58 @@ public class SoundDetectionService {
             }
         }
         updateRun(recording, version, run -> run.finish(finals.size()));
+    }
+
+    /**
+     * ほかの版の答えのある候補を、今の版へ写す。{@code kept} のどれかから {@link #NEAR_ANSWER_MS} 以内の位置は写さない
+     * （同じ音に候補を 2 つ並べない）。写した位置は {@code kept} に足す（後から入れる検出器の候補を、その近くに作らないため）。
+     * 付け直し（{@code saveCandidates}）と、検出の前の写し（{@code carryAnswersAhead}）が、1 つのトランザクションの中で呼ぶ。
+     *
+     * @param recording 録画
+     * @param version   今の検出器の版
+     * @param kept      今の版に残す候補の位置。写した位置をここに足す
+     * @return 写した候補の数
+     */
+    private int carryAnswers(Recording recording, String version, List<Long> kept) {
+        int carried = 0;
+        for (SoundCandidate answered : soundCandidateRepository.findAnsweredInOtherVersions(recording, KIND, version)) {
+            if (isFree(kept, answered.getPositionMs())) {
+                soundCandidateRepository.save(SoundCandidate.carryOver(answered, version));
+                kept.add(answered.getPositionMs());
+                carried++;
+            }
+        }
+        return carried;
+    }
+
+    /**
+     * 検出を待たずに、ほかの版の答えのある候補だけを今の版へ写す（クラスの説明「版を上げたら、検出を待たずに答えだけ先に写す理由」）。
+     * 失敗しても例外は投げず、ログに残す。付け直しのときにまた写すので、ほかの録画の写しと検出を止めない。
+     *
+     * <p>今の版の候補は、答えの無いものも含めてすべて「残す候補」として扱う。答えの無い候補を消して作り直すのは付け直しだけで、
+     * ここでその近くに答えを写すと、同じ音に候補が 2 つ並ぶため。
+     *
+     * @param recording 録画
+     * @param version   今の検出器の版
+     */
+    private void carryAnswersAhead(Recording recording, String version) {
+        try {
+            Integer carried = transactionTemplate.execute(status -> {
+                List<Long> kept = new ArrayList<>();
+                for (SoundCandidate candidate
+                        : soundCandidateRepository.findByRecordingAndKindAndDetectorVersion(recording, KIND, version)) {
+                    kept.add(candidate.getPositionMs());
+                }
+                return carryAnswers(recording, version, kept);
+            });
+            if (carried != null && carried > 0) {
+                log.info("検出の前に、ほかの版の答えを今の版へ写しました: recording={}, version={}, 件数={}",
+                        recording.getId(), version, carried);
+            }
+        } catch (RuntimeException e) {
+            log.warn("検出の前に、ほかの版の答えを写せませんでした。付け直しのときにまた写します: recording={}",
+                    recording.getId(), e);
+        }
     }
 
     /** 残す候補のどれからも {@link #NEAR_ANSWER_MS} より離れているか（同じ音に候補を 2 つ並べないため）。 */

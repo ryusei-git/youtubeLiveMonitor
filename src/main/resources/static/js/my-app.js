@@ -799,6 +799,9 @@ function myMergeSoundRanges(ranges) {
  * この流れの間は「印の所だけ再生」をオフにする。どちらも再生位置を動かす（区間の外なら次の区間へ飛ぶ・候補の区間の
  * 終わりで止めて次の候補へ飛ぶ）ので、両方が動くと、片方が飛んだ先で、もう片方がまた飛ばしてぶつかるため。
  *
+ * 答えを送れなかったときは、候補の一覧を読み直す。付け直し（管理者のやり直し・検出器の版の上げ）で未確認の候補の id が変わると、
+ * 手元の id では 404 が続くため。確かめる流れの途中なら、同じ所の候補で続ける。
+ *
  * @param {Recording} rec 再生画面の録画
  * @param {HTMLElement} container 欄を描く入れ物
  * @returns {() => void} 動画に付けた処理を外し、「印の所だけ再生」と「候補を順に確かめる」を終える関数。動画要素は
@@ -844,7 +847,7 @@ function myBindSoundMarks(rec, container) {
     let marks = [];
     /** @type {MySoundCandidate[]} */
     let candidates = [];
-    // 今の版の自動の検出の状態（PENDING・DONE・FAILED）。読み込むまでは null
+    // 今の版の自動の検出の状態（PENDING・DONE・FAILED・UNSUPPORTED）。読み込むまでは null
     /** @type {string|null} */
     let candidateState = null;
     // サーバーの二度押しの判定は「探してから保存」なので、同時に届いた 2 つの要求はどちらも印を作りうる。送信中は押させない
@@ -951,6 +954,55 @@ function myBindSoundMarks(rec, container) {
         video.pause();
     };
     /**
+     * 候補の一覧を読み込み、状態と候補を入れ替えて描き直す。最初の読み込みと、答えを送れなかった後の読み直しで使う。
+     * @returns {Promise<void>}
+     */
+    const loadCandidates = async () => {
+        const data = await apiGet(`${candidatePath}?kind=EAR_KISS`);
+        candidateState = data.state;
+        candidates = data.candidates;
+        render();
+    };
+    /**
+     * 答えを送れなかった後に、候補の一覧を読み直す。付け直し（管理者のやり直し・検出器の版の上げ）で未確認の候補は id が変わり、
+     * 手元の id のまま送り続けると 404 が続いて、「候補を順に確かめる」が同じ候補から進めなくなるため。
+     * 読み直した一覧に送れなかった候補がまだある・読み直せないときは、付け直し以外の失敗なので、送れなかった理由をエラー帯に出す。
+     * エラー帯は読み直してから出す。先に出してから消すと、付け直しのたびにエラーが一瞬出て消えるため。
+     * 確かめる流れの途中なら、同じ所（±1 秒。サーバーが同じ音とみなす幅）の未確認の候補で続け、無ければ次の未確認の候補へ進む。
+     * @param {MySoundCandidate} failed 答えを送れなかった候補
+     * @param {string} message 送れなかった理由（付け直し以外の失敗のときにエラー帯に出す）
+     * @returns {Promise<void>}
+     */
+    const reloadAfterFailure = async (failed, message) => {
+        try {
+            await loadCandidates();
+        } catch {
+            // 読み直せなければ、読み直しの失敗ではなく、押した操作（答え）を送れなかった理由を出す
+            if (container.isConnected) showError(message, { reveal: true });
+            return;
+        }
+        if (!container.isConnected) return;
+        if (candidates.some((c) => c.id === failed.id)) {
+            showError(message, { reveal: true });
+            return;
+        }
+        clearError();
+        query(".soundMarkStatus", container).textContent = "候補が付け直されていたため、一覧を読み直しました";
+        const last = lastAnswer;
+        if (last && !candidates.some((c) => c.id === last.candidate.id)) lastAnswer = null;
+        const old = reviewing;
+        if (old) {
+            const same = candidates.find((c) => c.id === old.id)
+                ?? candidates.find((c) => c.verdict === null && Math.abs(c.positionMs - old.positionMs) <= 1000);
+            const next = same ? null : nextUnreviewed(old.positionMs / 1000);
+            // 同じ所を聞いているなら、再生位置は動かさずに続ける。ドックが別の録画を読み込んでいれば飛ばない（その動画の位置を動かすため）
+            if (same) reviewing = same;
+            else if (next && active()) listen(next);
+            else endReview(next ? "" : "未確認の候補はもうありません");
+        }
+        render();
+    };
+    /**
      * 候補に答える（null は取り消し）。答えは全員で共有し、最後の答えが有効になる（API のとおり）。
      * @param {MySoundCandidate} candidate 候補
      * @param {"CONFIRMED"|"REJECTED"|null} verdict 答え
@@ -962,16 +1014,19 @@ function myBindSoundMarks(rec, container) {
         render();
         try {
             await apiPut(`${candidatePath}/${candidate.id}/verdict`, { verdict });
-            // 応答の候補と同じ値になる（答えた人は本人。取り消すと答えた人も空になる）ので、手元の候補を書き換える
-            candidate.verdict = verdict;
-            candidate.reviewedByMe = verdict !== null;
-            lastAnswer = { candidate, verdict };
+            // 応答の候補と同じ値になる（答えた人は本人。取り消すと答えた人も空になる）ので、手元の候補を書き換える。
+            // 送っている間に一覧を読み直していれば、読み直した方の同じ候補を書き換える（古い方を書き換えても画面に出ないため）
+            const current = candidates.find((c) => c.id === candidate.id) ?? candidate;
+            current.verdict = verdict;
+            current.reviewedByMe = verdict !== null;
+            lastAnswer = { candidate: current, verdict };
             // 取り消すと未確認の候補が増えるので、終えたときの「もうありません」は古くなる
             reviewMessage = "";
             if (container.isConnected) clearError();
             return true;
         } catch (e) {
-            if (container.isConnected) showError(errorMessage(e), { reveal: true });
+            // エラー帯は、読み直して付け直し以外の失敗と分かったときだけ出す（reloadAfterFailure の JSDoc）
+            if (container.isConnected) await reloadAfterFailure(candidate, errorMessage(e));
             return false;
         } finally {
             answering.delete(candidate.id);
@@ -1041,6 +1096,7 @@ function myBindSoundMarks(rec, container) {
         state.hidden = candidateState === null;
         state.textContent = (candidateState === "PENDING" ? "自動の検出を待っています"
             : candidateState === "FAILED" ? "自動の検出に失敗しました"
+            : candidateState === "UNSUPPORTED" ? "6 時間を超える録画は、自動の検出の対象外です"
             : `自動の候補 ${candidates.length} 件（未確認 ${unreviewed} 件）`)
             + (candidates.length ? "。自動の候補は外れが多いので、聞いて答えてください。答えは精度を上げるのに使います。" : "");
         const restoreFocus = rememberFocus(list);
@@ -1127,13 +1183,7 @@ function myBindSoundMarks(rec, container) {
     apiGet(`${path}?kind=EAR_KISS`)
         .then(merge)
         .catch((e) => { if (container.isConnected) showError(errorMessage(e)); });
-    apiGet(`${candidatePath}?kind=EAR_KISS`)
-        .then((data) => {
-            candidateState = data.state;
-            candidates = data.candidates;
-            render();
-        })
-        .catch((e) => { if (container.isConnected) showError(errorMessage(e)); });
+    loadCandidates().catch((e) => { if (container.isConnected) showError(errorMessage(e)); });
     // 再生・シークで今の位置が変わると、前後に印があるかも変わる。ドックが別の録画を読み込んだ・閉じたときは
     // emptied だけが来る（位置が 0 のままなら timeupdate は来ない）ので、それでも押せるかを直す
     const events = ["timeupdate", "emptied"];
