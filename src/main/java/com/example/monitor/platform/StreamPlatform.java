@@ -116,6 +116,26 @@ public interface StreamPlatform {
     Optional<String> resolveChannelId(VideoSource source);
 
     /**
+     * 登録するチャンネルの、プラットフォーム上の公式な名前を取る。
+     *
+     * <p>利用者が購読のときに表示名を空にした場合だけ使う（{@code MonitoredChannelService.findOrRegister}）。
+     * 以前は識別子（{@code UC...} や Twitch の数値 ID）をそのままチャンネル名にしていたため、
+     * URL を貼って名前を空のまま追加すると、マイチャンネル・アーカイブ・通知履歴・管理画面のすべてに ID が並び、
+     * 利用者には直す手段が無かった。
+     *
+     * <p><b>取れなくても例外を投げず {@link Optional#empty()} を返すこと。</b>名前は表示のためだけのもので、
+     * 取れないせいで購読そのものを失敗させるほどのものではないため（呼び出し側は識別子で代用する）。
+     *
+     * <p>既定では取らない。公式な名前を取る手段があるプラットフォームだけ上書きする。
+     *
+     * @param channelId {@link #normalizeChannelInput} で正規化済みの識別子
+     * @return 公式な名前。取れなければ {@link Optional#empty()}
+     */
+    default Optional<String> fetchChannelTitle(String channelId) {
+        return Optional.empty();
+    }
+
+    /**
      * 1チャンネルが配信中かどうかを調べる。
      *
      * <p><b>「配信していない」と「判定できなかった」を必ず区別すること。</b>
