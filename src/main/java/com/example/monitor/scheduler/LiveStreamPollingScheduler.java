@@ -91,6 +91,11 @@ import java.util.stream.Collectors;
  * 切り替えでは NOT_LIVE を一度も挟まずに次の配信へ移ることがあり、そこを通ると前の配信の
  * 失敗回数がそのまま適用されて、新しい配信への通知が一度も試されないまま終わるため。
  *
+ * <p><b>前回と同じ動画の待機所（UPCOMING）を検知したときは戻さない。</b>待機所の判定
+ * （{@code docs/pitfalls.md}「待機所」の項）が効いたり効かなかったりすると、同じ動画が
+ * LIVE と UPCOMING を行き来する。そのたびに戻すと上限に届かず、巡回のたびに詳細を取り直して
+ * クォータを使い続けるため（{@code resolveDetails} 参照）。
+ *
  * <h2>実行間隔</h2>
  * {@code fixedDelay} を使っているため、前回の処理が終わってから次の待ち時間が始まる。
  * 処理が長引いても多重に走ることはない。間隔は環境変数 {@code MONITOR_INTERVAL_SECONDS} で変更できる。
@@ -350,8 +355,9 @@ public class LiveStreamPollingScheduler {
     /**
      * 判定できた検知結果を、通知の成否とは無関係に毎回 DB へ記録する。
      *
-     * <p>配信状態・配信予定（待機所）・アイコン・配信終了時の失敗回数のリセットをまとめているのは、
-     * どれも「今回の観測で分かった事実をそのまま残す」処理で、通知や録画の判断を含まないため。
+     * <p>配信状態・配信予定（待機所）・アイコン・失敗回数のリセット（配信の終わりと、別の動画の
+     * 待機所に移ったとき）をまとめているのは、どれも「今回の観測で分かった事実をそのまま残す」処理で、
+     * 通知や録画の判断を含まないため。
      * 判定失敗（{@code DETECTION_FAILED}）の結果はここへ渡さない。呼び出し側で先に抜けるので、
      * 「判定できなかった」ことを「配信していない」として記録してしまうことはない。
      *
@@ -391,8 +397,15 @@ public class LiveStreamPollingScheduler {
                     "チャンネルアイコンの記録", channel.getId());
         }
 
-        if (!detection.isLive()) {
-            // 配信が終わったので、この配信に対する通知失敗の回数は次の配信に持ち越さない
+        // 配信が終わった（NOT_LIVE）か、別の動画の待機所に移ったので、この配信に対する通知失敗の回数は
+        // 次の配信に持ち越さない。前回と同じ動画の待機所なら戻さない。前回が配信中（誤判定）なら
+        // currentLiveVideoId、前回も待機所なら upcomingVideoId に同じ動画 ID が入っている。
+        // 待機所の判定が効いたり効かなかったりすると同じ動画が LIVE と UPCOMING を行き来し、
+        // そのたびに戻すと上限に届かず、巡回のたびに詳細を取り直してクォータを使い続けるため
+        boolean sameVideoStillUpcoming = detection.isUpcoming()
+                && (Objects.equals(detection.videoId(), channel.getCurrentLiveVideoId())
+                        || Objects.equals(detection.videoId(), channel.getUpcomingVideoId()));
+        if (!detection.isLive() && !sameVideoStillUpcoming) {
             if (channel.getNotificationFailureCount() > 0) {
                 DatabaseUpdateVerifier.verify(
                         monitoredChannelRepository.resetNotificationFailureCount(channel.getId()),
@@ -414,24 +427,33 @@ public class LiveStreamPollingScheduler {
      * エンティティ側を書き換えないのは、巡回ループが扱うエンティティを変更しないという
      * このクラスの方針（{@code save(entity)} を呼ばない理由と同じ）に合わせている。
      *
-     * <p>前の配信が「分からない」（{@code previousLiveVideoId} が null）ときは戻さない。
-     * 分からないものを「別の配信だ」と断定すると、上限を設けた意味（直らない失敗を試行し続けない）が
-     * 消えるため（「配信していない」と「判定できなかった」を区別するのと同じ考え方）。
-     * 失敗回数が 1 以上なら、その配信を検知したときに currentLiveVideoId も
+     * <p><b>前回が配信中でなかった（{@code previousLiveVideoId} が null）ときは、待機所の動画 ID
+     * （{@link MonitoredChannel#upcomingVideoId}）を前の配信として比べる。</b>待機所の判定が効いたり
+     * 効かなかったりすると、同じ動画が LIVE と UPCOMING を行き来する。同じ動画の UPCOMING では
+     * 失敗回数を戻さない（{@code recordObservation} 参照）ので、次の LIVE でも数え続け、上限で
+     * 詳細の取得が止まる。待機所の後に別の動画が配信を始めた場合は、ここで数え直す。
+     *
+     * <p>どちらも null で前の配信が「分からない」ときは戻さない。分からないものを「別の配信だ」と
+     * 断定すると、上限を設けた意味（直らない失敗を試行し続けない）が消えるため
+     * （「配信していない」と「判定できなかった」を区別するのと同じ考え方）。
+     * 失敗回数が 1 以上なら、前回の観測で currentLiveVideoId か upcomingVideoId のどちらかが
      * 記録されているはずなので、実運用でこの条件が効く場面は無い。
      *
      * @param channel             調査対象のチャンネル（巡回開始時に読み込んだもの。書き換えない）
      * @param videoId             今の配信の動画 ID
-     * @param previousLiveVideoId 観測を記録する前に控えた、前回の配信の動画 ID（不明なら null）
+     * @param previousLiveVideoId 観測を記録する前に控えた、前回の配信の動画 ID（前回が配信中でなければ null）
      * @return このサイクルの上限判定に使う失敗回数
      */
     private int failureCountForThisStream(MonitoredChannel channel, String videoId, String previousLiveVideoId) {
         int notificationFailureCount = channel.getNotificationFailureCount();
-        if (notificationFailureCount > 0 && previousLiveVideoId != null
-                && !Objects.equals(videoId, previousLiveVideoId)) {
+        // 前回が待機所だった（前回の配信 ID が無い）ときは、その待機所の動画 ID を前の配信として比べる
+        String previousVideoId = previousLiveVideoId != null
+                ? previousLiveVideoId : channel.getUpcomingVideoId();
+        if (notificationFailureCount > 0 && previousVideoId != null
+                && !Objects.equals(videoId, previousVideoId)) {
             log.info("前の配信とは別の配信を検知したため、通知の失敗回数を数え直します: "
                             + "name={}, 前の配信={}, 今の配信={}, 失敗回数={}",
-                    channel.getChannelName(), previousLiveVideoId, videoId, notificationFailureCount);
+                    channel.getChannelName(), previousVideoId, videoId, notificationFailureCount);
             DatabaseUpdateVerifier.verify(
                     monitoredChannelRepository.resetNotificationFailureCount(channel.getId()),
                     "通知失敗回数のリセット（別の配信を検知）", channel.getId());
@@ -560,6 +582,11 @@ public class LiveStreamPollingScheduler {
      * {@code videos.list} を呼ぶのは最大 3 回で止まる。失敗と数えずに見送る形にすると、判定が壊れている間は
      * 巡回のたびにクォータを 1 ずつ使い続ける。配信開始の直後に API の反映が遅れて {@code "upcoming"} が
      * 返ることがあっても、3 回（既定の間隔で約 4 分）のうちに {@code "live"} に変わる想定。
+     *
+     * <p>待機所の判定が効いたり効かなかったりして、同じ動画が LIVE と UPCOMING を行き来しても
+     * 上限で止まる。同じ動画の UPCOMING では全体向けの失敗回数を 0 に戻さないため
+     * （{@code recordObservation}・{@code failureCountForThisStream} 参照）。戻すと、LIVE と判定した
+     * 巡回のたびに {@code videos.list} を呼び続ける。上限まで見送った後の扱いは次の段落と同じ。
      *
      * <p>代わりに失うもの。上限まで見送った待機所が同じ動画 ID のまま本当に始まっても、その配信には通知しない
      * （判定が壊れている間は、待機所と配信中を見分けられないため）。今までは待機所の時点で誤通知して
