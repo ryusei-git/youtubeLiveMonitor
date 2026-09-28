@@ -176,6 +176,7 @@ async function loadServiceStorage() {
 /**
  * @typedef {{pid: number, name: string, cpuPercent: number|null, memoryBytes: number}} ResourceProcess
  * @typedef {ResourceProcess & {label: string, children: ResourceProcess[]}} RecorderProcess
+ * @typedef {ResourceProcess & {purpose: string, children: ResourceProcess[]}} HelperProcess
  * @typedef {object} ResourceSnapshot
  * @property {string} measuredAt
  * @property {{cpuPercent: number|null, cores: number, loadAverage1m: number|null,
@@ -184,7 +185,7 @@ async function loadServiceStorage() {
  *   networkReceiveBytesPerSecond: number|null, networkSendBytesPerSecond: number|null}} system
  * @property {{cpuPercent: number|null, memoryBytes: number,
  *   application: {pid: number, cpuPercent: number|null, memoryBytes: number, heapUsedBytes: number, heapMaxBytes: number, threads: number},
- *   recorders: RecorderProcess[]}} service
+ *   recorders: RecorderProcess[], helpers: HelperProcess[]}} service
  * @property {Array<{key: string, message: string}>} warnings
  * @typedef {{at: string, systemCpuPercent: number|null, systemMemoryUsedPercent: number,
  *   serviceCpuPercent: number|null, serviceMemoryBytes: number}} ResourceHistoryPoint
@@ -259,10 +260,11 @@ function renderSystemCards(system, warned) {
 }
 
 /**
- * このサービスのプロセス（アプリ本体・録画プロセスとその子）を表にする。
+ * このサービスのプロセス（アプリ本体・録画プロセス・アプリが起動したその他の外部プロセスと、それぞれの子）を表にする。
  *
  * <p>yt-dlp が起動する ffmpeg は字下げして親の下に置く。録画 1 本がどれだけ食っているかを
- * 親子の組で読めるようにするため。
+ * 親子の組で読めるようにするため。録画以外の外部プロセス（耳キスの検出の ffmpeg、「端末に保存」の yt-dlp など）は
+ * 録画の後に並べ、対象の欄に用途を出す。
  *
  * @param {ResourceSnapshot["service"]} service このサービスの値
  * @returns {string} 差し込む HTML
@@ -280,19 +282,31 @@ function renderServiceProcesses(service) {
     const rows = [row(`アプリ本体 <span class="muted">PID ${app.pid}</span>`, "—", app.cpuPercent,
         `${escapeHtml(formatFileSize(app.memoryBytes))} <span class="muted">ヒープ ${escapeHtml(formatFileSize(app.heapUsedBytes))}`
         + ` / ${escapeHtml(formatFileSize(app.heapMaxBytes))}・スレッド ${app.threads}</span>`)];
-    for (const recorder of service.recorders) {
-        rows.push(row(`${escapeHtml(recorder.name)} <span class="muted">PID ${recorder.pid}</span>`, recorder.label,
-            recorder.cpuPercent, escapeHtml(formatFileSize(recorder.memoryBytes))));
-        for (const child of recorder.children) {
+    /**
+     * 親のプロセスの行と、その子孫を字下げした行を足す。
+     *
+     * @param {ResourceProcess & {children: ResourceProcess[]}} parent 親のプロセス
+     * @param {string} target 対象の欄に出す文字列（録画はチャンネル名、それ以外は用途）
+     */
+    const pushTree = (parent, target) => {
+        rows.push(row(`${escapeHtml(parent.name)} <span class="muted">PID ${parent.pid}</span>`, target,
+            parent.cpuPercent, escapeHtml(formatFileSize(parent.memoryBytes))));
+        for (const child of parent.children) {
             rows.push(row(`<span class="processChild">└ ${escapeHtml(child.name)}</span> <span class="muted">PID ${child.pid}</span>`, "",
                 child.cpuPercent, escapeHtml(formatFileSize(child.memoryBytes))));
         }
+    };
+    for (const recorder of service.recorders) {
+        pushTree(recorder, recorder.label);
+    }
+    for (const helper of service.helpers) {
+        pushTree(helper, helper.purpose);
     }
     rows.push(row("<strong>合計</strong>", "", service.cpuPercent,
         `<strong>${escapeHtml(formatFileSize(service.memoryBytes))}</strong>`));
     return `<div class="table-scroll">
         <table id="resourceProcessTable">
-            <thead><tr><th>プロセス</th><th>対象</th><th>CPU</th><th>メモリ</th></tr></thead>
+            <thead><tr><th>プロセス</th><th>対象・用途</th><th>CPU</th><th>メモリ</th></tr></thead>
             <tbody>${rows.join("")}</tbody>
         </table>
     </div>`;

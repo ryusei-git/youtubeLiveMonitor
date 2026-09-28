@@ -4,6 +4,7 @@ import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.dto.ResourceHistoryPoint;
 import com.example.monitor.dto.ResourceSnapshotResponse;
 import com.example.monitor.dto.ResourceSnapshotResponse.ApplicationUsage;
+import com.example.monitor.dto.ResourceSnapshotResponse.HelperUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.ProcessUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.RecorderUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.ServiceUsage;
@@ -31,14 +32,16 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * 端末全体とこのサービス（アプリ本体・録画プロセス）が使うリソースを計測し、直近 24 時間の推移を持つ。
+ * 端末全体とこのサービス（アプリ本体・録画プロセス・アプリが起動したその他の外部プロセス）が使うリソースを計測し、直近 24 時間の推移を持つ。
  *
  * <p>計測には OSHI を使う。自前で {@code /proc} を読むより、プロセスごとの CPU・メモリの
  * 取り方を間違えにくいため（親 Issue #139 の決定）。
@@ -48,6 +51,12 @@ import java.util.stream.Stream;
  * 計測は全プロセス（この端末で数百）のコマンドラインを調べる。以前は API のたびに測り直していて、
  * ダッシュボードを開いている間は 1 分ごとの記録とは別に毎分同じ列挙をしていた（#190）。
  * 推移は再起動で消えてよいのでメモリ上にだけ持つ（DB に書くと書き込みが 1 分ごとに増えるだけ）。
+ *
+ * <p>「このサービス」には、録画プロセス（アプリを再起動しても動き続ける yt-dlp）に加えて、アプリが起動したその他の
+ * 外部プロセス（耳キスの検出・詰め替え・サムネイルの ffmpeg、「端末に保存」の yt-dlp など）も含める。含めないと、
+ * CPU の注意が出ているのに「このサービス」は低く見え、原因がこのサービスの外にあると読めてしまう。
+ * 数えるのは 1 分ごとの記録の時点で動いているものだけで、記録と記録の間に始まって終わった短いもの
+ * （サムネイルの ffmpeg など）は数えられない。
  *
  * <p>CLI では定期処理が動かず前回値が作られないので、Bean ごと作らない。
  */
@@ -187,7 +196,7 @@ public class ResourceMonitorService {
                 hasWindow ? (sent - prior.sentBytes()) * 1000 / windowMillis : null);
 
         OperatingSystem os = systemInfo.getOperatingSystem();
-        List<OSProcess> processes = recorderCandidates(os);
+        List<OSProcess> processes = processCandidates(os);
         Map<Integer, List<OSProcess>> childrenByParent = processes.stream()
                 .collect(Collectors.groupingBy(OSProcess::getParentProcessID));
         Map<Integer, OSProcess> tracked = new HashMap<>();
@@ -212,6 +221,24 @@ public class ResourceMonitorService {
                     children));
         }
 
+        // 録画プロセスとその子孫として数えたものは除く。今のアプリが起動した録画の yt-dlp はアプリの子でもあるため、二重に数えない
+        Set<Integer> counted = new HashSet<>();
+        for (RecorderUsage recorder : recorders) {
+            counted.add(recorder.pid());
+            for (ProcessUsage child : recorder.children()) {
+                counted.add(child.pid());
+            }
+        }
+        List<HelperUsage> helpers = new ArrayList<>();
+        for (OSProcess process : processes) {
+            // アプリの直接の子を親の行にし、その先（yt-dlp が起動する ffmpeg など）は子として親の下に付ける
+            if (process.getParentProcessID() != self.getProcessID() || counted.contains(process.getProcessID())) continue;
+            List<ProcessUsage> children = new ArrayList<>();
+            collectDescendants(process.getProcessID(), childrenByParent, cpu, children);
+            helpers.add(new HelperUsage(process.getProcessID(), process.getName(), helperPurpose(process.getArguments()),
+                    cpu.percent(process), process.getResidentMemory(), children));
+        }
+
         Double serviceCpu = application.cpuPercent();
         long serviceMemory = application.memoryBytes();
         for (RecorderUsage recorder : recorders) {
@@ -222,30 +249,50 @@ public class ResourceMonitorService {
                 serviceMemory += child.memoryBytes();
             }
         }
+        for (HelperUsage helper : helpers) {
+            serviceCpu = add(serviceCpu, helper.cpuPercent());
+            serviceMemory += helper.memoryBytes();
+            for (ProcessUsage child : helper.children()) {
+                serviceCpu = add(serviceCpu, child.cpuPercent());
+                serviceMemory += child.memoryBytes();
+            }
+        }
 
         ResourceSnapshotResponse response = new ResourceSnapshotResponse(LocalDateTime.now(), system,
-                new ServiceUsage(serviceCpu, serviceMemory, application, recorders), List.of());
+                new ServiceUsage(serviceCpu, serviceMemory, application, recorders, helpers), List.of());
         return new Measurement(response, new Baseline(now, ticks, received, sent, tracked));
     }
 
     /**
-     * 録画プロセスの候補（コマンドラインに {@code yt-dlp} を含むもの）とその子孫を、OSHI のプロセスとして返す。
+     * このサービスのプロセスの候補を、OSHI のプロセスとして返す。候補は次の 2 つと、それぞれの子孫。
+     * <ul>
+     *   <li>コマンドラインに {@code yt-dlp} を含むもの（録画プロセスの候補）</li>
+     *   <li>アプリ（この JVM）の子孫。耳キスの検出・詰め替え・サムネイルの ffmpeg、「端末に保存」の yt-dlp など</li>
+     * </ul>
      *
      * <p>OSHI で全プロセスを列挙すると、プロセスごとに {@code /proc} の複数のファイルを読んで文字列や表を作るため、
      * この端末（約 380 プロセス）で 1 回に約 45MiB を確保して捨てていた。1 分ごとの記録なので、画面を開いていなくても
      * 1 日で約 63GiB の短命のごみになる（#201）。絞り込みはコマンドラインだけを読む JDK の {@link ProcessHandle}
      * （1 回で約 0.2MiB）で行い、OSHI には残ったプロセスだけを聞く。
      *
-     * <p>数える対象は全プロセスを見ていたときと変わらない。yt-dlp は Python のスクリプトなので、JDK のコマンドライン
+     * <p>録画プロセスの候補は全プロセスを見ていたときと変わらない。yt-dlp は Python のスクリプトなので、JDK のコマンドライン
      * （実行ファイルと引数）にもスクリプトのパスとして {@code yt-dlp} が入り、候補から漏れない。録画プロセスかどうかは
      * 今までどおり {@code recordingVideoId} が OSHI の引数で決め、子孫の木も OSHI の親 PID で組む。
      * 1 つのプロセスは全プロセスを列挙していたときと同じく 1 回だけ載せ、終わっていたもの（OSHI が {@code null}）は載せない。
+     *
+     * <p>アプリの子孫を加えるのは、録画以外の外部プロセスが「このサービス」から漏れていたため。ffmpeg・ffprobe は
+     * コマンドラインに {@code yt-dlp} を含まず、「端末に保存」の yt-dlp は出力先が録画の保存先の外なので録画プロセスにならない。
+     * 「ffmpeg を含むもの」のようにコマンドラインで探さないのは、利用者が手で動かしたものや、それを {@code grep} している
+     * シェルまで数えてしまうため（{@code docs/pitfalls.md}「録画中かの判定は、動画 ID を含むだけの grep・tail で誤検知する」と同じ理由）。
+     * アプリの子孫は数個なので、OSHI に聞くプロセスはほとんど増えない。録画の yt-dlp はアプリを再起動すると
+     * 子孫でなくなる（JVM より長く動き続ける）ので、1 つ目の条件は外さない。
      */
-    private static List<OSProcess> recorderCandidates(OperatingSystem os) {
+    private static List<OSProcess> processCandidates(OperatingSystem os) {
         Map<Integer, OSProcess> found = new LinkedHashMap<>();
-        ProcessHandle.allProcesses()
+        Stream<ProcessHandle> recorders = ProcessHandle.allProcesses()
                 .filter(process -> process.info().commandLine().filter(line -> line.contains("yt-dlp")).isPresent())
-                .flatMap(process -> Stream.concat(Stream.of(process), process.descendants()))
+                .flatMap(process -> Stream.concat(Stream.of(process), process.descendants()));
+        Stream.concat(recorders, ProcessHandle.current().descendants())
                 .forEach(process -> found.computeIfAbsent((int) process.pid(), os::getProcess));
         return List.copyOf(found.values());
     }
@@ -271,6 +318,32 @@ public class ResourceMonitorService {
         } catch (InvalidPathException e) {
             return null;
         }
+    }
+
+    /**
+     * アプリが起動したプロセスの用途を、コマンドラインの引数から見分けて返す。
+     *
+     * <p>起動するときに用途を記録する方法もあるが、起動する箇所（{@code ExternalCommandRunner}・{@code PcmDecoder}・
+     * {@code DeviceDownloadService}・{@code NativeDirectoryPickerService}）すべてに手を入れることになるため、
+     * 各箇所が組み立てる引数の特徴で見分ける。表示の手がかりにすぎないので、見分けられないものは「その他」にして数え続ける。
+     * 起動する箇所の引数を変えたら、ここも合わせる。
+     *
+     * @param args OSHI が返す引数（先頭は実行ファイル）。取れなければ空
+     * @return 画面に出す用途
+     */
+    private static String helperPurpose(List<String> args) {
+        String executable = args.isEmpty() ? "" : args.getFirst();
+        // フォルダ選択の PowerShell のスクリプトには保存先のパスが入るので、yt-dlp の判定より先に見る
+        if (executable.contains("zenity") || executable.contains("powershell")) return "フォルダの選択";
+        if (args.stream().anyMatch(arg -> arg.contains("yt-dlp"))) {
+            // 録画・サービスへの保存の yt-dlp は録画プロセスとして数えるので、ここに来る -o 付きは端末への保存だけ
+            return args.contains("-o") ? "端末に保存" : "動画の URL の確認";
+        }
+        if (args.contains("s16le")) return "耳キスの検出";
+        if (args.contains("-frames:v")) return "サムネイルの作成";
+        if (args.contains("copy")) return "MP4 への詰め替え";
+        if (executable.contains("ffprobe")) return "動画ファイルの確認";
+        return "その他";
     }
 
     private static void collectDescendants(int pid, Map<Integer, List<OSProcess>> childrenByParent,
