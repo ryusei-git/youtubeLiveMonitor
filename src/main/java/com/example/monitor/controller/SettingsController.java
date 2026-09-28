@@ -17,8 +17,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -50,19 +53,41 @@ public class SettingsController {
     private final NativeDirectoryPickerService nativeDirectoryPickerService;
 
     /**
-     * 現在の設定値を返す。
+     * 適用中の設定値と、{@code .env} に保存済みで再起動を待っている値を返す。
      *
-     * @return 設定値（秘密情報は設定有無のみ）
+     * <p>保存済みの値も返すのは、画面が適用中の値だけでフォームを埋めると、別の項目を保存したときに
+     * 再起動待ちの変更を黙って旧値へ戻してしまうため（{@link SettingsResponse} 参照）。
+     *
+     * @return 設定値（秘密情報は設定有無と再起動待ちのキー名のみ）
      */
     @GetMapping
     public SettingsResponse getSettings() {
+        Map<String, String> saved = environmentSettingsService.readEnvValues();
+        int intervalSeconds = monitorProperties.youtube().intervalSeconds();
+        String recordingDirectory = monitorProperties.recording().directory();
+        int recordingMaxHeight = monitorProperties.recording().maxHeight();
+        String savedRecordingDirectory = saved.get(KEY_RECORDING_DIRECTORY);
+
+        List<String> pendingRestartKeys = new ArrayList<>();
+        addIfPending(pendingRestartKeys, saved, KEY_INTERVAL_SECONDS, String.valueOf(intervalSeconds));
+        addIfPending(pendingRestartKeys, saved, KEY_RECORDING_DIRECTORY, recordingDirectory);
+        addIfPending(pendingRestartKeys, saved, KEY_RECORDING_MAX_HEIGHT, String.valueOf(recordingMaxHeight));
+        addIfPending(pendingRestartKeys, saved, KEY_YOUTUBE_API_KEY, monitorProperties.youtube().apiKey());
+        addIfPending(pendingRestartKeys, saved, KEY_DISCORD_WEBHOOK_URL, monitorProperties.discord().webhookUrl());
+        addIfPending(pendingRestartKeys, saved, KEY_TWITCH_CLIENT_ID, monitorProperties.twitch().clientId());
+        addIfPending(pendingRestartKeys, saved, KEY_TWITCH_CLIENT_SECRET, monitorProperties.twitch().clientSecret());
+
         return new SettingsResponse(
-                monitorProperties.youtube().intervalSeconds(),
-                monitorProperties.recording().directory(),
-                monitorProperties.recording().maxHeight(),
+                intervalSeconds,
+                recordingDirectory,
+                recordingMaxHeight,
                 isConfigured(monitorProperties.youtube().apiKey()),
                 isConfigured(monitorProperties.discord().webhookUrl()),
-                monitorProperties.twitch().isConfigured());
+                monitorProperties.twitch().isConfigured(),
+                parseIntOrNull(saved.get(KEY_INTERVAL_SECONDS)),
+                savedRecordingDirectory == null || savedRecordingDirectory.isBlank() ? null : savedRecordingDirectory,
+                parseIntOrNull(saved.get(KEY_RECORDING_MAX_HEIGHT)),
+                List.copyOf(pendingRestartKeys));
     }
 
     /**
@@ -136,5 +161,40 @@ public class SettingsController {
      */
     private boolean isConfigured(String value) {
         return value != null && !value.isBlank();
+    }
+
+    /**
+     * {@code .env} に書かれた値が起動時に読んだ値と違えば、再起動待ちとしてキー名を加える。
+     *
+     * <p>値ではなくキー名だけを返すのは、秘密情報（API キー等）の値を応答に載せないため。
+     * {@code .env} にキーが無い項目は、既定値で動いているだけなので再起動待ちではない。
+     *
+     * @param pending キー名を集めるリスト
+     * @param saved   {@code .env} に書かれたキーと値
+     * @param key     {@code .env} のキー名
+     * @param applied 起動時に読んだ値。{@code null} は空文字として比べる
+     */
+    private void addIfPending(List<String> pending, Map<String, String> saved, String key, String applied) {
+        String savedValue = saved.get(key);
+        if (savedValue != null && !savedValue.equals(Objects.requireNonNullElse(applied, ""))) {
+            pending.add(key);
+        }
+    }
+
+    /**
+     * 数値として読める場合だけ整数にする。
+     *
+     * @param value {@code .env} に書かれた値
+     * @return 整数。{@code null} か数値でなければ {@code null}
+     */
+    private Integer parseIntOrNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(value.strip());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

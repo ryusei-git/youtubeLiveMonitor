@@ -380,20 +380,91 @@ function ensureOptionPresent(select, currentValue, formatLabel) {
 }
 
 /**
+ * フォームに入れた値（.env に保存済みの値。無ければ適用中の値）。保存のときにこれと比べ、変えた項目だけを送る。
+ *
+ * <p>読み込めていない間は null にして、保存させない。読めないまま保存すると選択欄の先頭の値
+ * （60 秒・上限なし）が送られ、本当の設定を上書きしてしまうため。
+ *
+ * <p>{@code pendingRestart} は読み込んだときの再起動待ちの文。保存が要らなかったときや失敗したときに
+ * 結果の欄をこれへ戻し、再起動待ちの表示が消えないようにする。
+ *
+ * @type {{intervalSeconds: number, recordingDirectory: string, recordingMaxHeight: number,
+ *     pendingRestart: string} | null}
+ */
+let loadedSettings = null;
+
+/**
+ * 設定フォームの保存ボタン。
+ *
+ * @returns {HTMLButtonElement}
+ */
+function settingsSubmitButton() {
+    return /** @type {HTMLButtonElement} */ (query("button[type=submit]", formEl("settingsForm")));
+}
+
+/**
+ * 再起動待ちの項目を、画面の項目名で並べた文にする。
+ *
+ * <p>保存した直後だけでなく、画面を開き直しても再起動待ちだと分かるようにするため、
+ * 読み込むたびにサーバーの応答から作り直す。
+ *
+ * @param {any} s GET /api/settings の応答
+ * @returns {string} 再起動待ちが無ければ空文字
+ */
+function pendingRestartText(s) {
+    /** @type {string[]} */
+    const keys = s.pendingRestartKeys ?? [];
+    if (keys.length === 0) return "";
+    const labels = keys.map((key) => {
+        switch (key) {
+            case "MONITOR_INTERVAL_SECONDS":
+                return `監視間隔（適用中: ${s.intervalSeconds}秒）`;
+            case "MONITOR_RECORDING_DIRECTORY":
+                return `録画の保存先（適用中: ${s.recordingDirectory}）`;
+            case "MONITOR_RECORDING_MAX_HEIGHT":
+                return `録画の画質上限（適用中: ${s.recordingMaxHeight > 0 ? `${s.recordingMaxHeight}p` : "上限なし"}）`;
+            case "YOUTUBE_API_KEY":
+                return "YouTube APIキー";
+            case "DISCORD_WEBHOOK_URL":
+                return "Discord Webhook";
+            case "TWITCH_CLIENT_ID":
+                return "Twitch Client ID";
+            case "TWITCH_CLIENT_SECRET":
+                return "Twitch Client Secret";
+            default:
+                return key;
+        }
+    });
+    return `再起動待ち：${labels.join("、")}。保存済みですが、bin/service.sh restart まで反映されません。`;
+}
+
+/**
  * 現在の設定値をフォームへ反映する。
  *
  * <p>秘密情報（APIキー・Webhook URL）の実際の値はサーバーから返ってこない
  * （設定されているかどうかのみ。{@code SettingsResponse}のJavaDoc参照）ため、
  * 欄は空のままにし、プレースホルダーで設定有無だけを示す。
+ *
+ * <p>フォームには .env に保存済みの値を入れる（無ければ適用中の値）。適用中の値を入れると、
+ * 再起動待ちの変更が画面から見えない。そのまま別の項目を保存すると、黙って旧値へ戻してしまうため。
+ *
+ * @returns {Promise<boolean>} 読み込めたら true
  */
 async function loadSettings() {
+    const submitBtn = settingsSubmitButton();
+    const result = el("settingsSaveResult");
+    loadedSettings = null;
+    submitBtn.disabled = true;
     try {
         const s = await apiGet("/api/settings");
-        ensureOptionPresent(selectEl("settingIntervalSelect"), s.intervalSeconds,
+        const intervalSeconds = s.savedIntervalSeconds ?? s.intervalSeconds;
+        const recordingDirectory = s.savedRecordingDirectory ?? s.recordingDirectory;
+        const recordingMaxHeight = s.savedRecordingMaxHeight ?? s.recordingMaxHeight;
+        ensureOptionPresent(selectEl("settingIntervalSelect"), intervalSeconds,
             (value) => `${value}秒（現在の値）`);
-        ensureOptionPresent(selectEl("settingMaxHeightSelect"), s.recordingMaxHeight,
+        ensureOptionPresent(selectEl("settingMaxHeightSelect"), recordingMaxHeight,
             (value) => value > 0 ? `${value}px（現在の値）` : "上限なし（最高画質）");
-        inputEl("settingRecordingDirInput").value = s.recordingDirectory;
+        inputEl("settingRecordingDirInput").value = recordingDirectory;
         inputEl("settingApiKeyInput").placeholder =
             s.youTubeApiKeyConfigured ? "変更する場合のみ入力（設定済み）" : "未設定";
         inputEl("settingWebhookInput").placeholder =
@@ -402,8 +473,17 @@ async function loadSettings() {
         const twitchPlaceholder = s.twitchConfigured ? "変更する場合のみ入力（設定済み）" : "未設定";
         inputEl("settingTwitchClientIdInput").placeholder = twitchPlaceholder;
         inputEl("settingTwitchClientSecretInput").placeholder = twitchPlaceholder;
+        const pending = pendingRestartText(s);
+        result.textContent = pending;
+        query("summary", el("monitorSettings")).textContent =
+            pending ? "監視・録画の設定（再起動待ちあり）" : "監視・録画の設定";
+        loadedSettings = { intervalSeconds, recordingDirectory, recordingMaxHeight, pendingRestart: pending };
+        submitBtn.disabled = false;
+        return true;
     } catch (e) {
+        result.textContent = "設定を読み込めなかったため保存できません。画面を開き直してください。";
         showError(errorMessage(e));
+        return false;
     }
 }
 
@@ -438,37 +518,59 @@ buttonEl("browseDirectoryBtn").addEventListener("click", async () => {
 
 formEl("settingsForm").addEventListener("submit", async (ev) => {
     ev.preventDefault();
-    const submitBtn = /** @type {HTMLButtonElement} */ (query("button[type=submit]", formEl("settingsForm")));
+    const loaded = loadedSettings;
+    // 読み込めていない間は送らない（ボタンも無効だが、入力欄での Enter による送信もここで止める）
+    if (loaded === null) return;
+    const submitBtn = settingsSubmitButton();
     const result = el("settingsSaveResult");
     const apiKeyInput = inputEl("settingApiKeyInput");
     const webhookInput = inputEl("settingWebhookInput");
     const twitchClientIdInput = inputEl("settingTwitchClientIdInput");
     const twitchClientSecretInput = inputEl("settingTwitchClientSecretInput");
+    const intervalSeconds = Number(selectEl("settingIntervalSelect").value);
+    const recordingDirectory = inputEl("settingRecordingDirInput").value.trim();
+    const recordingMaxHeight = Number(selectEl("settingMaxHeightSelect").value);
+
+    // 変えた項目だけを送る（null はサーバー側で「変更しない」）。変えていない項目まで送ると、
+    // 画面を開いた後に保存された値を、この画面が持っている古い値で黙って上書きしてしまうため
+    const body = {
+        youtubeApiKey: apiKeyInput.value || null,
+        discordWebhookUrl: webhookInput.value || null,
+        twitchClientId: twitchClientIdInput.value || null,
+        twitchClientSecret: twitchClientSecretInput.value || null,
+        intervalSeconds: intervalSeconds !== loaded.intervalSeconds ? intervalSeconds : null,
+        recordingDirectory: recordingDirectory !== "" && recordingDirectory !== loaded.recordingDirectory
+            ? recordingDirectory : null,
+        recordingMaxHeight: recordingMaxHeight !== loaded.recordingMaxHeight ? recordingMaxHeight : null,
+    };
+    if (Object.values(body).every((value) => value === null)) {
+        result.textContent = `変更された項目がありません。${loaded.pendingRestart}`;
+        return;
+    }
 
     submitBtn.disabled = true;
     result.textContent = "保存中...";
     try {
-        await apiPut("/api/settings", {
-            youtubeApiKey: apiKeyInput.value || null,
-            discordWebhookUrl: webhookInput.value || null,
-            twitchClientId: twitchClientIdInput.value || null,
-            twitchClientSecret: twitchClientSecretInput.value || null,
-            intervalSeconds: Number(selectEl("settingIntervalSelect").value),
-            recordingDirectory: inputEl("settingRecordingDirInput").value || null,
-            recordingMaxHeight: Number(selectEl("settingMaxHeightSelect").value),
-        });
+        await apiPut("/api/settings", body);
         clearError();
         // 秘密情報は保存後に画面へ残さない（次に空欄のまま保存しても「変更しない」扱いになる）
         apiKeyInput.value = "";
         webhookInput.value = "";
         twitchClientIdInput.value = "";
         twitchClientSecretInput.value = "";
-        result.textContent = "保存しました。反映するには bin/service.sh restart が必要です。";
     } catch (e) {
-        result.textContent = "";
+        // 400・500 なら .env は変わっていない（SettingsController.updateSettings() 参照）ので、
+        // 読み込んだときの再起動待ちの文に戻す（空にすると、再起動待ちの変更まで消えたように見える）
+        result.textContent = loaded.pendingRestart;
         showError(errorMessage(e));
-    } finally {
         submitBtn.disabled = false;
+        return;
+    }
+    // 保存した値と再起動待ちの表示を、サーバーの .env から読み直す（保存ボタンの有効化も loadSettings が行う）
+    if (await loadSettings()) {
+        result.textContent = `保存しました。${result.textContent}`;
+    } else {
+        result.textContent = "保存しましたが、設定を読み直せませんでした。画面を開き直してください。";
     }
 });
 
