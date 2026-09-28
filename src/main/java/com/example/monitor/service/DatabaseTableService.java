@@ -380,9 +380,11 @@ public class DatabaseTableService {
      * 更新の失敗を監査ログに残すときの理由。
      *
      * <p>このクラスが自分で投げる例外（{@link IllegalArgumentException}・{@link IllegalStateException}）は、
-     * 列に書き込む値を文言に含めないので、文言をそのまま使う。それ以外（型の変換や列の長さの超過で
-     * JDBC が投げる {@code DataAccessException} など）は、例外の種類名だけにする。H2 の文言には
-     * 入力した値がそのまま入り、値を残さない方針（クラスの JavaDoc「監査ログ」）が崩れるため。
+     * 列に書き込む値を文言に含めないので、文言をそのまま使う。DB が値を受け付けなかった場合（型の変換や
+     * 列の長さの超過など）も、{@link #applyRowUpdate} が列名だけの {@link IllegalArgumentException} に
+     * 置き換えてからここへ来る。それ以外（ロック待ちの時間切れや接続の失敗で JDBC が投げる
+     * {@code DataAccessException} など）は、例外の種類名だけにする。DB の文言には SQL 文や入力した値が
+     * 入ることがあり、値を残さない方針（クラスの JavaDoc「監査ログ」）が崩れるため。
      *
      * @param e 更新中に起きた例外
      * @return 監査ログの {@code detail} に載せる理由
