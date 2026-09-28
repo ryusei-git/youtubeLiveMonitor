@@ -669,8 +669,9 @@ public class LiveStreamPollingScheduler {
      *
      * @param channel   対象チャンネル
      * @param detection 検知結果（配信中であることが確定しているもの）
-     * @throws RuntimeException 録画希望の判定（購読の読み出し）・録画履歴の登録・録画済み動画 ID の記録に
-     *                          失敗した場合。呼び出し側（{@code checkChannelAndNotify}）で捕まえ、通知は続ける
+     * @throws RuntimeException 録画希望の判定（購読の読み出し）・録画履歴の登録や確認・
+     *                          録画済み動画 ID の記録に失敗した場合。
+     *                          呼び出し側（{@code checkChannelAndNotify}）で捕まえ、通知は続ける
      */
     private void maybeStartRecording(MonitoredChannel channel, LiveStreamDetection detection) {
         String videoId = detection.videoId();
@@ -704,7 +705,8 @@ public class LiveStreamPollingScheduler {
                     monitoredChannelRepository.updateLastRecordedVideoId(channel.getId(), videoId),
                     "録画済み動画IDの更新", channel.getId());
         }
-        // 起動失敗時は更新しない → 次のサイクルで自動的に再試行される
+        // false（起動の失敗・削除したチャンネルの録画が予約を押さえている）なら更新しない
+        // → 次のサイクルで自動的に再試行される
         // 起動できたがすぐ失敗した録画は、ここではなく StreamRecorder が上の confirmStillLive の合図を待って録り直す
     }
 }

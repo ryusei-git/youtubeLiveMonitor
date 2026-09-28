@@ -170,9 +170,28 @@ public class StreamRecorder {
      *
      * <p>同じ動画 ID を録画できるのは {@link ActiveVideoJobs} の予約を取った 1 本だけなので、
      * 1 つの動画 ID を待つスレッドは同時に 1 本しかない。
-     * 管理画面から止めたとき（{@link #stopRecording(Long)}）も、待ちを解くために完了させる。
+     * 管理画面から止めたとき（{@link #stopRecording(Long)}）と、削除したチャンネルの録画が
+     * 予約を押さえたまま待っているとき（{@link #startRecording}）も、待ちを解くために完了させる。
      */
     private final Map<String, CompletableFuture<Void>> liveConfirmations = new ConcurrentHashMap<>();
+
+    /**
+     * このクラスが録画スレッドを起動した録画の、動画 ID から録画履歴の主キーへの対応。
+     * 予約（{@link ActiveVideoJobs}）を押さえているのが削除したチャンネルの録画かを、
+     * {@link #startRecording} が行の有無で見分けるために使う（理由はそのメソッドの JavaDoc）。
+     *
+     * <p><b>待ちを解くのを、削除する側（{@link MonitoredChannelService#remove(Long)}）に
+     * 任せていない。</b>CLI の {@code channel remove} は別の JVM で動くのでこの待ちに届かず、
+     * 詰め替えの最中や止めた yt-dlp の終了待ちの間は、解く待ちがそもそも無いため。
+     * 次に同じ配信を録ろうとした時点で見分ければ、どの削除の経路でも効く。
+     *
+     * <p>このクラス以外が取った予約（手動ダウンロードなど）は載せない。それらが押さえている
+     * ときは、今までどおり「既に録画中」として扱う。
+     *
+     * <p>録画スレッドを起動する前に置き、{@code awaitCompletion} の終わりで予約を外した
+     * <b>後</b>に消す（理由はそこのコメント）。
+     */
+    private final Map<String, Long> trackedRecordingIds = new ConcurrentHashMap<>();
 
     /**
      * 管理画面から止めた録画の動画 ID。{@code awaitCompletion} は、ここにある録画を「今の時点から」録り直さない。
@@ -256,6 +275,7 @@ public class StreamRecorder {
 
     /**
      * 配信の録画を開始する。既にこの動画IDを録画中であれば何もせず成功として扱う。
+     * ただし、予約を押さえているのが削除したチャンネルの録画なら失敗として扱う（下記）。
      *
      * <p>録画は配信終了まで続く長時間のバックグラウンド処理のため、このメソッド自体は
      * プロセスを起動したらすぐに返る（録画の完了を待たない）。
@@ -288,19 +308,47 @@ public class StreamRecorder {
      * {@code false} を返すと次の巡回で再び試みるので、直るまでは失敗が続く。ログだけでは気付けないため
      * （{@link #startFailureAlerted} 参照）。
      *
+     * <p><b>予約を押さえているのが削除したチャンネルの録画（録画履歴の行が消えている）なら
+     * {@code false} を返す。</b>録り直しの合図の待ち（既定で最大 6 分）や詰め替えの最中に
+     * チャンネルを削除して登録し直すと、予約は古い録画スレッドが押さえたまま残る。
+     * ここで {@code true} を返すと、巡回は {@code lastRecordedVideoId} を更新し、古いスレッドは
+     * 行が無いので何も録らずに終わるため、その配信は二度と録られない（通知は届くので気付けない）。
+     * {@code false} なら、予約が外れた後の巡回で録り始める。合図を待っていれば起こして、
+     * 予約を早く外させる。押さえている録画の行は {@link #trackedRecordingIds} で引く。
+     *
      * @param channel  録画対象のチャンネル
      * @param watchUrl 録画対象の視聴 URL。形式がプラットフォームごとに異なるため、
      *                 検知結果（{@link com.example.monitor.dto.LiveStreamDetection#watchUrl()}）が運んだものを受け取る
      * @param videoId  録画対象の動画 ID
      * @param title    録画開始時点での配信タイトル。録画一覧画面に表示する
      * @return プロセスの起動に成功した場合（既に録画中の場合を含む） {@code true}。
-     *         {@code yt-dlp} が見つからない等で起動に失敗した場合と、空き容量がしきい値を下回る場合は {@code false}
+     *         {@code yt-dlp} が見つからない等で起動に失敗した場合、空き容量がしきい値を
+     *         下回る場合、予約を押さえているのが削除したチャンネルの録画の場合は {@code false}
      * @throws RuntimeException {@link RecordingHistoryService#recordStart} が失敗した場合。
-     *                          起動済みのプロセスは停止済みで、予約も解放済みの状態で伝播する
+     *                          起動済みのプロセスは停止済みで、予約も解放済みの状態で伝播する。
+     *                          予約を押さえている録画の行を確かめられなかった場合も投げる
+     *                          （{@link RecordingHistoryService#exists}。予約は取っていない）
      */
     public boolean startRecording(MonitoredChannel channel, String watchUrl, String videoId, String title) {
+        // 予約を取る前に読む。取れなかった後に読むと、その間に押さえていたスレッドが
+        // 予約を外して対応を消し終え、削除したチャンネルの録画だったと分からなくなる
+        // （awaitCompletion は予約を外してから対応を消す）
+        Long heldRecordingId = trackedRecordingIds.get(videoId);
         // 確認と登録を分けると、その隙間に別スレッドが入り込んで二重起動しうる（上記 JavaDoc 参照）
         if (!activeVideoJobs.reserve(videoId)) {
+            if (heldRecordingId != null && !recordingHistoryService.exists(heldRecordingId)) {
+                // 押さえているのは、チャンネルの削除で行が消えた録画。true を返すと巡回が
+                // lastRecordedVideoId を更新し、登録し直したチャンネルでこの配信を録らなくなる。
+                // 合図を待っていれば起こして、予約を早く外させる
+                // （起きたスレッドは行が無いのを見て、録り直さずに終わる）
+                CompletableFuture<Void> waiting = liveConfirmations.get(videoId);
+                if (waiting != null) {
+                    waiting.complete(null);
+                }
+                log.info("削除したチャンネルの録画が予約を押さえているため、次の巡回で録り始めます: "
+                        + "channel={}, video={}", channel.getChannelName(), videoId);
+                return false;
+            }
             log.debug("既に録画中またはダウンロード中のためスキップします: video={}", videoId);
             return true;
         }
@@ -378,6 +426,9 @@ public class StreamRecorder {
             }
 
             String mdcChannelId = MDC.get(MDC_CHANNEL_ID_KEY);
+            // 録画スレッドを起動する前に置く。起動の後に置くと、スレッドが先に終わって
+            // 消した後に置くことになり、対応が残り続けうる
+            trackedRecordingIds.put(videoId, recording.getId());
             Thread.ofVirtual()
                     .name("recording-" + videoId)
                     .start(() -> awaitCompletion(process, channel, videoId, recording.getId(), outputFile,
@@ -388,6 +439,9 @@ public class StreamRecorder {
             return true;
         } finally {
             if (!started) {
+                // 録画スレッドを起動できなかったときの対応を消す。予約を押さえている間に
+                // 消すので、予約を押さえている別の録画の対応を消すことは無い
+                trackedRecordingIds.remove(videoId);
                 // 登録を残したままにすると、この動画IDは以降永久に録画できなくなる
                 activeVideoJobs.release(videoId);
             }
@@ -696,6 +750,11 @@ public class StreamRecorder {
             // 誤判定してしまう
             stopRequested.remove(videoId);
             activeVideoJobs.release(videoId);
+            // 予約を外した後に消す。先に消すと、予約が外れる前に来た startRecording が
+            // 対応を読めず、削除したチャンネルの録画が押さえていたのを「既に録画中」と見て
+            // true を返す。値も比べて消すのは、予約を外した直後に始まった次の録画の
+            // 対応を消さないため
+            trackedRecordingIds.remove(videoId, recordingId);
             if (mdcChannelId != null) {
                 MDC.remove(MDC_CHANNEL_ID_KEY);
             }
