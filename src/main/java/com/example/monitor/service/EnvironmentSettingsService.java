@@ -1,5 +1,6 @@
 package com.example.monitor.service;
 
+import com.example.monitor.util.OwnerOnlyFiles;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -8,7 +9,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -174,26 +174,25 @@ public class EnvironmentSettingsService {
     /**
      * 同じディレクトリの一時ファイルに書いてから置き換える。途中で失敗しても元の {@code .env} が残る。
      *
+     * <p>一時ファイルへの書き込みと置き換えは {@link OwnerOnlyFiles#writeAtomically(Path, String)} に任せる。
+     * {@code .env} は秘密を持つファイルなので、置き換え後も本人だけが読める権限（Linux は 600、
+     * Windows は所有者だけの ACL）にする必要があり、その絞り方と、Windows で POSIX の権限を渡すと
+     * 失敗する件（#510）の扱いを 1 か所にそろえるため。
+     *
      * @param lines 書き込む行
      * @throws IllegalStateException 書き込み・置き換えに失敗した場合
      */
     private void writeAtomically(List<String> lines) {
-        Path temp = null;
+        // Files.write(Path, Iterable) と同じく、各行の後ろに OS の改行を付ける（最後の行の後ろにも付ける）
+        StringBuilder content = new StringBuilder();
+        for (String line : lines) {
+            content.append(line).append(System.lineSeparator());
+        }
         try {
             // .env が別の場所へのシンボリックリンクでも、リンクを普通のファイルで置き換えずに実体を書き換える
-            Path target = Files.exists(envFile) ? envFile.toRealPath() : envFile.toAbsolutePath();
-            // ATOMIC_MOVE は同じファイルシステムの中でしか効かないので、同じディレクトリに作る
-            temp = Files.createTempFile(target.getParent(), ".env-", ".tmp");
-            Files.write(temp, lines, StandardCharsets.UTF_8);
-            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE);
+            Path target = Files.exists(envFile) ? envFile.toRealPath() : envFile;
+            OwnerOnlyFiles.writeAtomically(target, content.toString());
         } catch (IOException e) {
-            if (temp != null) {
-                try {
-                    Files.deleteIfExists(temp);
-                } catch (IOException deleteFailure) {
-                    log.warn(".env の一時ファイルを消せませんでした: {}", temp, deleteFailure);
-                }
-            }
             throw new IllegalStateException(".envファイルの書き込みに失敗しました: " + e.getMessage(), e);
         }
     }
