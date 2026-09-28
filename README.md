@@ -75,6 +75,7 @@ HTML 解析のような回避策は要りません。
 YouTubeLiveMonitor/
 ├── bin/
 │   ├── service.sh                            # 起動・停止・状態確認コマンド
+│   ├── monitor.sh                            # CLI（チャンネルの登録など）をリポジトリ直下の DB に対して実行する
 │   └── youtube-live-monitor.service          # 自動起動用の systemd ユーザーユニット
 ├── src/main/java/com/example/monitor/
 │   ├── YouTubeLiveMonitorApplication.java    # 起動クラス（サービス/CLI の分岐）
@@ -338,21 +339,21 @@ crontab -e
 チャンネル ID が分かっている場合はそのまま登録します。
 
 ```bash
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel add -i UCxxxxxxxxxxxxxxxxxxxxxx -n "配信者名"
+bin/monitor.sh channel add -i UCxxxxxxxxxxxxxxxxxxxxxx -n "配信者名"
 ```
 
 `-i` にはチャンネル ID のほか、**ハンドル（`@foo`）やチャンネルページの URL をそのまま**渡せます。
 URL の場合は自動で本来のチャンネル ID に解決されます。
 
 ```bash
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel add -i "https://www.youtube.com/@foo" -n "配信者名"
+bin/monitor.sh channel add -i "https://www.youtube.com/@foo" -n "配信者名"
 ```
 
 Twitch を監視する場合は `-p TWITCH` を付けます（省略時は YouTube）。
 `-i` には URL か、`twitch.tv/` の後ろに出ているチャンネル名を渡します。
 
 ```bash
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel add -p TWITCH -i "https://www.twitch.tv/foo" -n "配信者名"
+bin/monitor.sh channel add -p TWITCH -i "https://www.twitch.tv/foo" -n "配信者名"
 ```
 
 チャンネル名は配信者本人が変更できるため、登録時に**変更されない数値のユーザー ID へ自動で解決**して
@@ -363,15 +364,15 @@ java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel add -p TWITCH -i "http
 `-k` で録画対象をタイトルで絞り込むこともできます。
 
 ```bash
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel add -i UCxxxxxxxxxxxxxxxxxxxxxx -n "配信者名" -r -k "ASMR,生配信"
+bin/monitor.sh channel add -i UCxxxxxxxxxxxxxxxxxxxxxx -n "配信者名" -r -k "ASMR,生配信"
 ```
 
 登録済みチャンネルの録画設定は後からでも切り替えられます。`-i` に指定する ID は
 `channel list` の先頭列の値で、YouTube のチャンネル ID ではありません。
 
 ```bash
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel record -i <id> --on
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel record -i <id> --off
+bin/monitor.sh channel record -i <id> --on
+bin/monitor.sh channel record -i <id> --off
 ```
 
 配信タイトルで対象を絞り込むこともできます。YouTuber がタイトル先頭に付ける
@@ -398,23 +399,31 @@ java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel record -i <id> --off
 チャンネル一覧の「フィルター」欄をダブルクリックして設定できます。
 
 ```bash
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel record -i <id> --on -k "ASMR,生配信"
+bin/monitor.sh channel record -i <id> --on -k "ASMR,生配信"
 ```
 
 チャンネル ID が分からない場合は名前から検索できます（100 クォータを消費するので多用しないこと）。
 
 ```bash
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel search -n "配信者名"
+bin/monitor.sh channel search -n "配信者名"
 ```
 
 一覧の確認と削除は次のとおりです。`remove` で指定する ID は一覧の先頭列の値で、
 YouTube のチャンネル ID ではありません。
 
 ```bash
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel list
+bin/monitor.sh channel list
 ```
 
 サービスが常駐している最中でも CLI は実行できます。
+
+`bin/monitor.sh` は、どのディレクトリから呼んでもリポジトリ直下へ移ってから CLI を起動します。
+DB（`data/monitor`）と `.env` は `java` を起動した場所を基準に探すため、別の場所で `java -jar` を直接実行すると、
+その場所に空の DB が新しくでき、「登録しました」と表示されてもサービスには届きません。
+jar は稼働中のサービスと同じ `run/youtubeLiveMonitor.jar` を使い、まだ 1 度も起動していなければ `build/libs` の jar を使います。
+CLI も起動時にテーブルを自分の版の形に合わせる（`ddl-auto: update`）ため、ビルドしただけで再起動していない新しい版で
+稼働中のサービスの DB を触らないようにしています。
+引数を付けずに実行すると、コマンドの一覧を表示します（jar は引数が無いとサービスとして起動するため、`--help` に置き換えています）。
 
 ### 画面
 
@@ -659,7 +668,7 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 **検出器をその場で試す**（CLI。DB には保存しません）:
 
 ```bash
-java -jar build/libs/*.jar sound detect 23 --from 0 --to 600
+bin/monitor.sh sound detect 23 --from 0 --to 600
 ```
 
 `23` は録画の番号（録画一覧の ID）、`--from`・`--to` は秒です（省略すると録画全体）。範囲を絞ると、
@@ -950,7 +959,7 @@ bin/service.sh status
 サービスが動いたままで実行できます。
 
 ```bash
-java -jar build/libs/youtubeLiveMonitor-0.1.0.jar set-password -u admin -p
+bin/monitor.sh set-password -u admin -p
 ```
 
 - `-u` はログイン ID です。間違えると「利用者が見つかりません」と一緒に、管理者のログイン ID の一覧が表示されます。
