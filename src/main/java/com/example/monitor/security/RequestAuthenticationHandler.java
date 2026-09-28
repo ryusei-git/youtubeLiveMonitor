@@ -137,7 +137,7 @@ public class RequestAuthenticationHandler implements AuthenticationEntryPoint, A
      * 名前からIDを引き直さず、認証情報に既に載っている値を使う
      * （{@link AuditLogoutHandler} と同じ考え方）。
      *
-     * @param request        権限不足で拒否されたリクエスト
+     * @param request        拒否されたリクエスト（役割の不足か CSRF トークンの不一致）
      * @param authentication ログイン済みの認証情報
      * @param csrf           CSRF トークンの不一致で拒否したか。{@code detail} に {@code csrf=true} を付けて、
      *                       役割の不足と見分けられるようにする
