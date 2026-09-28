@@ -33,25 +33,25 @@ function myDiscoverDate(iso) {
  * 候補の 1 件のボタン。判定のボタンはタブで変わる（候補なら VTuber／ちがう、VTuber なら候補に戻す）。
  *
  * @param {any} item 候補
+ * @param {Set<string>} subscribed 自分が購読している YouTube のチャンネル ID
  * @returns {string} 差し込む HTML
  */
-function myDiscoverActions(item) {
+function myDiscoverActions(item, subscribed) {
     const decide = item.status === "VTUBER"
         ? '<button type="button" data-status="CANDIDATE">候補に戻す</button>'
         : `<button type="button" data-status="VTUBER">VTuber</button>
            <button type="button" data-status="REJECTED">ちがう</button>`;
-    const watch = item.registered ? '<span class="statusLamp">監視中</span>'
-        : '<button type="button" class="watchChannelBtn">監視する（マイチャンネルに登録）</button>';
-    return `${decide}${watch}`;
+    return `${decide}${mySearchWatchChannel(item, subscribed)}`;
 }
 
 /**
  * 候補の 1 件（カード）。
  *
  * @param {any} item 候補
+ * @param {Set<string>} subscribed 自分が購読している YouTube のチャンネル ID
  * @returns {HTMLElement} 差し込む要素
  */
-function myDiscoverCard(item) {
+function myDiscoverCard(item, subscribed) {
     const subscribers = item.subscriberHidden || item.subscriberCount === null
         ? "登録者 非公開" : `登録者 ${item.subscriberCount.toLocaleString("ja-JP")} 人`;
     const videos = item.videoCount === null ? "" : `動画 ${item.videoCount.toLocaleString("ja-JP")} 本`;
@@ -72,7 +72,7 @@ function myDiscoverCard(item) {
           ${words ? `<p class="searchMarks">${words}</p>` : ""}
           ${sample}
           <p class="muted">${found.join("・")}</p>
-          <p class="discoverActions">${myDiscoverActions(item)}</p>
+          <p class="discoverActions">${myDiscoverActions(item, subscribed)}</p>
         </div>`;
     return card;
 }
@@ -113,10 +113,12 @@ const myDiscoverView = {
                 `今日の発掘の検索 ${s.discoverySearchesUsedToday}/${s.discoveryLimit} 回`].join("・");
         }).catch(() => { /* 状態が出なくても候補は見られる */ });
 
+        // 札とボタンの出し分けに使う。「監視する」を押したらこの集合にも足し、URL で足した候補にも同じ集合を使う
+        const subscribedLoad = mySearchSubscribedChannelIds();
         setBusy(list, true);
-        apiGet(`/api/my/discover/candidates?status=${tab.status}`).then((items) => {
+        Promise.all([apiGet(`/api/my/discover/candidates?status=${tab.status}`), subscribedLoad]).then(([items, subscribed]) => {
             if (!list.isConnected) return;
-            list.replaceChildren(...items.map(myDiscoverCard));
+            list.replaceChildren(...(/** @type {any[]} */ (items)).map((item) => myDiscoverCard(item, subscribed)));
             showEmptyIfNone();
         }).catch((e) => {
             if (list.isConnected) showError(errorMessage(e));
@@ -142,7 +144,9 @@ const myDiscoverView = {
                 } else {
                     await apiPost("/api/my/channels", { platform: "YOUTUBE", channelInput: channelId, channelName: title });
                     if (!list.isConnected) return;
-                    button.outerHTML = '<span class="statusLamp">監視中</span>';
+                    card.querySelector(".serviceWatchLamp")?.remove();
+                    button.outerHTML = MY_SEARCH_SUBSCRIBED_LAMP;
+                    (await subscribedLoad).add(channelId);
                     showToast(`${title} をマイチャンネルに登録しました`);
                 }
                 clearError();
@@ -168,7 +172,7 @@ const myDiscoverView = {
                     // 既にあった候補は取り直した値で置き換える
                     list.querySelector(`.discoverCard[data-channel-id="${CSS.escape(item.channelId)}"]`)?.remove();
                     list.querySelector(".emptyState")?.remove();
-                    list.prepend(myDiscoverCard(item));
+                    list.prepend(myDiscoverCard(item, await subscribedLoad));
                 }
                 showToast(item.status === "VTUBER" ? `${item.title} は VTuber と判定済みです（値を取り直しました）`
                     : `${item.title} を候補に足しました`);
