@@ -31,6 +31,16 @@ BODY_FILE="${2:?本文はファイルで渡す（インラインだとバック�
 PARENT="${3:-}"
 PRIORITY="${4:-}"
 
+# Project を読めないまま進むと、Issue だけ作られて手順 3 で止まり、Project に載らない Issue が残る
+# （実際に発生しうる：gh のトークンに project スコープが無い端末では graphql の projectItems が INSUFFICIENT_SCOPES になる）。
+# そのため Issue を作る前に確かめる。
+if ! err=$(gh project view "$PROJECT_NUM" --owner ryusei-git --format json 2>&1 >/dev/null); then
+    echo "★失敗：Project #$PROJECT_NUM を読めません。Issue はまだ作っていません" >&2
+    echo "$err" | sed 's/^/   /' >&2
+    echo "   スコープ不足なら 'gh auth refresh -s project' を実行してからやり直す" >&2
+    exit 1
+fi
+
 echo "1) Issue を作成..."
 URL=$(gh issue create --repo "$REPO" --title "$TITLE" --body-file "$BODY_FILE")
 NUM=$(echo "$URL" | grep -oE '[0-9]+$')
