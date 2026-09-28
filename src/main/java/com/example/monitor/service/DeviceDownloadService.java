@@ -59,7 +59,9 @@ import java.util.stream.Stream;
  * 動き続けるため（{@code docs/pitfalls.md}「外部プロセスの出力を JVM へのパイプにすると…」）、
  * 消す前にそのフォルダーへ書いている yt-dlp を止める。探すときは仕事 ID（UUID）を含むパスで照合するので、
  * 動画 ID で探したときのように別の録画を巻き込むことはない（同「録画中かの判定は…誤検知する」）。
- * 探すのは実行ファイルが yt-dlp のプロセスだけ（{@link ProcessLauncher#findYtDlpProcessesWithCommandLineContaining(String)}）。
+ * 探すのは yt-dlp のプロセスだけで、文字列 {@code yt-dlp} を含むかではなく実行ファイルで見分ける
+ * （{@link ProcessLauncher#findYtDlpProcessesWithCommandLineContaining(String)}。pip で入れた yt-dlp は
+ * 実行ファイルが Python の処理系になるので、そのときは引数のスクリプト名で見分ける）。
  *
  * <h2>ディスク使用量の表示には含めない</h2>
  * 使用量の表示（{@code RecordingFileService}）は {@code recordings/} の実ファイルを走査している。
@@ -243,7 +245,8 @@ public class DeviceDownloadService {
         for (Path dir : orphans) {
             try {
                 if (Files.getLastModifiedTime(dir).toInstant().isBefore(deadline)) {
-                    // 実行ファイルが yt-dlp のものに限る（ProcessLauncher#findYtDlpProcessesWithCommandLineContaining）。
+                    // yt-dlp のプロセスに限り、実行ファイルで見分ける（ProcessLauncher#findYtDlpProcessesWithCommandLineContaining。
+                    // pip で入れた本番では実行ファイルが Python なので、引数のスクリプト名で見分ける）。
                     // パスを含むだけで選ぶと、そのフォルダーを見ているシェルまで止める（確認中に実際に起きた）。
                     // 文字列 "yt-dlp" を含むかで絞っても、logs/yt-dlp/ のログを一緒に開いているシェルやエディタは当たる。
                     // 結合中の ffmpeg は yt-dlp の子孫として一緒に止まる
