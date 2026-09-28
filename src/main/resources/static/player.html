@@ -38,7 +38,8 @@
   <p class="pageDescription">保存した配信を再生。関連する録画もここから。</p>
 
   <video id="player" class="player" controls playsinline></video>
-  <div class="inline">
+  <div id="playerNotice" style="margin-bottom:16px;" hidden></div>
+  <div class="inline" id="pipRow">
     <button id="pipBtn" type="button" hidden>小窓で再生</button>
     <span class="muted">別のサイトは別のタブで開くと、小窓のまま再生を続けられます</span>
   </div>
