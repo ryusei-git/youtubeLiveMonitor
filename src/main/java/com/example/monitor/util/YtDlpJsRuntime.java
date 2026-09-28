@@ -14,9 +14,14 @@ import java.util.List;
  * サービスの PATH に node が入っているとも限らないので、パスごと渡せる書式
  * （{@code node:/path/to/node}）をそのまま yt-dlp に渡す。
  *
- * <p>録画（{@link com.example.monitor.service.StreamRecorder}）と手動ダウンロード
- * （{@link com.example.monitor.service.VideoDownloadService}）の両方で同じ指定を使うため、
- * {@link YtDlpFormatSelector} と同じ理由で独立クラスにしている。
+ * <p>録画（{@link com.example.monitor.service.StreamRecorder}）、手動ダウンロード
+ * （{@link com.example.monitor.service.VideoDownloadService}。端末に保存も同じコマンドを使う）、
+ * ダウンロード前の下調べ（{@link com.example.monitor.service.VideoSourceProbe}）の 3 か所で
+ * 同じ指定を使うため、{@link YtDlpFormatSelector} と同じ理由で独立クラスにしている。
+ *
+ * <p><b>yt-dlp を起動する箇所を増やすときは、必ずここを通す。</b>下調べだけ付け忘れていたことがある。
+ * 付け忘れた経路だけ JS ランタイムなしで YouTube を取得するので、ダウンロード本体は取れるのに
+ * 前段の下調べだけが失敗する、といった食い違いが起きる。
  */
 public final class YtDlpJsRuntime {
 
