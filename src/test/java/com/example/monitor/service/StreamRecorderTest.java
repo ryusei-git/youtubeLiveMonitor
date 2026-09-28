@@ -58,6 +58,9 @@ class StreamRecorderTest {
     /** 視聴URLの組み立てはプラットフォーム側の責務になったため、テストでは固定値を渡す。 */
     private static final String WATCH_URL = "https://www.youtube.com/watch?v=video001";
 
+    /** 録り直し用のコマンド。中身は見ず、このインスタンスで起動したかだけを確かめる。 */
+    private static final List<String> FALLBACK_COMMAND = List.of("yt-dlp", "--no-part", WATCH_URL);
+
     @Mock
     private ProcessLauncher processLauncher;
 
@@ -69,9 +72,6 @@ class StreamRecorderTest {
 
     @Mock
     private DiscordNotifier discordNotifier;
-
-    /** 録り直し用のコマンド。中身は見ず、このインスタンスで起動したかだけを確かめる。 */
-    private static final List<String> FALLBACK_COMMAND = List.of("yt-dlp", "--no-part", WATCH_URL);
 
     @BeforeEach
     void stubDefaultRecordingHistory() {
