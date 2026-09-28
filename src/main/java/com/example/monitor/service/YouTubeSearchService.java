@@ -473,7 +473,8 @@ public class YouTubeSearchService {
         if (!TitleKeywordMatcher.matches(r.titleIncludes(), v.title(), null)) {
             return false;
         }
-        if (!isBlank(r.titleExcludes()) && TitleKeywordMatcher.matches(r.titleExcludes(), v.title(), null)) {
+        // 「含まない」欄は全部が除外の語。matches() に渡すと「-語」が除外の除外になって逆に効くため containsAny() で見る
+        if (TitleKeywordMatcher.containsAny(r.titleExcludes(), v.title(), null)) {
             return false;
         }
         if (r.withinHours() != null && v.publishedAt() != null
