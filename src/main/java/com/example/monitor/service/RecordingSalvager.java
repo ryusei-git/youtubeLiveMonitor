@@ -1,7 +1,10 @@
 package com.example.monitor.service;
 
+import com.example.monitor.util.DirectorySizeUtils;
+import com.example.monitor.util.DiskSpaceUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -65,10 +68,21 @@ public class RecordingSalvager {
     private final ExternalCommandRunner externalCommandRunner;
 
     /**
+     * 録画を始めるしきい値（GB）。詰め替えた後にも {@link DiskSpaceUtils#reserveBytes(long)} の空きを残すために使う。
+     * 0 以下なら詰め替えの前に空き容量を見ない（{@code monitor.recording.min-free-gb} の「0 で確認しない」に合わせる）。
+     *
+     * <p>{@code StreamRecorder} の同名のフィールドと同じく final にしない。初期値 0（確認しない）は、
+     * Spring を通さずに組み立てるテスト（{@code @InjectMocks}）が実行した機械の空き容量に左右されないようにするため。
+     */
+    @Value("${monitor.recording.min-free-gb:20}")
+    private long minFreeGb = 0;
+
+    /**
      * 録画ファイルが再生できる状態かを確かめ、必要なら再生できる形に直す。
      *
      * @param outputFile 完成予定の録画ファイルのパス（{@code {動画ID}.mp4}）
-     * @return 処理の結果
+     * @return 処理の結果。空き容量が足りずに詰め替えを見送った場合は {@link SalvageStatus#INSUFFICIENT_SPACE}
+     *         （{@link #remux} 参照）
      */
     public SalvageOutcome ensurePlayable(Path outputFile) {
         if (Files.isRegularFile(outputFile)) {
@@ -127,11 +141,32 @@ public class RecordingSalvager {
      * 検証に失敗したときは一時ファイルだけを捨て、元のファイル・断片には一切手を付けない
      * （次の機会に再挑戦できる状態のまま残す）。
      *
+     * <p><b>空き容量が「入力の合計＋{@link DiskSpaceUtils#reserveBytes(long)}」に満たなければ始めない。</b>
+     * 出力は入力と同じ大きさになるので、足りないまま始めると {@code ffmpeg} は空きを 0 まで使い切ってから失敗し、
+     * その間は同じファイルシステムにある H2 とログの書き込みも失敗する。入力の合計ぶんの空きがあっても、
+     * 詰め替えで下限を割ると録画中の録画が止まる（{@code StreamRecorder}）ので、下限ぶんも残す。
+     * 見送ったときは元のファイル・断片に触らず {@link SalvageStatus#INSUFFICIENT_SPACE} を返す。
+     * 空き容量を読めなかったとき・{@link #minFreeGb} が 0 以下のときは今までどおり詰め替える
+     * （「判定できなかった」を「足りない」と扱わない）。
+     *
      * @param inputs     入力ファイル（1件なら詰め替え、2件以上なら映像と音声の結合）
      * @param outputFile 最終的な出力先
      * @return 処理の結果
      */
     private SalvageOutcome remux(List<Path> inputs, Path outputFile) {
+        // 出力は入力と同じ大きさになる。足りないまま始めると ffmpeg が空きを 0 まで使い切ってから失敗し、
+        // その間 H2 とログの書き込みも失敗する。元のファイルには触らずに見送る
+        if (minFreeGb > 0) {
+            long requiredBytes = inputs.stream().mapToLong(DirectorySizeUtils::sizeOf).sum()
+                    + DiskSpaceUtils.reserveBytes(minFreeGb);
+            DiskSpaceUtils.Capacity disk = DiskSpaceUtils.read(outputFile.toAbsolutePath().getParent());
+            if (disk.error() == null && disk.usableBytes() != null && disk.usableBytes() < requiredBytes) {
+                log.warn("空き容量が足りないため録画ファイルの詰め替えを見送ります（元のファイルは残します）: file={}, 必要={}MB, 空き={}MB",
+                        outputFile, requiredBytes / (1024L * 1024), disk.usableBytes() / (1024L * 1024));
+                return SalvageOutcome.insufficientSpace();
+            }
+        }
+
         Path workFile = outputFile.resolveSibling(outputFile.getFileName() + WORK_FILE_SUFFIX);
 
         // 進捗と警告は出させない。出力は使わない（成否は終了コードと出来たファイルで見る）のに、
@@ -281,15 +316,20 @@ public class RecordingSalvager {
         /** 途中までの内容を再生できる形に直した。 */
         SALVAGED,
         /** 再生できるファイルを用意できなかった。 */
-        UNAVAILABLE
+        UNAVAILABLE,
+        /**
+         * 空き容量が足りないため詰め替えを見送った。元のファイル・断片はそのまま残してあり、
+         * 空きができれば直せる（{@link RecordingReconciler} は失敗として覚えず、後始末のたびに試し直す）。
+         */
+        INSUFFICIENT_SPACE
     }
 
     /**
      * {@link #ensurePlayable} の結果。
      *
      * @param status        どう扱えたか
-     * @param fileSizeBytes 再生できるファイルのサイズ。
-     *                      {@link SalvageStatus#UNAVAILABLE} の場合は {@code null}
+     * @param fileSizeBytes 再生できるファイルのサイズ。再生できない場合（{@link SalvageStatus#UNAVAILABLE}・
+     *                      {@link SalvageStatus#INSUFFICIENT_SPACE}）は {@code null}
      */
     public record SalvageOutcome(SalvageStatus status, Long fileSizeBytes) {
 
@@ -303,12 +343,21 @@ public class RecordingSalvager {
         }
 
         /**
+         * 空き容量が足りないため詰め替えを見送った結果を組み立てる。
+         *
+         * @return 結果
+         */
+        public static SalvageOutcome insufficientSpace() {
+            return new SalvageOutcome(SalvageStatus.INSUFFICIENT_SPACE, null);
+        }
+
+        /**
          * 再生できるファイルが用意できたかどうか。
          *
          * @return 再生できるなら {@code true}
          */
         public boolean isPlayable() {
-            return status != SalvageStatus.UNAVAILABLE;
+            return status == SalvageStatus.ALREADY_PLAYABLE || status == SalvageStatus.SALVAGED;
         }
     }
 }

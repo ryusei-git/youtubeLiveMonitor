@@ -115,6 +115,12 @@ public class RecordingReconciler {
      * 救済する</b>ためのものなので、{@link RecordingFileService#totalFileSizeFor(Recording)}
      * が前回の失敗時と変わっていれば（＝断片が増えた、完成ファイルが現れた）改めて試す。
      *
+     * <p><b>空き容量が足りずに見送ったもの（{@link SalvageStatus#INSUFFICIENT_SPACE}）は覚えない。</b>
+     * ファイルは変わらないまま空きだけが戻るので、覚えるとサイズが変わらず、空きを作っても
+     * アプリを再起動するまで救済しなくなる（データは残っているのに {@code FAILED} のまま）。
+     * 見送りでは {@code ffmpeg} を起動しない（{@link RecordingSalvager} が起動する前に空き容量を見て返す）ので、
+     * 後始末のたびに試しても重くない。
+     *
      * <p>DB には持たせない。{@code ddl-auto: update} の下で列を足すのは既存データのある環境で
      * 壊れやすいうえ、アプリを再起動したときに一度だけ試し直されるのは実害が無いため
      * （{@code ffmpeg} を入れ直した場合などはむしろ望ましい）。
@@ -178,9 +184,10 @@ public class RecordingReconciler {
      *   <li>{@code FAILED} なのにファイルが残っているもの … 再生できる形に直せれば救済する。
      *       ファイルが実在するときだけ状態が変わるので安全。何も残っていない録画では
      *       外部コマンドを起動せずに読み飛ばす。<b>一度救済に失敗した録画は、ファイルの
-     *       合計サイズが変わるまで再試行しない</b>——必ず失敗する録画を後始末のたびに {@code ffmpeg} に
-     *       掛け続けると、数GBのファイルに対する外部プロセスの起動コストを永久に払い続ける
-     *       ことになるため（{@link #unsalvageableFileSizes} 参照）</li>
+     *       合計サイズが変わるまで再試行しない</b>（空き容量が足りずに見送ったものは除く）——
+     *       必ず失敗する録画を後始末のたびに {@code ffmpeg} に掛け続けると、数GBのファイルに
+     *       対する外部プロセスの起動コストを永久に払い続けることになるため
+     *       （{@link #unsalvageableFileSizes} 参照）</li>
      * </ul>
      *
      * <p>{@link #schedule()} から、配信の巡回とは別の仮想スレッドで定期的に呼ばれる。
@@ -272,8 +279,12 @@ public class RecordingReconciler {
         SalvageOutcome salvage = recordingSalvager.ensurePlayable(outputFile);
 
         if (!salvage.isPlayable()) {
-            // 次の巡回で同じ ffmpeg を走らせ直さないよう、失敗した時点のファイルの状態を覚えておく
-            unsalvageableFileSizes.put(recording.getId(), recordingFileService.totalFileSizeFor(recording));
+            // 次の巡回で同じ ffmpeg を走らせ直さないよう、失敗した時点のファイルの状態を覚えておく。
+            // 空きが足りずに見送っただけのものは覚えない。ファイルは変わらないまま空きだけが戻るので、
+            // 覚えると空きを作っても再起動するまで救済しなくなる
+            if (salvage.status() != SalvageStatus.INSUFFICIENT_SPACE) {
+                unsalvageableFileSizes.put(recording.getId(), recordingFileService.totalFileSizeFor(recording));
+            }
             if (recording.getStatus() == RecordingStatus.RECORDING) {
                 recordingHistoryService.markFailed(recording.getId());
                 log.warn("{}を失敗として補正しました: id={}, video={}",
