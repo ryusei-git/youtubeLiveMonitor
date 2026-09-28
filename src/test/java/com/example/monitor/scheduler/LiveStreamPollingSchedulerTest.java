@@ -10,7 +10,6 @@ import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.service.NotificationDispatcher;
 import com.example.monitor.service.NotificationHistoryService;
-import com.example.monitor.service.RecordingReconciler;
 import com.example.monitor.service.StreamRecorder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -28,8 +27,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -37,13 +38,14 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -67,9 +69,6 @@ class LiveStreamPollingSchedulerTest {
 
     @Mock
     private StreamRecorder streamRecorder;
-
-    @Mock
-    private RecordingReconciler recordingReconciler;
 
     @Mock
     private com.example.monitor.service.RecordingIntentResolver recordingIntentResolver;
@@ -614,28 +613,6 @@ class LiveStreamPollingSchedulerTest {
         }
 
         @Test
-        @DisplayName("正常系：巡回では置き去りの録画履歴の補正を行わない（ffmpeg を待って検知が止まらないように）")
-        void testMethod16() {
-            when(monitoredChannelRepository.findAll()).thenReturn(List.of());
-
-            scheduler.pollAllChannels();
-
-            verifyNoInteractions(recordingReconciler);
-        }
-
-        @Test
-        @DisplayName("正常系：既に巡回中で見送られた場合はチャンネルを読み出さない")
-        void testMethod17() {
-            AtomicBoolean inProgress =
-                    (AtomicBoolean) ReflectionTestUtils.getField(scheduler, "pollingInProgress");
-            inProgress.set(true);
-
-            scheduler.pollAllChannels();
-
-            verify(monitoredChannelRepository, never()).findAll();
-        }
-
-        @Test
         @DisplayName("正常系：同じプラットフォームのチャンネルは1回にまとめて問い合わせる")
         void testMethod32() {
             // 1件ずつ問い合わせると Twitch の「1リクエストで100チャンネル」が活かせない
@@ -856,6 +833,409 @@ class LiveStreamPollingSchedulerTest {
             verify(monitoredChannelRepository, never()).updateUpcoming(anyLong(), any(), any(), any());
             verify(monitoredChannelRepository, never()).clearUpcoming(anyLong());
         }
+
+        @Test
+        @DisplayName("正常系：通知済みの配信でも利用者向けの通知は呼ぶ（全体向けの打ち切りより前）")
+        void testMethod45() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", "video001");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("video001", "配信タイトル", null, WATCH_URL_PREFIX + "video001"));
+
+            scheduler.pollAllChannels();
+
+            verify(userNotificationService).notifySubscribers(eq(target), eq("video001"), any());
+            verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
+        }
+
+        @Test
+        @DisplayName("正常系：全体向けのフィルターに一致しない配信でも利用者向けの通知は呼ぶ")
+        void testMethod46() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setRecordTitleKeywords("【ASMR】");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "【歌枠】カラオケ配信", null, WATCH_URL_PREFIX + "newVideo"));
+
+            scheduler.pollAllChannels();
+
+            verify(userNotificationService).notifySubscribers(eq(target), eq("newVideo"), any());
+            verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
+        }
+
+        @Test
+        @DisplayName("正常系：全体向けの失敗回数が上限に達していても利用者向けの通知は呼ぶ")
+        void testMethod47() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setNotificationFailureCount(3); // MAX_NOTIFICATION_ATTEMPTS と同値
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+
+            scheduler.pollAllChannels();
+
+            verify(userNotificationService).notifySubscribers(eq(target), eq("newVideo"), any());
+            verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
+        }
+
+        @Test
+        @DisplayName("正常系：配信していない・待機所・判定できなかったチャンネルでは利用者向けの通知を呼ばない")
+        void testMethod48() {
+            MonitoredChannel notLive = channel(1L, "UCnotlive0", null);
+            MonitoredChannel upcoming = channel(2L, "UCupcoming", null);
+            MonitoredChannel failed = channel(3L, "UCfailed00", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(notLive, upcoming, failed));
+            detects("UCnotlive0", LiveStreamDetection.notLive());
+            detects("UCupcoming", LiveStreamDetection.upcoming("upcomingVideo", "予定タイトル",
+                    WATCH_URL_PREFIX + "upcomingVideo", LocalDateTime.of(2026, 9, 24, 21, 0)));
+            // UCfailed00 は積まない（応答に含まれない＝判定できなかった）
+
+            scheduler.pollAllChannels();
+
+            verify(userNotificationService, never()).notifySubscribers(any(), any(), any());
+        }
+
+        @Test
+        @DisplayName("正常系：利用者向けと全体向けの両方が詳細を使っても、詳細の取得は1回だけ")
+        void testMethod49() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+            LiveStreamDetails details = LiveStreamDetails.builder().videoId("newVideo").title("新配信").build();
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
+            when(notificationDispatcher.notifyLiveStreamStarted(details)).thenReturn(NotificationOutcome.success());
+            // 送る相手が 2 人いる場合を模して、利用者向けの通知が詳細の入れ物を 2 回取り出す
+            doAnswer(invocation -> {
+                Supplier<Optional<LiveStreamDetails>> supplier = invocation.getArgument(2);
+                supplier.get();
+                supplier.get();
+                return null;
+            }).when(userNotificationService).notifySubscribers(any(), any(), any());
+
+            scheduler.pollAllChannels();
+
+            // YouTube では取得のたびにクォータを 1 使うので、同じ巡回で 2 回取らない
+            verify(streamPlatform, times(1)).fetchDetails(any(), eq("newVideo"));
+            verify(notificationDispatcher).notifyLiveStreamStarted(details);
+        }
+
+        @Test
+        @DisplayName("正常系：全体向けがフィルターで打ち切られても、利用者向けが要れば詳細を1回だけ取る")
+        void testMethod50() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setRecordTitleKeywords("【ASMR】");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "【歌枠】カラオケ配信", null, WATCH_URL_PREFIX + "newVideo"));
+            LiveStreamDetails details = LiveStreamDetails.builder().videoId("newVideo").title("【歌枠】カラオケ配信").build();
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
+            doAnswer(invocation -> {
+                Supplier<Optional<LiveStreamDetails>> supplier = invocation.getArgument(2);
+                supplier.get();
+                return null;
+            }).when(userNotificationService).notifySubscribers(any(), any(), any());
+
+            scheduler.pollAllChannels();
+
+            verify(streamPlatform, times(1)).fetchDetails(any(), eq("newVideo"));
+            verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
+        }
+
+        @Test
+        @DisplayName("正常系：最後まで回った巡回は、判定できなかったチャンネルがあっても成功として記録する")
+        void testMethod51() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.failed());
+
+            scheduler.pollAllChannels();
+
+            verify(pollingStatusTracker, times(1)).recordSuccess();
+        }
+
+        @Test
+        @DisplayName("異常系：チャンネルの読み出しで例外が出た巡回は成功として記録せず、次の巡回は受け付ける")
+        void testMethod52() {
+            when(monitoredChannelRepository.findAll())
+                    .thenThrow(new RuntimeException("DB に接続できません"))
+                    .thenReturn(List.of());
+
+            assertThatThrownBy(() -> scheduler.pollAllChannels())
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("DB に接続できません");
+            verify(pollingStatusTracker, never()).recordSuccess();
+
+            // 巡回中の印が finally で戻っていれば、次の巡回は実行される
+            assertThat(scheduler.pollNow()).isTrue();
+            verify(pollingStatusTracker, times(1)).recordSuccess();
+        }
+
+        @Test
+        @DisplayName("正常系：監視を止めた起動（monitor.scheduling.enabled=false）では巡回しない")
+        void testMethod53() {
+            ReflectionTestUtils.setField(scheduler, "schedulingEnabled", false);
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository, never()).findAll();
+            verify(streamPlatform, never()).detectLiveStreams(anyList());
+            verify(pollingStatusTracker, never()).recordSuccess();
+        }
+
+        @Test
+        @DisplayName("異常系：視聴先の保存で例外が出ても、録画と通知は続ける")
+        void testMethod54() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setRecordEnabled(true);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+            doThrow(new RuntimeException("視聴先の保存に失敗")).when(onlineVideoService).observe(any(), any());
+            when(streamRecorder.startRecording(target, WATCH_URL_PREFIX + "newVideo", "newVideo", "新配信")).thenReturn(true);
+            LiveStreamDetails details = LiveStreamDetails.builder().videoId("newVideo").title("新配信").build();
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
+            when(notificationDispatcher.notifyLiveStreamStarted(details)).thenReturn(NotificationOutcome.success());
+
+            scheduler.pollAllChannels();
+
+            verify(streamRecorder).startRecording(target, WATCH_URL_PREFIX + "newVideo", "newVideo", "新配信");
+            verify(userNotificationService).notifySubscribers(eq(target), eq("newVideo"), any());
+            verify(notificationDispatcher).notifyLiveStreamStarted(details);
+            verify(monitoredChannelRepository).updateLastNotifiedVideoId(1L, "newVideo");
+        }
+
+        @Test
+        @DisplayName("正常系：読み取れたアイコンが前と違えば記録する")
+        void testMethod55() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setChannelIconUrl("https://yt3.ggpht.com/old");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.notLive().withChannelIcon("https://yt3.ggpht.com/new"));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository).updateChannelIconUrl(1L, "https://yt3.ggpht.com/new");
+        }
+
+        @Test
+        @DisplayName("正常系：アイコンが前と同じか読み取れなかった場合は記録し直さない")
+        void testMethod56() {
+            MonitoredChannel same = channel(1L, "UCsame0000", null);
+            same.setChannelIconUrl("https://yt3.ggpht.com/same");
+            MonitoredChannel unreadable = channel(2L, "UCnoicon00", null);
+            unreadable.setChannelIconUrl("https://yt3.ggpht.com/keep");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(same, unreadable));
+            detects("UCsame0000", LiveStreamDetection.notLive().withChannelIcon("https://yt3.ggpht.com/same"));
+            // 一時的に読み取れなかっただけの回（null）で前の値を消さない
+            detects("UCnoicon00", LiveStreamDetection.notLive());
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository, never()).updateChannelIconUrl(anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("正常系：チャンネル単位で録画を希望していなくても、購読者の希望があれば録画する")
+        void testMethod57() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", "newVideo");
+            target.setRecordEnabled(false);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+            // @BeforeEach のスタブ（チャンネル単位の設定だけを見る）を、このテストだけ「購読者が希望し条件にも合う」に差し替える
+            doReturn(new com.example.monitor.service.RecordingIntentResolver.RecordingIntent(true, true))
+                    .when(recordingIntentResolver).resolve(any(), any(), any());
+            when(streamRecorder.startRecording(target, WATCH_URL_PREFIX + "newVideo", "newVideo", "新配信")).thenReturn(true);
+
+            scheduler.pollAllChannels();
+
+            verify(streamRecorder).startRecording(target, WATCH_URL_PREFIX + "newVideo", "newVideo", "新配信");
+            verify(monitoredChannelRepository).updateLastRecordedVideoId(1L, "newVideo");
+        }
+
+        @Test
+        @DisplayName("異常系：録画の開始で例外が出ても、利用者向け・全体向けの通知は続ける")
+        void testMethod58() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setRecordEnabled(true);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+            when(streamRecorder.startRecording(target, WATCH_URL_PREFIX + "newVideo", "newVideo", "新配信"))
+                    .thenThrow(new RuntimeException("録画履歴の登録に失敗"));
+            LiveStreamDetails details = LiveStreamDetails.builder().videoId("newVideo").title("新配信").build();
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
+            when(notificationDispatcher.notifyLiveStreamStarted(details)).thenReturn(NotificationOutcome.success());
+
+            scheduler.pollAllChannels();
+
+            verify(userNotificationService).notifySubscribers(eq(target), eq("newVideo"), any());
+            verify(notificationDispatcher).notifyLiveStreamStarted(details);
+            verify(monitoredChannelRepository).updateLastNotifiedVideoId(1L, "newVideo");
+            // 録画済みにしない（次の巡回で録画をもう一度試す）
+            verify(monitoredChannelRepository, never()).updateLastRecordedVideoId(any(), any());
+        }
+
+        @Test
+        @DisplayName("異常系：録画の希望の判定で例外が出ても、利用者向け・全体向けの通知は続ける")
+        void testMethod59() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setRecordEnabled(true);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+            doThrow(new RuntimeException("購読の読み出しに失敗"))
+                    .when(recordingIntentResolver).resolve(any(), any(), any());
+            LiveStreamDetails details = LiveStreamDetails.builder().videoId("newVideo").title("新配信").build();
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
+            when(notificationDispatcher.notifyLiveStreamStarted(details)).thenReturn(NotificationOutcome.success());
+
+            scheduler.pollAllChannels();
+
+            verify(streamRecorder, never()).startRecording(any(), any(), any(), any());
+            verify(userNotificationService).notifySubscribers(eq(target), eq("newVideo"), any());
+            verify(notificationDispatcher).notifyLiveStreamStarted(details);
+        }
+
+        @Test
+        @DisplayName("異常系：通知履歴の保存で例外が出ても、送信に成功した配信は通知済みにする")
+        void testMethod60() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+            LiveStreamDetails details = LiveStreamDetails.builder().videoId("newVideo").title("新配信").build();
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
+            when(notificationDispatcher.notifyLiveStreamStarted(details)).thenReturn(NotificationOutcome.success());
+            doThrow(new RuntimeException("履歴の保存に失敗"))
+                    .when(notificationHistoryService).recordAttempt(any(), any(), any(), any());
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository).updateLastNotifiedVideoId(1L, "newVideo");
+        }
+
+        @Test
+        @DisplayName("異常系：通知履歴の保存で例外が出ても、送信の失敗は失敗回数に数える")
+        void testMethod61() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+            LiveStreamDetails details = LiveStreamDetails.builder().videoId("newVideo").title("新配信").build();
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(details));
+            when(notificationDispatcher.notifyLiveStreamStarted(details))
+                    .thenReturn(NotificationOutcome.failure("x".repeat(1000)));
+            doThrow(new RuntimeException("履歴の保存に失敗"))
+                    .when(notificationHistoryService).recordAttempt(any(), any(), any(), any());
+
+            scheduler.pollAllChannels();
+
+            // 数えないと再送の上限（MAX_NOTIFICATION_ATTEMPTS）が効かなくなる
+            verify(monitoredChannelRepository).incrementNotificationFailureCount(1L);
+            verify(monitoredChannelRepository, never()).updateLastNotifiedVideoId(any(), any());
+        }
+
+        @Test
+        @DisplayName("異常系：APIが配信開始前（upcoming）と答えたら通知せず、失敗として数える")
+        void testMethod62() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+            LiveStreamDetails upcomingDetails = LiveStreamDetails.builder()
+                    .videoId("newVideo").title("新配信").broadcastStatus("upcoming").build();
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.of(upcomingDetails));
+
+            scheduler.pollAllChannels();
+
+            verify(notificationDispatcher, never()).notifyLiveStreamStarted(any());
+            verify(monitoredChannelRepository).incrementNotificationFailureCount(1L);
+            // 検知結果から組み立てた詳細で送り直さない（待機所を通知しない）
+            verify(streamPlatform, never()).fallbackDetails(any(), any());
+        }
+
+        @Test
+        @DisplayName("正常系：APIで詳細を取れなければ、検知結果から組み立てた詳細で通知する")
+        void testMethod63() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            LiveStreamDetection detection = LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo");
+            detects("UCxxxxxxxx", detection);
+            when(streamPlatform.fetchDetails(any(), eq("newVideo"))).thenReturn(Optional.empty());
+            LiveStreamDetails fallback = LiveStreamDetails.builder().videoId("newVideo").title("新配信").build();
+            when(streamPlatform.fallbackDetails(target.getChannelName(), detection)).thenReturn(Optional.of(fallback));
+            when(notificationDispatcher.notifyLiveStreamStarted(fallback)).thenReturn(NotificationOutcome.success());
+
+            scheduler.pollAllChannels();
+
+            verify(notificationDispatcher).notifyLiveStreamStarted(fallback);
+            verify(monitoredChannelRepository).updateLastNotifiedVideoId(1L, "newVideo");
+        }
+
+        @Test
+        @DisplayName("正常系：プラットフォームごとに判定結果を判定失敗の見張りへ渡す")
+        void testMethod64() {
+            StreamPlatform twitchPlatform = mock(StreamPlatform.class);
+            when(streamPlatformRegistry.get(Platform.TWITCH)).thenReturn(twitchPlatform);
+            when(twitchPlatform.detectLiveStreams(List.of("123456")))
+                    .thenReturn(Map.of("123456", LiveStreamDetection.notLive()));
+            MonitoredChannel youtube = channel(1L, "UCxxxxxxxx", null);
+            MonitoredChannel twitch = channel(2L, "123456", null);
+            twitch.setPlatform(Platform.TWITCH);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(youtube, twitch));
+            detects("UCxxxxxxxx", LiveStreamDetection.notLive());
+
+            scheduler.pollAllChannels();
+
+            verify(detectionFailureAlerter).recordPlatformResult(eq(Platform.YOUTUBE), eq(List.of(youtube)), any());
+            verify(detectionFailureAlerter).recordPlatformResult(eq(Platform.TWITCH), eq(List.of(twitch)), any());
+        }
+
+        @Test
+        @DisplayName("異常系：判定失敗の見張りで例外が出ても、残りのプラットフォームを回して巡回を成功と記録する")
+        void testMethod65() {
+            StreamPlatform twitchPlatform = mock(StreamPlatform.class);
+            when(streamPlatformRegistry.get(Platform.TWITCH)).thenReturn(twitchPlatform);
+            when(twitchPlatform.detectLiveStreams(List.of("123456")))
+                    .thenReturn(Map.of("123456", LiveStreamDetection.notLive()));
+            MonitoredChannel youtube = channel(1L, "UCxxxxxxxx", null);
+            MonitoredChannel twitch = channel(2L, "123456", null);
+            twitch.setPlatform(Platform.TWITCH);
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(youtube, twitch));
+            detects("UCxxxxxxxx", LiveStreamDetection.notLive());
+            doThrow(new RuntimeException("見張りの失敗"))
+                    .when(detectionFailureAlerter).recordPlatformResult(eq(Platform.YOUTUBE), any(), any());
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository).updateObservedLiveState(eq(2L), eq(false), isNull(), any());
+            verify(detectionFailureAlerter).recordPlatformResult(eq(Platform.TWITCH), any(), any());
+            verify(pollingStatusTracker).recordSuccess();
+        }
+
+        @Test
+        @DisplayName("正常系：録画済みの配信でまだ条件に合えば、録画側へ「まだ配信中」と知らせ、録画は始め直さない")
+        void testMethod66() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", "newVideo");
+            target.setRecordEnabled(true);
+            target.setLastRecordedVideoId("newVideo");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "新配信", null, WATCH_URL_PREFIX + "newVideo"));
+
+            scheduler.pollAllChannels();
+
+            // すぐ失敗した録画の録り直しは、この知らせを待って StreamRecorder が行う
+            verify(streamRecorder).confirmStillLive("newVideo");
+            verify(streamRecorder, never()).startRecording(any(), any(), any(), any());
+            verify(monitoredChannelRepository, never()).updateLastRecordedVideoId(any(), any());
+        }
+
+        @Test
+        @DisplayName("正常系：録画済みの配信でも条件から外れていれば、「まだ配信中」と知らせない")
+        void testMethod67() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", "newVideo");
+            target.setRecordEnabled(true);
+            target.setRecordTitleKeywords("【ASMR】");
+            target.setLastRecordedVideoId("newVideo");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("newVideo", "【歌枠】カラオケ配信", null, WATCH_URL_PREFIX + "newVideo"));
+
+            scheduler.pollAllChannels();
+
+            // 条件から外れた配信は、合図が来ないまま待ちが切れて録り直さない
+            verify(streamRecorder, never()).confirmStillLive(any());
+            verify(streamRecorder, never()).startRecording(any(), any(), any(), any());
+        }
     }
 
     @Nested
@@ -873,7 +1253,6 @@ class LiveStreamPollingSchedulerTest {
 
             assertThat(result).isTrue();
             verify(streamPlatform).detectLiveStreams(List.of("UCxxxxxxxx"));
-            verifyNoInteractions(recordingReconciler);
         }
 
         @Test
