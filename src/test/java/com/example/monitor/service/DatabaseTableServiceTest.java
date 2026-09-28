@@ -49,11 +49,14 @@ class DatabaseTableServiceTest {
     @Mock
     private DatabaseMetaData databaseMetaData;
 
+    @Mock
+    private AuditLogger auditLogger;
+
     private DatabaseTableService databaseTableService;
 
     @BeforeEach
     void setUp() throws SQLException {
-        databaseTableService = new DatabaseTableService(dataSource, jdbcTemplate);
+        databaseTableService = new DatabaseTableService(dataSource, jdbcTemplate, auditLogger);
         when(dataSource.getConnection()).thenReturn(connection);
         when(connection.getMetaData()).thenReturn(databaseMetaData);
     }
