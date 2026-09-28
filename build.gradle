@@ -79,6 +79,13 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+// AGENTS.md の「警告ゼロ」を、人が出力を目で確かめるのではなくビルドで守る。警告が 1 件でもあればコンパイルを失敗させる。
+// 対象は javac が既定で出す警告だけ（[removal] や注釈処理の警告など）。-Xlint で種類を増やすと既存コードに大量に出るので足さない。
+// compileJava と compileTestJava の両方に効く
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.add('-Werror')
+}
+
 // カバレッジレポート（./gradlew test jacocoTestReport と明示したときだけ作る。build/reports/jacoco/test/html/index.html）
 // test の finalizedBy で毎回作っていたが、普段のテスト（build を含む）では見ないのに Gradle の負荷を増やすだけだった（#194）
 jacocoTestReport {
@@ -121,5 +128,8 @@ tasks.named('javadoc') {
         // 実際には @RequiredArgsConstructor が付いているクラスまで
         // 「コンストラクタに説明がない」と大量に警告されてしまうため。
         addStringOption('Xdoclint:all,-missing', '-quiet')
+
+        // doclint の警告（空の <p> タグなど）も JavaDoc の生成の失敗にする（AGENTS.md「警告ゼロ」をビルドで守る）
+        addBooleanOption('Werror', true)
     }
 }

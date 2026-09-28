@@ -8,28 +8,31 @@ description: このプロジェクトの作業を終える前に、ビルド・�
 上から順に。1つでも落ちたら完了ではない。作業ツリーの直下（worktree ならその直下）で行う。
 
 ```bash
-# 1. ビルドとJavaDoc（どちらも警告ゼロを維持する）
+# 1. ビルドとJavaDoc（どちらも警告ゼロを維持する。javac と javadoc の警告は -Werror で失敗になる）
 ./gradlew clean build javadoc
 
 # 2. フロントエンドの型検査（JS/HTML を触っていなくても通す）
 npx -y -p typescript tsc -p src/main/resources/static/jsconfig.json --noEmit
 
-# 3. 作業ツリーのビルドを確認用インスタンスとして起動する（新しい DB・監視なし・Discord なし・ポート 18180）
+# 3. JS のテスト（リポジトリ直下で実行する。ディレクトリ src/test/js/ を渡すと MODULE_NOT_FOUND で失敗する）
+node --test src/test/js/*.test.cjs
+
+# 4. 作業ツリーのビルドを確認用インスタンスとして起動する（新しい DB・監視なし・Discord なし・ポート 18180）
 bin/sandbox.sh start
 
-# 4. API が動く（監視なしで起動するので 409・終了コード 22 は想定どおり。ログインの失敗・500 は失敗）
+# 5. API が動く（監視なしで起動するので 409・終了コード 22 は想定どおり。ログインの失敗・500 は失敗）
 ENV_FILE=.sandbox/.env SERVER_PORT=18180 bin/api.sh POST /api/monitor/check
 
-# 5. CLI が動く（確認用インスタンスの DB を使う）
+# 6. CLI が動く（確認用インスタンスの DB を使う）
 bin/sandbox.sh cli channel list
 
-# 6. Issue の完了条件に書かれた確認をしてから止める
+# 7. Issue の完了条件に書かれた確認をしてから止める
 bin/sandbox.sh stop
 ```
 
-4 と 5 を両方見るのは、**Web と CLI で起動経路が違う**ため。
+5 と 6 を両方見るのは、**Web と CLI で起動経路が違う**ため。
 CLI モードは Web サーバーを起動しないので、`@Profile("!cli")` の付け忘れは
-4 では発覚せず 5 で初めて落ちる（実際に発生した）。
+5 では発覚せず 6 で初めて落ちる（実際に発生した）。
 
 **本番（`bin/service.sh restart`）では確かめない。** worktree では restart が 8080 の本番とぶつかるか、
 DB の無い作業ツリーで起動してしまい、`bin/api.sh` は `.env` が無くて止まる（本番の無い作業端末でも同じ）。
@@ -60,3 +63,4 @@ bin/api.sh <METHOD> <PATH> [JSON本文]                                         
 - `ClassNotFoundException` が出た → ビルドと再起動の順序を間違えている（deploy スキル参照）
 - `bin/sandbox.sh start` が「ポート 18180 を別のプロセスが使っています」で止まる → 別の作業ツリーの確認用インスタンスが残っている。そのディレクトリで `bin/sandbox.sh stop` するか、`SANDBOX_PORT=18181 bin/sandbox.sh start` にして `bin/api.sh` にも `SERVER_PORT=18181` を渡す
 - `bin/sandbox.sh start` が「build/libs に jar が 2 個あります」で止まる → 名前の違う古い jar が残っている。`./gradlew clean build` でビルドし直す
+- 手元では通るのに CI（`gh pr checks`）だけが落ちた → OS（CI は Linux）・時刻帯・ロケール・作業ディレクトリの違いを疑う。テストの期待値を CI に合わせて書き換えない
