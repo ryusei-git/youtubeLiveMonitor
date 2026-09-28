@@ -9,6 +9,7 @@ import com.example.monitor.entity.Recording;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.util.DirectorySizeUtils;
+import com.example.monitor.util.RecordingPathUtils;
 import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -80,7 +81,7 @@ public class RecordingFileService {
         try (Stream<Path> files = Files.list(directory)) {
             matchingFiles = files
                     .filter(Files::isRegularFile)
-                    .filter(file -> extractVideoId(file).equals(recording.getVideoId()))
+                    .filter(file -> RecordingPathUtils.videoId(file).equals(recording.getVideoId()))
                     .toList();
         } catch (IOException e) {
             log.error("録画ファイルの削除に失敗しました: {}", directory, e);
@@ -107,22 +108,6 @@ public class RecordingFileService {
         } catch (IOException e) {
             log.warn("yt-dlp のログの削除に失敗しました: {}", path, e);
         }
-    }
-
-    /**
-     * ファイル名から動画IDを取り出す。
-     *
-     * <p>録画関連のファイルはすべて {@code {動画ID}.拡張子...}（{@code yt-dlp} の出力テンプレート、
-     * サムネイルとも共通）という命名なので、最初の {@code .} より前を動画IDとみなせる。
-     * YouTube の動画IDの文字集合に {@code .} は含まれないため、この切り出しは安全に成立する。
-     *
-     * @param file 対象ファイル
-     * @return 動画ID相当の文字列
-     */
-    private static String extractVideoId(Path file) {
-        String fileName = file.getFileName().toString();
-        int dotIndex = fileName.indexOf('.');
-        return dotIndex < 0 ? fileName : fileName.substring(0, dotIndex);
     }
 
     /**
@@ -237,9 +222,9 @@ public class RecordingFileService {
             return false;
         }
 
-        String videoId = extractVideoId(file);
+        String videoId = RecordingPathUtils.videoId(file);
         try (Stream<Path> files = Files.list(directory)) {
-            return files.anyMatch(candidate -> videoId.equals(extractVideoId(candidate)));
+            return files.anyMatch(candidate -> videoId.equals(RecordingPathUtils.videoId(candidate)));
         } catch (IOException e) {
             log.warn("録画ファイルの有無を確認できませんでした: directory={}", directory, e);
             return false;
@@ -269,10 +254,10 @@ public class RecordingFileService {
             return 0;
         }
 
-        String videoId = extractVideoId(file);
+        String videoId = RecordingPathUtils.videoId(file);
         try (Stream<Path> files = Files.list(directory)) {
             return files.filter(Files::isRegularFile)
-                    .filter(candidate -> videoId.equals(extractVideoId(candidate)))
+                    .filter(candidate -> videoId.equals(RecordingPathUtils.videoId(candidate)))
                     .mapToLong(DirectorySizeUtils::sizeOf)
                     .sum();
         } catch (IOException e) {
