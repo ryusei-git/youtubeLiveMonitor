@@ -4,9 +4,8 @@
 (() => {
     /** @type {string} */
     let currentTable = "";
-    let currentPage = 0;
     const pageSize = 20;
-    let totalPages = 1;
+    const pager = bindPager({ load: loadTableData });
 
     async function loadTableList() {
         try {
@@ -31,9 +30,8 @@
 
     async function loadTableData() {
         try {
-            const data = await apiGet(`/api/admin/tables/${currentTable}?page=${currentPage}&size=${pageSize}`);
+            const data = await apiGet(`/api/admin/tables/${currentTable}?page=${pager.page()}&size=${pageSize}`);
             clearError();
-            totalPages = Math.max(1, Math.ceil(data.totalElements / pageSize));
 
             const thead = query("#dataTable thead");
             thead.innerHTML = "<tr>" + /** @type {string[]} */ (data.columns).map((c) =>
@@ -59,7 +57,7 @@
                 }
                 tbody.appendChild(tr);
             }
-            el("pageInfo").textContent = `${currentPage + 1} / ${totalPages}`;
+            pager.update(Math.ceil(data.totalElements / pageSize));
         } catch (e) {
             showError(errorMessage(e));
         }
@@ -145,22 +143,8 @@
 
     selectEl("tableSelect").addEventListener("change", (ev) => {
         currentTable = /** @type {HTMLSelectElement} */ (ev.target).value;
-        currentPage = 0;
+        pager.reset();
         loadTableData();
-    });
-
-    el("prevBtn").addEventListener("click", () => {
-        if (currentPage > 0) {
-            currentPage--;
-            loadTableData();
-        }
-    });
-
-    el("nextBtn").addEventListener("click", () => {
-        if (currentPage + 1 < totalPages) {
-            currentPage++;
-            loadTableData();
-        }
     });
 
     inputEl("editMode").addEventListener("change", loadTableData);
