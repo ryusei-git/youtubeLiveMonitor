@@ -379,20 +379,22 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
     List<String> findAllVideoIds();
 
     /**
-     * チャンネルの録画中（{@code RECORDING}）の録画の動画IDを取得する。
+     * チャンネルの録画中（{@code RECORDING}）の録画の保存先（{@code filePath}）を取得する。
      *
      * <p>{@link com.example.monitor.service.MonitoredChannelService#remove(Long)} が、チャンネルを消す前に
      * 止めるべき録画を集めるのに使う。消した後では録画履歴も連鎖削除で消えていて引けない。
+     * 動画 ID ではなく保存先を返すのは、止める yt-dlp を出力先で探すため。動画 ID で探すと、
+     * 同じ動画を「端末に保存」している利用者の yt-dlp まで止めてしまう。
      *
      * @param channelId 監視対象の主キー
-     * @return 録画中の動画IDの一覧
+     * @return 録画中の録画の保存先（{@code <チャンネルID>/<動画ID>.mp4}）の一覧
      */
     @Query("""
-            SELECT r.videoId FROM Recording r
+            SELECT r.filePath FROM Recording r
              WHERE r.channel.id = :channelId
                AND r.status = com.example.monitor.entity.Recording.RecordingStatus.RECORDING
             """)
-    List<String> findRecordingVideoIdsByChannelId(@Param("channelId") Long channelId);
+    List<String> findRecordingFilePathsByChannelId(@Param("channelId") Long channelId);
 
     /**
      * どのチャンネルにも紐づいていない録画履歴を取得する。

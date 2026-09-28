@@ -13,6 +13,7 @@ import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.repository.UserSubscriptionRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
+import com.example.monitor.util.FileNameUtils;
 import com.example.monitor.util.ProcessTermination;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -230,6 +231,9 @@ public class MonitoredChannelService {
      * {@link RecordingReconciler} は「プロセスが動いている」ので触らず、出力が増え続けるので
      * {@link StreamRecorder} の固まりの見張りも止めない）。止める録画は削除の<b>前</b>に集める
      * （削除すると録画履歴も連鎖削除で消える）。プロセスは OS から探すので、再起動で追跡を失った録画も止まる。
+     * 探す文字列は動画 ID ではなく出力先（{@code <チャンネルID>/<動画ID>.%(ext)s}）にする。動画 ID だけだと、
+     * 同じ動画を「端末に保存」している利用者の yt-dlp（{@link DeviceDownloadService}。出力先は一時フォルダー）
+     * まで止めてしまう（{@link StreamRecorder#stopRecording(Long)} と同じ理由）。
      * 録画ファイルは消さない（削除済みチャンネルの録画ファイルは孤立ファイルの削除で片付ける設計のまま）。
      *
      * <p>止める処理は、SIGKILL へ切り替えるまで最大 30 秒待つため、仮想スレッドで行い HTTP の応答を待たせない。
@@ -250,17 +254,17 @@ public class MonitoredChannelService {
         MonitoredChannel channel = monitoredChannelRepository.findById(channelRecordId)
                 .orElseThrow(() -> new ChannelNotFoundException(channelRecordId));
 
-        List<String> recordingVideoIds = recordingRepository.findRecordingVideoIdsByChannelId(channelRecordId);
+        List<String> recordingFilePaths = recordingRepository.findRecordingFilePathsByChannelId(channelRecordId);
 
         monitoredChannelRepository.deleteById(channelRecordId);
         channelLogReader.deleteChannelLogs(channel.getYoutubeChannelId());
         CompletableFuture<Integer> recordingsStopped;
-        if (recordingVideoIds.isEmpty()) {
+        if (recordingFilePaths.isEmpty()) {
             recordingsStopped = CompletableFuture.completedFuture(0);
         } else {
             Executor stopThread = task -> Thread.ofVirtual().name("stop-recordings-" + channelRecordId).start(task);
             recordingsStopped = CompletableFuture
-                    .supplyAsync(() -> stopRecordings(channel.getYoutubeChannelId(), recordingVideoIds), stopThread)
+                    .supplyAsync(() -> stopRecordings(channel.getYoutubeChannelId(), recordingFilePaths), stopThread)
                     .whenComplete((stopped, failure) -> {
                         if (failure != null) {
                             log.warn("削除したチャンネルの録画プロセスを止められませんでした: channel={}",
@@ -277,22 +281,26 @@ public class MonitoredChannelService {
     /**
      * 削除したチャンネルの録画の yt-dlp を子孫ごと止める。理由は {@link #remove(Long)} を参照。
      *
+     * <p>探す文字列は {@link StreamRecorder#stopRecording(Long)} と同じ形にする。片方だけ変えると、
+     * 管理画面からの停止とチャンネルの削除とで、止める yt-dlp がずれる。
+     *
      * @param youtubeChannelId 削除したチャンネルの識別子（ログ用）
-     * @param videoIds         止める録画の動画 ID
+     * @param filePaths        止める録画の保存先（{@code <チャンネルID>/<動画ID>.mp4}）
      * @return 止めた yt-dlp の数（子孫は数えない）
      */
-    private int stopRecordings(String youtubeChannelId, List<String> videoIds) {
+    private int stopRecordings(String youtubeChannelId, List<String> filePaths) {
         int stopped = 0;
-        for (String videoId : videoIds) {
-            for (ProcessHandle handle : processLauncher.findYtDlpProcessesWithCommandLineContaining(videoId)) {
-                log.info("削除したチャンネルの録画プロセスを止めます: channel={}, video={}, pid={}",
-                        youtubeChannelId, videoId, handle.pid());
+        for (String filePath : filePaths) {
+            String outputFragment = FileNameUtils.stripExtension(filePath, ".mp4") + ".%(ext)s";
+            for (ProcessHandle handle : processLauncher.findYtDlpProcessesWithCommandLineContaining(outputFragment)) {
+                log.info("削除したチャンネルの録画プロセスを止めます: channel={}, file={}, pid={}",
+                        youtubeChannelId, filePath, handle.pid());
                 if (ProcessTermination.terminateTreeAndAwait(handle, Duration.ofSeconds(30))) {
                     return stopped;
                 }
                 stopped++;
-                log.info("削除したチャンネルの録画プロセスを止めました: channel={}, video={}, pid={}",
-                        youtubeChannelId, videoId, handle.pid());
+                log.info("削除したチャンネルの録画プロセスを止めました: channel={}, file={}, pid={}",
+                        youtubeChannelId, filePath, handle.pid());
             }
         }
         return stopped;
