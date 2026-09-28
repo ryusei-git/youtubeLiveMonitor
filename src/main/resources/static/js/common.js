@@ -1063,6 +1063,21 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
    ============================================================ */
 
 /**
+ * 動画の再生位置を秒数だけ動かす。先頭より前・末尾より後へは行かない。
+ *
+ * <p>ロック画面・メディアキーの早送り（{@link bindMediaSession}）と、利用者画面のドックの「-10秒」「+10秒」・キー操作
+ * （my-app.js）で同じ丸め方にするため、ここに置く。
+ * 長さが分かる前（読み込む前は NaN）は何もしない。NaN を currentTime に入れると例外になるため。
+ *
+ * @param {HTMLVideoElement} video 動かす動画
+ * @param {number} seconds 進める秒数（負なら戻す）
+ */
+function seekVideoBy(video, seconds) {
+    if (Number.isNaN(video.duration)) return;
+    video.currentTime = Math.min(Math.max(0, video.currentTime + seconds), video.duration);
+}
+
+/**
  * ロック画面・通知・キーボードのメディアキーに、再生中の録画の情報と操作を出す。
  *
  * 画面を消したり別のアプリへ切り替えたりしたとき、ブラウザの外から一時停止・再開・早送りが
@@ -1092,17 +1107,13 @@ function bindMediaSession(video, metadata) {
     if (video.dataset.mediaSessionBound) return;
     video.dataset.mediaSessionBound = "1";
 
-    /** @param {number} seconds 進める秒数（負なら戻す）。先頭より前・末尾より後へは行かない */
-    const seekBy = (seconds) => {
-        video.currentTime = Math.min(Math.max(0, video.currentTime + seconds), video.duration);
-    };
     /** @type {Array<[MediaSessionAction, MediaSessionActionHandler]>} */
     const handlers = [
         // 直後の一時停止で中断された等の失敗は、再生されないこと自体で分かるため何も出さない
         ["play", () => { video.play().catch(() => {}); }],
         ["pause", () => video.pause()],
-        ["seekbackward", (details) => seekBy(-(details.seekOffset ?? 10))],
-        ["seekforward", (details) => seekBy(details.seekOffset ?? 10)],
+        ["seekbackward", (details) => seekVideoBy(video, -(details.seekOffset ?? 10))],
+        ["seekforward", (details) => seekVideoBy(video, details.seekOffset ?? 10)],
         ["seekto", (details) => {
             if (details.seekTime !== undefined) video.currentTime = details.seekTime;
         }],
