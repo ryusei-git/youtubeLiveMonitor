@@ -73,6 +73,7 @@ function mySearchApiParams(url) {
 /**
  * 投稿日の選択から publishedAfter・publishedBefore を決める。検索した時点で 1 度だけ決めて URL に残す
  * （開くたびに「今」から数え直すと、クエリが毎回変わってサーバーの使い回しに当たらないため）。
+ * 公式の条件を変えずに検索し直したときは mySearchKeptRange で前の値を引き継ぐ。
  *
  * @param {string} posted 投稿日の選択
  * @param {string} from 期間の開始日（yyyy-MM-dd）
@@ -99,6 +100,40 @@ function mySearchPublishedRange(posted, from, to) {
         range.publishedBefore = end.toISOString();
     }
     return range;
+}
+
+/**
+ * 公式の条件の欄の name。投稿日の起点（publishedAfter）を前の検索から引き継ぐかを決めるとき、前の URL と比べる。
+ * from・to は「期間を指定」でしか使わず、そのときは起点を引き継がない（日付から毎回同じ値になる）ので入れない。
+ */
+const MY_SEARCH_OFFICIAL_FIELDS = ["q", "order", "duration", "posted", "eventType", "channel", "categoryId",
+    "definition", "caption", "license", "safeSearch"];
+
+/** 投稿日の起点を引き継ぐ長さ。サーバーの使い回し（YouTubeSearchService の SEARCH_CACHE_TTL）と同じ 6 時間。 */
+const MY_SEARCH_KEEP_RANGE_MS = 6 * 3_600_000;
+
+/**
+ * 投稿日が「24 時間以内」などのとき、前の検索の起点（publishedAfter）を引き継ぐかを決める。
+ * 公式の条件が前と同じなら引き継ぐ。数え直すと分が変わるだけでクエリが変わってサーバーの使い回しに当たらず、
+ * このサービスの条件だけを変えた検索でも回数を使ってしまうため。
+ * 6 時間より前の起点は引き継がない（サーバーの使い回しも切れていて、「24 時間以内」が大きくずれるため）。
+ *
+ * @param {URLSearchParams} previous 今の画面の URL の条件（前の検索）
+ * @param {URLSearchParams} next これから検索する URL の条件（publishedAfter はまだ入れていない）
+ * @param {{publishedAfter?: string, publishedBefore?: string}} fresh mySearchPublishedRange で今から数え直した範囲
+ * @returns {{publishedAfter?: string, publishedBefore?: string}} URL に入れる範囲
+ */
+function mySearchKeptRange(previous, next, fresh) {
+    const kept = previous.get("publishedAfter");
+    if (!kept || !fresh.publishedAfter || !["day", "week", "month", "year"].includes(next.get("posted") || "")) {
+        return fresh;
+    }
+    if (!MY_SEARCH_OFFICIAL_FIELDS.every((name) => (previous.get(name) || "") === (next.get(name) || ""))) {
+        return fresh;
+    }
+    // 読めない値（NaN）や未来の値は引き継がない
+    const age = Date.parse(fresh.publishedAfter) - Date.parse(kept);
+    return age >= 0 && age < MY_SEARCH_KEEP_RANGE_MS ? { publishedAfter: kept } : fresh;
 }
 
 /**
@@ -260,6 +295,7 @@ const mySearchView = {
         const results = query(".searchResults", root);
         const summary = /** @type {HTMLElement} */ (query(".searchSummary", root));
         const moreButton = /** @type {HTMLButtonElement} */ (query(".moreBtn", root));
+        const searchButton = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
         /** 今出している件数と、次のページの印。「もっと見る」で続きを足すため。 */
         let shown = 0;
         /** @type {string|null} */
@@ -296,7 +332,8 @@ const mySearchView = {
         syncExpanded();
 
         /**
-         * URL の条件で検索する。
+         * URL の条件で検索する。読み込み中は検索ボタンを止める。同じ条件の検索が重なると、
+         * サーバーの使い回しに入る前に両方が回数を使うため。
          * @param {string|null} pageToken 続きを読むときの印。最初のページは null
          */
         const load = async (pageToken) => {
@@ -304,7 +341,7 @@ const mySearchView = {
             const api = mySearchApiParams(new URLSearchParams(location.search));
             if (pageToken) api.set("pageToken", pageToken);
             setBusy(results, true);
-            moreButton.disabled = true;
+            moreButton.disabled = searchButton.disabled = true;
             try {
                 const data = await apiGet(`/api/my/search?${api}`);
                 if (current !== request || !results.isConnected) return;
@@ -331,7 +368,7 @@ const mySearchView = {
             } finally {
                 if (current === request && results.isConnected) {
                     setBusy(results, false);
-                    moreButton.disabled = false;
+                    moreButton.disabled = searchButton.disabled = false;
                 }
             }
         };
@@ -358,8 +395,10 @@ const mySearchView = {
                 showError("キーワードを入れてください（チャンネルを限定したときは空でも探せます）");
                 return;
             }
-            for (const [key, value] of Object.entries(mySearchPublishedRange(posted.value,
-                    url.searchParams.get("from") || "", url.searchParams.get("to") || ""))) {
+            // 公式の条件が前と同じなら、投稿日の起点は前の検索のものを使う（数え直すと、このサービスの条件だけを変えても回数を使うため）
+            const fresh = mySearchPublishedRange(posted.value, url.searchParams.get("from") || "", url.searchParams.get("to") || "");
+            const range = mySearchKeptRange(new URLSearchParams(location.search), url.searchParams, fresh);
+            for (const [key, value] of Object.entries(range)) {
                 url.searchParams.set(key, value);
             }
             // 画面ごと描き直す（ルーターと同じ経路）。URL から条件を戻して検索するので、戻る・再読み込みと同じ動きになる
