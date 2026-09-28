@@ -44,6 +44,10 @@ case "${1:-start}" in
             git worktree add -q --detach "$PREVIEW" origin/main
         fi
         echo "ビルドしています（$PREVIEW）..."
+        # 前のビルドの jar を消してから作る。下の JAR は build/libs/*.jar の名前順の先頭を選ぶので、jar の名前が
+        # 変わったとき（settings.gradle で ylm-preview-0.1.0.jar から youtubeLiveMonitor-0.1.0.jar になった）に
+        # 古い jar が残っていると、そちらを選んで古い版を黙って動かし続ける。確認用は上の stop_preview で止めてある
+        rm -f "$PREVIEW"/build/libs/*.jar
         (cd "$PREVIEW" && ./gradlew build -x test -q)
 
         echo "DB を複製しています..."

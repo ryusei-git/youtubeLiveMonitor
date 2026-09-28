@@ -1,0 +1,4 @@
+// ルートプロジェクトの名前を固定する。settings.gradle が無いと Gradle はディレクトリ名をプロジェクト名にするので、
+// jar の名前がクローン先・worktree ごとに変わっていた（../ylm-review-12 なら ylm-review-12-0.1.0.jar）。
+// README の CLI の例のように jar を名前で指す手順が、~/youtubeLiveMonitor 以外で動かなくなるため。
+rootProject.name = 'youtubeLiveMonitor'
