@@ -6,7 +6,8 @@ import com.example.monitor.config.MonitorProperties.TwitchProperties;
 import com.example.monitor.config.MonitorProperties.RecordingProperties;
 import com.example.monitor.config.MonitorProperties.YouTubeProperties;
 import com.example.monitor.dto.LiveStreamDetails;
-import org.json.JSONObject;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -106,10 +107,10 @@ class DiscordNotifierTest {
             ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
             verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
             assertThat(captor.getValue().uri().toString()).isEqualTo(WEBHOOK_URL + "?wait=true");
-            JSONObject embed = new JSONObject(requestBody(captor.getValue())).getJSONArray("embeds").getJSONObject(0);
-            assertThat(embed.getString("title")).isEqualTo("配信タイトル");
-            assertThat(embed.getString("url")).isEqualTo("https://www.youtube.com/watch?v=video001");
-            assertThat(embed.getJSONObject("author").getString("name")).isEqualTo("テストチャンネル");
+            JsonNode embed = JsonMapper.shared().readTree(requestBody(captor.getValue())).path("embeds").path(0);
+            assertThat(embed.path("title").asString()).isEqualTo("配信タイトル");
+            assertThat(embed.path("url").asString()).isEqualTo("https://www.youtube.com/watch?v=video001");
+            assertThat(embed.path("author").path("name").asString()).isEqualTo("テストチャンネル");
         }
 
         @Test
@@ -134,8 +135,8 @@ class DiscordNotifierTest {
 
             ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
             verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
-            JSONObject embed = new JSONObject(requestBody(captor.getValue())).getJSONArray("embeds").getJSONObject(0);
-            assertThat(embed.getString("url")).isEqualTo("https://www.twitch.tv/testuser");
+            JsonNode embed = JsonMapper.shared().readTree(requestBody(captor.getValue())).path("embeds").path(0);
+            assertThat(embed.path("url").asString()).isEqualTo("https://www.twitch.tv/testuser");
         }
 
         @Test
@@ -157,8 +158,8 @@ class DiscordNotifierTest {
 
             ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
             verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
-            JSONObject embed = new JSONObject(requestBody(captor.getValue())).getJSONArray("embeds").getJSONObject(0);
-            assertThat(embed.getJSONObject("image").getString("url")).isEqualTo("https://example.com/thumb.jpg");
+            JsonNode embed = JsonMapper.shared().readTree(requestBody(captor.getValue())).path("embeds").path(0);
+            assertThat(embed.path("image").path("url").asString()).isEqualTo("https://example.com/thumb.jpg");
         }
 
         @Test
@@ -179,7 +180,7 @@ class DiscordNotifierTest {
 
             ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
             verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
-            JSONObject embed = new JSONObject(requestBody(captor.getValue())).getJSONArray("embeds").getJSONObject(0);
+            JsonNode embed = JsonMapper.shared().readTree(requestBody(captor.getValue())).path("embeds").path(0);
             assertThat(embed.has("image")).isFalse();
         }
 
