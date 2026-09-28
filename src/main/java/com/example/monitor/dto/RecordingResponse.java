@@ -23,6 +23,10 @@ import java.time.LocalDateTime;
  * @param channelUrl     チャンネルページの URL。配信元ごとに形が違う（Twitch はログイン名から作る）ため
  *                       サーバーで組み立てる。未登録、または Twitch でログイン名が無ければ {@code null}
  * @param videoId        配信の動画 ID
+ * @param videoUrl       配信の視聴ページの URL（再生画面の「元の配信」のリンク先）。YouTube の録画だけ動画 ID から組み立てる。
+ *                       Twitch の録画の動画 ID は配信 ID で視聴ページを作れず、未登録チャンネルの録画は配信元が分からないため、
+ *                       どちらも {@code null}（画面は動画 ID を文字で出す）。ID の形から配信元を推測しないのは、
+ *                       Twitch の配信 ID（数字だけ）や VOD ID（v＋数字）が 11 文字だと YouTube の動画 ID と見分けられないため
  * @param videoTitle     録画開始時点での配信タイトル
  * @param genre          タイトルの最初の {@code 【】} の中身。無ければ {@code null}
  * @param filePath       録画ファイルの保存先パス（{@code monitor.recording.directory}からの相対パス）。
@@ -45,6 +49,7 @@ public record RecordingResponse(
         String channelName,
         String channelUrl,
         String videoId,
+        String videoUrl,
         String videoTitle,
         String genre,
         String filePath,
@@ -106,6 +111,7 @@ public record RecordingResponse(
                 channel == null ? null : StreamLinkUtils.channelUrl(
                         channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
                 recording.getVideoId(),
+                channel == null ? null : StreamLinkUtils.videoUrl(channel.getPlatform(), recording.getVideoId(), null),
                 recording.getVideoTitle(),
                 recording.getGenre(),
                 recording.getFilePath(),
