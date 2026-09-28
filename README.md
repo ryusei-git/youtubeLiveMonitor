@@ -447,8 +447,13 @@ CLI も起動時にテーブルを自分の版の形に合わせる（`ddl-auto:
 （`bin/service.sh restart` だけでは今ある jar を再起動するだけで、編集内容は反映されません）。
 
 ```bash
-./gradlew build -x test && bin/service.sh restart
+./gradlew clean build -x test && bin/service.sh restart
 ```
+
+`clean` は、前の名前の jar（`version` を上げる前のものなど）を `build/libs` から
+消すためです（`./gradlew build` は消しません）。jar が 2 個残っていると、`bin/service.sh` は
+古い版を動かさないよう「build/libs に jar が 2 個あります」と出して起動せずに終わります
+（restart なら動いているサービスは止めません）。
 
 静的リソースには `Cache-Control: no-cache` を付けています（`application.yml`）。
 ブラウザは毎回サーバへ問い合わせ、変更が無ければ 304 が返るため、

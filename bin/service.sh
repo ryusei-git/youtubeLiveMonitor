@@ -101,14 +101,24 @@ cmd_start() {
 
 # 見つからないときのエラー文は標準エラーへ出す。restart は jar の有無だけを確かめるために
 # 標準出力を捨てて呼ぶので、標準出力に出すと理由が表示されないまま終わってしまう。
+#
+# jar が 2 個以上あるときも、どれかを選ばずに止める。jar の名前は settings.gradle の rootProject.name と
+# build.gradle の version で決まり、./gradlew build は前の名前の jar を消さない。名前順の先頭を選ぶと、
+# 名前が変わる前の古い jar（settings.gradle が無かったころのディレクトリ名の jar・version を上げる前の jar）を
+# run/ に入れて、古い版のまま「起動完了」になる。いちばん新しい jar を選ぶ（bin/monitor.sh）のでなく
+# 止めるのは、本番へ入れる版を黙って決めず、直し方を示すため（判定は bin/sandbox.sh の cmd_start と同じ）。
+# restart はこの確認を止める前に行うので、ここで止まっても動いているサービスはそのまま残る。
 find_jar() {
-    local jar
-    jar="$(ls build/libs/*.jar 2>/dev/null | head -1)"
-    if [[ -z "$jar" ]]; then
+    local jars=(build/libs/*.jar)
+    if [[ ! -f "${jars[0]}" ]]; then
         echo "エラー: build/libs/*.jar が見つかりません。先に ./gradlew build を実行してください。" >&2
         return 1
     fi
-    echo "$jar"
+    if (( ${#jars[@]} > 1 )); then
+        echo "エラー: build/libs に jar が ${#jars[@]} 個あります（${jars[*]}）。./gradlew clean build でビルドし直してください。" >&2
+        return 1
+    fi
+    echo "${jars[0]}"
 }
 
 install_jar() {

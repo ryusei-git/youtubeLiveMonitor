@@ -6,10 +6,17 @@ description: このプロジェクトの変更を動いているサービスへ�
 # 変更をサービスへ反映する
 
 ```bash
-./gradlew build -x test && bin/service.sh restart
+./gradlew clean build -x test && bin/service.sh restart
 ```
 
 これだけ。**片方だけ実行しない。**
+
+`clean` を付けるのは、前の名前の jar を `build/libs` に残さないため。jar の名前は
+`settings.gradle` の `rootProject.name` と `build.gradle` の `version` で決まり、
+`./gradlew build` は前の名前の jar を消さない。2 個残っていると `bin/service.sh restart` は
+動いているサービスを止めずに「build/libs に jar が 2 個あります」で終わり、下の「確認」の
+`cmp` も引数が 3 つになって使えない。稼働中のプロセスは `run/youtubeLiveMonitor.jar` の
+コピーで動いているので、`clean` で `build/libs` を消しても壊れない。
 
 ## 片方だけでは反映されない（どちらも実際に発生した）
 
@@ -35,3 +42,9 @@ cmp build/libs/*.jar run/youtubeLiveMonitor.jar && echo "最新のビルドで�
 ## テストも通したいとき
 
 `-x test` を外す。ただし完了報告の前なら `verify` スキルを使うこと。
+
+## 止まったとき
+
+- `bin/service.sh restart` が「build/libs に jar が 2 個あります」で止まる → 名前の違う
+  古い jar が残っている（サービスは止まっていない）。
+  `./gradlew clean build -x test && bin/service.sh restart` でやり直す
