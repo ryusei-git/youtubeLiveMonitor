@@ -151,6 +151,9 @@ function myDockInit() {
  * @property {(root: HTMLElement, match: RegExpMatchArray, params: URLSearchParams) => unknown} render
  *   main#view に中身を描く。読み込みを待った後は、描いた要素がまだページにあるときだけ結果を反映する
  *   （待つ間に別の画面へ移っていると、古い画面の結果が今の画面を上書きするため）
+ *   一覧のように読み込んでから中身を描く画面は、最初の中身を描き終えたら解決する Promise を返す。「戻る」「進む」で開き直したとき、
+ *   ルーターはその解決を待ってからスクロール位置を戻す（待たずに戻すと、中身の無い短いページで先頭付近に止まる）。
+ *   Promise を返さない画面は、今までどおり先頭から出す。読み込みの失敗は画面の中で知らせ、Promise は失敗させずに解決する
  * @property {() => void} [leave] 画面を離れる前の後始末（タイマー・イベント・ドックの大きさ）
  */
 
@@ -247,7 +250,8 @@ let myVideosStopRefresh = null;
  * 中身と動きは管理者の動画一覧（videos.html）と同じもの（common.js の bindOnlineVideoSections）で、API が購読で絞る。
  *
  * 絞り込みは URL（/my/videos?keyword=...&channelId=...）に残す。アーカイブと同じく「戻る」「進む」はルーターが拾って
- * 画面ごと描き直し、描き直した画面が URL から条件を戻す（ルーターは history.state を使わないので pushState でよい）。
+ * 画面ごと描き直し、描き直した画面が URL から条件を戻す（render は Promise を返さないので、「戻る」「進む」でも先頭から出す。
+ * ルーターが history.state に残す値は画面を離れるときに書き直すので、bindOnlineVideoSections が null で書いても困らない）。
  * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直し、離れたら止める（トップと同じ）。
  * @type {MyView}
  */
@@ -339,7 +343,8 @@ function myArchiveRow(r) {
  * 常に付け、状態の絞り込みは置かない。
  *
  * 条件は URL（/my/archive?...）に残す。「戻る」「進む」はルーターが拾って画面ごと描き直し、描き直した画面が
- * URL から条件を戻す。ルーターは history.state を使わないので、URL の書き方は管理画面と同じ（pushState）でよい。
+ * URL から条件を戻す。ページ送り・条件の変更で履歴を積む前には今のスクロール位置を残し（writeUrl）、「戻る」で前のページの
+ * 同じ位置へ戻す。render は一覧を描き終えたら解決する Promise を返す（ルーターがその後で位置を戻す）。
  * @type {MyView}
  */
 const myArchiveView = {
@@ -428,6 +433,16 @@ const myArchiveView = {
             buildRow: myArchiveRow,
             empty: emptyState("該当する録画はありません",
                 "絞り込みを外してお試しください。マイチャンネルで自動録画をオンにすると、条件に合う配信が自動で保存されます"),
+            // ページ送り・条件の変更で履歴を積む前に今の位置を残し、「戻る」で前のページの同じ位置へ戻す。
+            // 読み込み直後の整え（replace）は、今の項目に残した値（位置・from）を消さない
+            writeUrl: (url, replace) => {
+                if (replace) {
+                    history.replaceState(history.state, "", url);
+                } else {
+                    myRememberScroll();
+                    history.pushState(null, "", url);
+                }
+            },
         });
         /**
          * 選択肢を API から足す。失敗しても一覧は出す（その選択肢で絞れないだけで、ほかの条件では探せる。管理画面と同じ）。
@@ -445,7 +460,7 @@ const myArchiveView = {
             }
         };
         // 選択肢が揃ってから URL の条件を戻す（先に戻すと、チャンネル・ジャンルが選択肢に無い値として捨てられる）
-        Promise.all([
+        return Promise.all([
             // 購読しているチャンネルだけだと、一覧に出ている購読外の録画のチャンネルで絞り込めない
             addOptions("channelId", "/api/my/recordings/channels", (ch) => new Option(ch.channelName, String(ch.id))),
             // 件数を添えるのは、選ぶ前にどれだけ当たるか分かるようにするため（管理画面と同じ）
@@ -453,7 +468,7 @@ const myArchiveView = {
         ]).then(() => {
             if (!grid.isConnected) return;
             search.restore();
-            load();
+            return load();
         });
     },
 };
@@ -1282,7 +1297,7 @@ const myChannelsView = {
             .then((/** @type {Array<{name: string, label: string}>} */ options) =>
                 platform.replaceChildren(...options.map((p) => new Option(p.label, p.name))))
             .catch((e) => { if (platform.isConnected) showError(errorMessage(e)); });
-        load();
+        return load();
     },
 };
 
@@ -1675,6 +1690,9 @@ const myRoutes = [
 /** @type {MyView|null} */
 let myCurrentView = null;
 
+/** myRender を呼んだ回数。描き終えるのを待つ間に、別の画面へ移ったかを見分けるため。 */
+let myRenderCount = 0;
+
 /**
  * メニューの今いる画面の項目に印（active）を付け替える。ページを読み込み直さずに画面を移るため、
  * HTML に書いた印では最初に開いた画面にしか合わない。
@@ -1696,11 +1714,19 @@ function myMarkNav(href) {
  * 変わったことが伝わらず、キーボードでは Tab がメニューの続きへ進み、本文のリンクから移ったときは
  * フォーカスしていた要素が消えて body に落ちる（WCAG 2.4.3 / 4.1.3）。
  *
- * @param {{ initial?: boolean }} [options] initial は最初の表示。ページを開いた直後はスキップリンクから
- *   始められるよう、フォーカスを動かさない
+ * 「戻る」「進む」（restoreScroll）のときは、画面を離れるときに myRememberScroll が残した位置へ戻す。一覧は読み込んでから
+ * 描くので、画面の render が返した Promise が解決した後で戻す（Promise を返さない画面は戻さず、先頭から出す）。
+ * 待つ間に別の画面へ移った・利用者が自分でスクロールした（位置が 0 でなくなった）ときは動かさない。
+ *
+ * @param {{ initial?: boolean, restoreScroll?: boolean }} [options] initial は最初の表示。ページを開いた直後はスキップリンクから
+ *   始められるよう、フォーカスを動かさない。restoreScroll は「戻る」「進む」で、history.state の scrollY へ戻す
  */
-function myRender({ initial = false } = {}) {
+function myRender({ initial = false, restoreScroll = false } = {}) {
     myCurrentView?.leave?.();
+    const renderId = ++myRenderCount;
+    // 描く画面が history.state を書き換えることがある（動画・配信の URL の整えは null で置き換える）ので、描く前に読んでおく
+    /** @type {unknown} */
+    const savedY = restoreScroll ? history.state?.scrollY : undefined;
     const params = new URLSearchParams(location.search);
     for (const [pattern, view] of myRoutes) {
         const match = location.pathname.match(pattern);
@@ -1711,7 +1737,14 @@ function myRender({ initial = false } = {}) {
         root.replaceChildren();
         window.scrollTo(0, 0);
         myMarkNav(view.nav);
-        view.render(root, match, params);
+        const drawn = view.render(root, match, params);
+        // Promise を返さない画面（トップ・動画・配信・設定）は中身を読み込む前の短いページなので、戻すと途中の位置で止まる。
+        // 今までどおり先頭から出す
+        if (drawn instanceof Promise && typeof savedY === "number" && savedY > 0) {
+            drawn.then(() => {
+                if (renderId === myRenderCount && window.scrollY === 0) window.scrollTo(0, savedY);
+            }, () => {});
+        }
         if (!initial) {
             // 見出しへ移すと画面名が読み上げられる。見出しの無い画面は描き替え先（tabindex=-1 付き）へ
             const heading = root.querySelector("h1");
@@ -1721,6 +1754,36 @@ function myRender({ initial = false } = {}) {
         }
         return;
     }
+}
+
+/**
+ * 今の画面のスクロール位置を、今の履歴の項目（history.state）に残す。別の画面・別の条件へ移る直前に呼ぶ。
+ * 「戻る」「進む」で戻ったとき、myRender が描き終えた後でこの位置へ戻す。
+ * history.state にはほかの値（移る元の from、検索で足したページの印）も入るので、置き換えずに足す。
+ */
+function myRememberScroll() {
+    history.replaceState({ ...history.state, scrollY: Math.round(window.scrollY) }, "");
+}
+
+/**
+ * このページの中の画面へ移る。リンクの横取りと、検索のフォームの送信が使う。
+ *
+ * 別の URL へ移るときは、今の位置を今の項目に残し（myRememberScroll）、新しい項目には移る元の URL（from）を残す。
+ * 直前の履歴がどの画面かはブラウザからは読めないので、「検索結果に戻る」のようなリンクが、ブラウザの「戻る」と同じ動きを
+ * してよいかを from で見分ける（my-search.js の mySearchWatchView）。
+ * 同じ URL（今いる画面のメニューを押した・同じ条件で検索し直した）は、履歴を積まずに開き直す。残した位置と足したページは
+ * 引き継がない（開き直したのに、前の続きが出ると分かりにくいため）。
+ *
+ * @param {URL} url 移り先
+ */
+function myNavigate(url) {
+    if (url.href === location.href) {
+        history.replaceState({ from: history.state?.from ?? null }, "", url);
+    } else {
+        myRememberScroll();
+        history.pushState({ from: location.pathname + location.search }, "", url);
+    }
+    myRender();
 }
 
 /**
@@ -1747,11 +1810,13 @@ document.addEventListener("click", (event) => {
     // 同じ画面の中の移動（「本文へ移動」など）はブラウザに任せる
     if (url.pathname === location.pathname && url.search === location.search && url.hash) return;
     event.preventDefault();
-    if (url.href !== location.href) history.pushState(null, "", url);
-    myRender();
+    myNavigate(url);
 });
-window.addEventListener("popstate", () => myRender());
+window.addEventListener("popstate", () => myRender({ restoreScroll: true }));
 
+// 「戻る」「進む」の位置はルーターが戻す（myRender）。ブラウザに任せると、中身を読み込む前の短いページで位置を戻そうとして
+// 先頭付近に止まるうえ、ルーターが描き直すときの scrollTo(0, 0) と取り合いになる
+history.scrollRestoration = "manual";
 myDropContinueParam();
 myDockInit();
 myRender({ initial: true });
