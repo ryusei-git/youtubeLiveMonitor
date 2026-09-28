@@ -178,9 +178,9 @@ async function loadServiceStorage() {
  * @typedef {ResourceProcess & {label: string, children: ResourceProcess[]}} RecorderProcess
  * @typedef {object} ResourceSnapshot
  * @property {string} measuredAt
- * @property {{cpuPercent: number|null, cores: number, loadAverage1m: number,
+ * @property {{cpuPercent: number|null, cores: number, loadAverage1m: number|null,
  *   memoryTotalBytes: number, memoryUsedBytes: number, memoryAvailableBytes: number,
- *   swapTotalBytes: number, swapUsedBytes: number, diskPath: string, diskTotalBytes: number, diskFreeBytes: number,
+ *   swapTotalBytes: number, swapUsedBytes: number, diskPath: string, diskTotalBytes: number|null, diskFreeBytes: number|null,
  *   networkReceiveBytesPerSecond: number|null, networkSendBytesPerSecond: number|null}} system
  * @property {{cpuPercent: number|null, memoryBytes: number,
  *   application: {pid: number, cpuPercent: number|null, memoryBytes: number, heapUsedBytes: number, heapMaxBytes: number, threads: number},
@@ -233,20 +233,26 @@ function resourceCard(label, valueHtml, subHtml, warned, usedRatio = null) {
  * @returns {string} 差し込む HTML
  */
 function renderSystemCards(system, warned) {
-    const size = (/** @type {number} */ bytes) => escapeHtml(formatFileSize(bytes));
+    const size = (/** @type {number|null} */ bytes) => escapeHtml(formatFileSize(bytes));
     const rate = (/** @type {number|null} */ bytes) => bytes === null ? "-" : `${size(bytes)}/s`;
+    // 1 分平均負荷は OS が提供しないと null（Windows など）。ここで例外になると loadResources の catch が
+    // リソース欄全体を「取得できませんでした」にしてしまうため、取れない値は項目ごとに "-" で出す
+    const load = system.loadAverage1m === null ? "-" : system.loadAverage1m.toFixed(1);
+    // 保存先の容量を読めなかったとき（null）は、使用率の横棒を出さない（0% や 100% と誤読させない）
+    const diskUsedRatio = system.diskTotalBytes === null || system.diskFreeBytes === null
+        ? null : 1 - system.diskFreeBytes / system.diskTotalBytes;
     const swap = system.swapTotalBytes > 0
         ? resourceCard("スワップ", `${size(system.swapUsedBytes)}<span class="kpiUnit">/ ${size(system.swapTotalBytes)}</span>`,
             "", warned.has("swap"), system.swapUsedBytes / system.swapTotalBytes)
         : resourceCard("スワップ", "なし", "", false);
     return `<div class="kpiGrid resourceGrid">
         ${resourceCard("CPU", escapeHtml(formatPercent(system.cpuPercent)),
-            `${system.cores} コア・負荷 ${system.loadAverage1m.toFixed(1)}`, warned.has("cpu"))}
+            `${system.cores} コア・負荷 ${load}`, warned.has("cpu"))}
         ${resourceCard("メモリ", `${size(system.memoryUsedBytes)}<span class="kpiUnit">/ ${size(system.memoryTotalBytes)}</span>`,
             `空き ${size(system.memoryAvailableBytes)}`, warned.has("memory"), system.memoryUsedBytes / system.memoryTotalBytes)}
         ${swap}
         ${resourceCard("ディスク（録画の保存先）", `${size(system.diskFreeBytes)}<span class="kpiUnit">空き / ${size(system.diskTotalBytes)}</span>`,
-            escapeHtml(system.diskPath), warned.has("disk"), 1 - system.diskFreeBytes / system.diskTotalBytes)}
+            escapeHtml(system.diskPath), warned.has("disk"), diskUsedRatio)}
         ${resourceCard("ネットワーク", `<span class="resourceRate">↓ ${rate(system.networkReceiveBytesPerSecond)}</span>`
             + `<span class="resourceRate">↑ ${rate(system.networkSendBytesPerSecond)}</span>`, "受信・送信", false)}
     </div>`;
