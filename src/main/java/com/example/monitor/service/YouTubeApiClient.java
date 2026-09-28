@@ -8,6 +8,7 @@ import com.example.monitor.util.EpochTimeConverter;
 import com.example.monitor.util.YouTubeWatchUrl;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.ChannelListResponse;
+import com.google.api.services.youtube.model.ChannelSnippet;
 import com.google.api.services.youtube.model.SearchListResponse;
 import com.google.api.services.youtube.model.SearchResult;
 import com.google.api.services.youtube.model.Video;
@@ -36,6 +37,7 @@ import java.util.Optional;
  *   <tr><td>{@link #fetchLiveStreamDetails}</td><td>videos.list</td><td>1</td><td>配信を検知した瞬間だけ</td></tr>
  *   <tr><td>{@link #searchChannelsByName}</td><td>search.list</td><td>100</td><td>管理者が手動で検索したときだけ（{@link YouTubeSearchBudget} で回数を数える）</td></tr>
  *   <tr><td>{@link #resolveHandleToChannelId}</td><td>channels.list</td><td>1</td><td>ハンドル形式のチャンネル登録時だけ</td></tr>
+ *   <tr><td>{@link #fetchChannelTitle}</td><td>channels.list</td><td>1</td><td>表示名を空にした購読で、新しくチャンネルを登録するときだけ</td></tr>
  * </table>
  *
  * <p>失敗のログには例外の本体を渡さず {@link ApiKeyRedactor#describe} の説明だけを書く。
@@ -167,6 +169,42 @@ public class YouTubeApiClient {
 
         } catch (IOException e) {
             log.error("ハンドルの解決に失敗しました: handle={}, reason={}", handle, ApiKeyRedactor.describe(e));
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * チャンネル ID から、YouTube 上のチャンネル名を取る。消費クォータは 1。
+     *
+     * <p>利用者が表示名を空にして購読したとき、チャンネル名が {@code UC...} のままにならないよう、
+     * 新しく登録する時点で 1 回だけ呼ぶ（{@code YouTubeStreamPlatform.fetchChannelTitle}）。巡回からは呼ばない。
+     * ハンドルで入力された場合も、解決後の {@code UC...} で引く（{@link #resolveHandleToChannelId} の戻り値の形を
+     * 変えずに済むため。登録は手動の操作なので、1 回ぶん余分に使っても問題にならない）。
+     *
+     * <p>取れなかったら {@link Optional#empty()} を返し、登録は続けさせる。名前は表示のためだけのものなので、
+     * ここで失敗させると、API キーが無いだけで {@code UC...} 形式の購読までできなくなる。
+     *
+     * @param channelId {@code UC...} 形式のチャンネル ID
+     * @return チャンネル名。見つからない／空／通信に失敗した場合は {@link Optional#empty()}
+     */
+    public Optional<String> fetchChannelTitle(String channelId) {
+        try {
+            ChannelListResponse response = youtube.channels()
+                    .list(List.of("snippet"))
+                    .setId(List.of(channelId))
+                    .execute();
+
+            if (response.getItems() == null || response.getItems().isEmpty()) {
+                log.warn("チャンネル名を取得できませんでした（該当なし）: channel={}", channelId);
+                return Optional.empty();
+            }
+
+            ChannelSnippet snippet = response.getItems().get(0).getSnippet();
+            String title = snippet == null ? null : snippet.getTitle();
+            return title == null || title.isBlank() ? Optional.empty() : Optional.of(title.strip());
+
+        } catch (IOException e) {
+            log.warn("チャンネル名の取得に失敗しました: channel={}, reason={}", channelId, ApiKeyRedactor.describe(e));
             return Optional.empty();
         }
     }

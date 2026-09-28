@@ -162,6 +162,11 @@ public class MonitoredChannelService {
      * <p>入力の正規化は {@code StreamPlatform.normalizeChannelInput()} に任せる。
      * ここで分岐を書くと、プラットフォームが増えるたびに膨らむ。
      *
+     * <p><b>表示名が空なら、プラットフォームの公式な名前を取って使う</b>（{@link StreamPlatform#fetchChannelTitle}）。
+     * 以前は識別子をそのまま名前にしていたため、URL を貼って名前を空のまま追加すると、マイチャンネル・アーカイブ・
+     * 通知履歴・管理画面に {@code UC...} が並び、利用者には直す手段が無かった。取れなければ識別子で代用する
+     * （名前のために購読を失敗させない）。
+     *
      * <p><b>新しく作るときだけ、巡回と同じ問い合わせ（{@link StreamPlatform#detectLiveStream(String)}）で
      * 確かめ、判定できなければ作らない。</b>確かめないと、一般利用者が購読と解除を繰り返すだけで、
      * 存在しないチャンネルを監視対象に際限なく足せた（解除で消えるのは購読の行だけで、
@@ -181,7 +186,7 @@ public class MonitoredChannelService {
      *
      * @param platform     プラットフォーム
      * @param channelInput 利用者の入力（チャンネル ID・ハンドル・ログイン名・URL）
-     * @param channelName  新規登録時に使う表示名。空なら解決後の識別子を使う
+     * @param channelName  新規登録時に使う表示名。空なら公式な名前を取り、それも取れなければ解決後の識別子を使う
      * @return 既存または新規の監視対象
      * @throws IllegalArgumentException 入力に該当するチャンネルが見つからない場合、または新しく作るチャンネルの配信状態を判定できなかった場合
      */
@@ -197,8 +202,11 @@ public class MonitoredChannelService {
                                 + platform.displayName() + " に確かめられませんでした（" + resolvedChannelId
                                 + "）。URL を確かめて、時間をおいてもう一度試してください");
                     }
+                    // 公式名を取るのは新しく作るときだけ（既存のチャンネルなら名前をそもそも使わない）。
+                    // 存在の確認の後に取るのは、存在しないチャンネルのためにクォータを使わないため
                     String name = channelName == null || channelName.isBlank()
-                            ? resolvedChannelId : channelName;
+                            ? streamPlatform.fetchChannelTitle(resolvedChannelId).orElse(resolvedChannelId)
+                            : channelName;
                     MonitoredChannel saved = monitoredChannelRepository.save(
                             new MonitoredChannel(platform, resolvedChannelId, name, false, null));
                     log.info("購読により監視対象へ追加しました: platform={}, name={}, channel={}",

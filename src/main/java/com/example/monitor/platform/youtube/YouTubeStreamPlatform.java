@@ -23,7 +23,7 @@ import java.util.Optional;
  * 切り分けられなくなるため。実際の処理は次の3クラスが持っている。
  * <ul>
  *   <li>{@link LiveStreamDetector} … {@code /channel/{id}/live} の HTML 解析（クォータ消費なし）</li>
- *   <li>{@link YouTubeApiClient} … 通知本文に使う詳細の取得（クォータ 1）</li>
+ *   <li>{@link YouTubeApiClient} … 通知本文に使う詳細の取得と、登録時の公式なチャンネル名の取得（どちらもクォータ 1）</li>
  *   <li>{@link YouTubeChannelInputParser} … URL・ハンドルからチャンネル ID の取り出し</li>
  * </ul>
  *
@@ -109,6 +109,21 @@ public class YouTubeStreamPlatform extends AbstractStreamPlatform {
     @Override
     public Optional<String> resolveChannelId(VideoSource source) {
         return Optional.ofNullable(source.channelId());
+    }
+
+    /**
+     * 公式のチャンネル名を取る（クォータ 1）。
+     *
+     * <p>表示名を空にした購読で、新しくチャンネルを登録するときだけ呼ばれる。
+     * 失敗は {@link YouTubeApiClient#fetchChannelTitle} が {@link Optional#empty()} に丸めるので、
+     * API キーが無くても登録は続く（名前は識別子で代用される）。
+     *
+     * @param channelId {@code UC...} 形式のチャンネル ID
+     * @return チャンネル名。取れなければ {@link Optional#empty()}
+     */
+    @Override
+    public Optional<String> fetchChannelTitle(String channelId) {
+        return youTubeApiClient.fetchChannelTitle(channelId);
     }
 
     @Override
