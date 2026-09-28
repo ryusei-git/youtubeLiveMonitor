@@ -1519,12 +1519,15 @@ let myDownloadStopPolling = null;
  * 一覧を読めなかったときもやめる（エラーのまま 5 秒ごとに問い合わせ続けないため）。
  * 一覧は aria-live="polite" にして、取得が終わったことを読み上げさせる（前は role="status" の欄に「受け取れます」を
  * 書いて読み上げていた。一覧は中身が変わったときだけ描き直すので、5 秒ごとに読み上げが繰り返されることはない）。
+ *
+ * 検索の視聴画面の「端末に保存」は、URL の url と destination を付けてこの画面を開く。入力欄と保存先に入れるだけで、送らない
+ * （保存先を確かめてから利用者に押してもらう。サービスに保存は全員のアーカイブに入るため）。
  * @type {MyView}
  */
 const myDownloadView = {
     title: "動画ダウンロード",
     nav: "/my/download",
-    render(root) {
+    render(root, _match, params) {
         root.innerHTML = `<h1>動画ダウンロード</h1>
             <p class="pageDescription">YouTube・Twitch の動画の URL を入れて、保存先を選んでください。配信中・配信前の URL はダウンロードできません（配信は自動録画を使ってください）。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
@@ -1545,6 +1548,14 @@ const myDownloadView = {
         const url = inputEl("downloadUrl");
         const status = el("downloadStatus");
         const button = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
+
+        // 検索の視聴画面から来たときの URL と保存先。URL は innerHTML に埋めず value に入れる（URL に書かれた HTML が効かないように）
+        url.value = params.get("url") ?? "";
+        const requestedDestination = params.get("destination");
+        if (requestedDestination === "service" || requestedDestination === "device") {
+            /** @type {HTMLInputElement} */ (query(`input[name=destination][value=${requestedDestination}]`, form)).checked = true;
+        }
+
         const jobList = el("deviceJobs");
         /** 最後に描いた一覧の HTML。同じなら描き直さない（描き直すと、一覧のリンクに当てたフォーカスが 5 秒ごとに外れる） */
         let shownHtml = "";

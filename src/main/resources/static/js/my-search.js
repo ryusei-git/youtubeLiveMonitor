@@ -499,14 +499,33 @@ const mySearchView = {
 };
 
 /**
- * 説明を HTML にする。エスケープしてから URL だけをリンクにする（先にリンクを作ると、説明に書かれた HTML が効いてしまう）。
+ * 説明を HTML にする。URL の部分だけをリンクにし、URL もそれ以外もエスケープしてから出す（エスケープせずにつなぐと、説明に書かれた HTML が効いてしまう）。
+ *
+ * URL として拾うのは、URL に使える ASCII の文字だけにする。日本語の説明では「（https://x.com/foo）」「https://example.com。」のように、
+ * URL の直後に空白を置かずに全角の記号や文字が続くことが多い。空白までをすべて URL とみなすと、全角の記号まで href に入り、開くと 404 になる。
+ * 末尾の . , : ; ! ? ' * は文の区切りであることが多いので URL から外す。末尾の ) は、URL の中に対応する ( が無いときだけ外す
+ * （「(https://example.com/a)」の ) は外し、「https://ja.wikipedia.org/wiki/Foo_(bar)」の ) は残す）。
+ * 日本語を含む URL は、日本語の手前までをリンクにする（ブラウザのアドレス欄からコピーした URL は % の形になっているため、実際には少ない）。
  *
  * @param {string|null} text 説明
  * @returns {string} 差し込む HTML
  */
 function mySearchLinkify(text) {
-    return escapeHtml(text).replace(/https?:\/\/[^\s<]+/g,
-        (url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+    const source = text ?? "";
+    let html = "";
+    let last = 0;
+    for (const match of source.matchAll(/https?:\/\/[A-Za-z0-9\-._~:\/?#@!$&'()*+,;=%]+/g)) {
+        // 外した末尾の記号は、URL の後ろの文として出す
+        let url = match[0].replace(/[.,:;!?'*]+$/, "");
+        while (url.endsWith(")") && url.split("(").length < url.split(")").length) {
+            url = url.slice(0, -1).replace(/[.,:;!?'*]+$/, "");
+        }
+        const index = /** @type {number} */ (match.index);
+        const escapedUrl = escapeHtml(url);
+        html += `${escapeHtml(source.slice(last, index))}<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">${escapedUrl}</a>`;
+        last = index + url.length;
+    }
+    return html + escapeHtml(source.slice(last));
 }
 
 /**
@@ -521,6 +540,10 @@ const mySearchWatchView = {
     // 検索から開く画面なので、検索の中にいるものとして示す
     nav: "/my/search",
     async render(root, match) {
+        // ミニプレーヤーで録画を流したまま開くと、埋め込みの再生と音が重なる。埋め込みの中で再生を押したことはこのページから
+        // 見えないので、開いた時点で止める（埋め込みの再生ダイアログを開いたときと同じ。my-app.js の myPauseDockOnVideoDialog）。
+        // 自動再生はしないので、開いただけでは音は出ない。録画の続きは、ミニプレーヤーの ▶ で利用者が再開できる
+        myDockVideo().pause();
         const videoId = match[1];
         let back = "/my/search";
         try { back = sessionStorage.getItem(MY_SEARCH_LAST_URL_KEY) || back; } catch { /* 検索画面の最初へ戻す */ }
