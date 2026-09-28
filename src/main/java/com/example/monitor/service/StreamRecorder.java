@@ -7,8 +7,10 @@ import com.example.monitor.notification.DiscordNotifier;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.DiskSpaceUtils;
+import com.example.monitor.util.FileNameUtils;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.RecordingActivity;
+import com.example.monitor.util.RequestContext;
 import com.example.monitor.util.YtDlpFormatSelector;
 import com.example.monitor.util.YtDlpJsRuntime;
 import com.example.monitor.util.YtDlpLogFile;
@@ -26,6 +28,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -59,6 +63,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>出力が止まったまま終わらない yt-dlp は {@link #awaitExit} が子孫ごと止め、既存の救済・記録へ流す
  * （止めないと {@code RECORDING} が残り続け、その動画 ID は {@link ActiveVideoJobs} に押さえられたまま録り直せない）。
  * 再起動後に残った yt-dlp（追跡する仮想スレッドが無いもの）は対象外。実際に固まった例が出てから作る。
+ *
+ * <p>管理画面から止めた録画（{@link #stopRecording(Long)}）も同じく子孫ごと止め、録り直さずに救済・記録へ流す。
+ * こちらは再起動後に残った yt-dlp も OS から探して止める（記録は {@link RecordingReconciler} が補正する）。
  *
  * <p><b>録画中に空き容量が {@link DiskSpaceUtils#reserveBytes(long)}（録画を始めるしきい値の 1/4）を割ったら、
  * {@link #awaitExit} が録画プロセスを止めて既存の救済・記録へ流す。</b>0 まで減ると録画が壊れるだけでなく、
@@ -138,6 +145,19 @@ public class StreamRecorder {
     private final AtomicBoolean lowDiskAlerted = new AtomicBoolean(false);
 
     /**
+     * 管理画面から止めた録画の動画 ID。{@code awaitCompletion} は、ここにある録画を「今の時点から」録り直さない。
+     *
+     * <p><b>印が要る理由。</b>止めた yt-dlp が再生できるファイルを残さないと、{@code awaitCompletion} は
+     * 「最初からの録画に失敗した」と見て {@code fallbackCommand} で録り直し、止めたはずの配信を録り続ける
+     * （固まった・空き容量で止めたときに {@code ExitResult.stoppedByUs} で録り直しを避けているのと同じ理由）。
+     * 印はプロセスを止める<b>前</b>に付ける。止めた後に付けると、その隙に録り直しが始まりうる。
+     *
+     * <p>{@code awaitCompletion} の終わりで外す。手動ダウンロード（{@link VideoDownloadService}）を止めたときは
+     * 外す者がいないが、同じ動画 ID の録画を始めるとき（{@link #startRecording}）に外すので、新しい録画には効かない。
+     */
+    private final Set<String> stopRequested = ConcurrentHashMap.newKeySet();
+
+    /**
      * 録画を始められない（yt-dlp を起動できない・録画フォルダを作れない）ことを管理者へ知らせ済みか。
      *
      * <p>{@code false} を返すと呼び出し元は次の巡回で再び試みるので、直らない限り 2 分ごとに失敗する。
@@ -194,6 +214,16 @@ public class StreamRecorder {
     private record ExitResult(Integer exitCode, boolean stoppedByUs) {
     }
 
+    /** 管理画面からの停止（{@link #stopRecording(Long)}）を受け付けた結果。 */
+    public enum StopOutcome {
+        /** 止め始めた。止め終わるまで最大 30 秒かかり、結果は録画一覧の状態で分かる。 */
+        STOPPING,
+        /** 録画中（{@code RECORDING}）ではない。 */
+        NOT_RECORDING,
+        /** 録画中の記録だが、止める yt-dlp が無く、このアプリも追跡していない（既に終わり、後始末を待っている）。 */
+        NO_PROCESS
+    }
+
     /**
      * 配信の録画を開始する。既にこの動画IDを録画中であれば何もせず成功として扱う。
      *
@@ -244,6 +274,8 @@ public class StreamRecorder {
             log.debug("既に録画中またはダウンロード中のためスキップします: video={}", videoId);
             return true;
         }
+        // 前に同じ動画 ID を止めた印が残っていても（手動ダウンロードを止めた場合など）、これから始める録画には効かせない
+        stopRequested.remove(videoId);
 
         boolean started = false;
         try {
@@ -343,6 +375,68 @@ public class StreamRecorder {
     }
 
     /**
+     * 管理画面の操作で、録画中の録画を止める。止めた録画は「今の時点から」録り直さず、
+     * そこまでを再生できる形にして {@code PARTIAL}（再生できるものが無ければ {@code FAILED}）で残す。
+     *
+     * <p><b>録画履歴は消さない。</b>止める手段がチャンネルの削除しか無かったときは、録画履歴・通知履歴まで
+     * 連鎖削除で消えた。24 時間配信や、誤ってフィルターに掛かった配信を、そこまでの録画を残したまま止めるための操作。
+     *
+     * <p><b>止める yt-dlp は OS から探す</b>（{@link ProcessLauncher#findYtDlpProcessesWithCommandLineContaining(String)}）。
+     * 再起動で追跡を失った録画も止めるため（{@link MonitoredChannelService#remove(Long)} と同じ）。
+     * 探す文字列は動画 ID ではなく出力先（{@code <チャンネルID>/<動画ID>.%(ext)s}）にする。動画 ID だけだと、
+     * 利用者が同じ動画を端末保存している yt-dlp（{@link DeviceDownloadService}。出力先は一時フォルダ）まで止めてしまうため。
+     *
+     * <p>止める処理は、SIGKILL へ切り替えるまで最大 30 秒待つため、仮想スレッドで行い HTTP の応答を待たせない。
+     * 追跡中の録画は、プロセスが終わると {@code awaitCompletion} が救済・記録する。追跡していない録画は
+     * {@link RecordingReconciler} が次の後始末で記録する。{@code lastRecordedVideoId} は録画の開始時に更新済みなので、
+     * 次の巡回で同じ配信を録り始めることもない。
+     *
+     * @param recordingId 録画履歴の主キー
+     * @return 受け付けた結果
+     * @throws com.example.monitor.exception.RecordingNotFoundException 指定 ID の録画履歴が存在しない場合（404）
+     */
+    public StopOutcome stopRecording(Long recordingId) {
+        Recording recording = recordingHistoryService.findById(recordingId);
+        if (recording.getStatus() != Recording.RecordingStatus.RECORDING) {
+            log.warn("録画中ではないため止めません: recording={}, status={}", recordingId, recording.getStatus());
+            return StopOutcome.NOT_RECORDING;
+        }
+        String videoId = recording.getVideoId();
+        boolean tracked = isRecording(videoId);
+        if (tracked) {
+            // プロセスを止める前に付ける（stopRequested の JavaDoc 参照）
+            stopRequested.add(videoId);
+        }
+        String outputFragment = FileNameUtils.stripExtension(recording.getFilePath(), ".mp4") + ".%(ext)s";
+        List<ProcessHandle> handles = processLauncher.findYtDlpProcessesWithCommandLineContaining(outputFragment);
+        if (handles.isEmpty() && !tracked) {
+            log.warn("止める録画プロセスが見つかりませんでした: recording={}, video={}", recordingId, videoId);
+            return StopOutcome.NO_PROCESS;
+        }
+        log.info("管理画面の操作で録画を止めます: recording={}, video={}, 操作者={}, pid={}",
+                recordingId, videoId, RequestContext.currentUsername(),
+                handles.stream().map(ProcessHandle::pid).toList());
+        Thread.ofVirtual().name("stop-recording-" + videoId).start(() -> terminateForStop(videoId, handles));
+        return StopOutcome.STOPPING;
+    }
+
+    /**
+     * {@link #stopRecording(Long)} が探した yt-dlp を子孫ごと止める。
+     *
+     * @param videoId 止める録画の動画 ID（ログ用）
+     * @param handles 止める yt-dlp
+     */
+    private void terminateForStop(String videoId, List<ProcessHandle> handles) {
+        for (ProcessHandle handle : handles) {
+            if (ProcessTermination.terminateTreeAndAwait(handle, Duration.ofSeconds(30))) {
+                // アプリの停止などで割り込まれた。残りには SIGKILL を送り済み
+                return;
+            }
+            log.info("管理画面の操作で録画プロセスを止めました: video={}, pid={}", videoId, handle.pid());
+        }
+    }
+
+    /**
      * {@code yt-dlp} に渡すコマンドを組み立てる。
      *
      * <p>{@code --live-from-start} により、対応していれば配信の実際の開始時点から録画する
@@ -401,6 +495,7 @@ public class StreamRecorder {
      * 途中で {@code FAILED} にしたり予約を外したりすると、録り直し中の配信を
      * 次の巡回が二重に録画したり、{@link RecordingReconciler} が置き去りと誤判定したりするため。
      * 待機が中断された（アプリ停止など）場合は録り直さない。
+     * 管理画面から止めた録画（{@link #stopRecording(Long)}）も録り直さない。
      * 空きが足りずに詰め替えを見送ったとき（{@link SalvageStatus#INSUFFICIENT_SPACE}）も録り直さない
      * （データは残っており、空きができた後の後始末で直せる。録り直すとさらに書き込む）。
      *
@@ -452,7 +547,9 @@ public class StreamRecorder {
             // こちらから止めたとき（固まった・空き容量の下限を割った）は録り直さない。配信が終わっていれば
             // 「今の時点から」は失敗するか、終わった配信のアーカイブ全体を落とし始める。配信中でも同じ止まり方を繰り返しうる。
             // 空きが足りずに詰め替えを見送ったときも録り直さない（データは残っており、録り直すとさらに書き込む）
-            if (!salvage.isPlayable() && fallbackCommand != null && !exit.stoppedByUs()
+            // 管理画面から止めたときも録り直さない（録り直すと、止めたはずの配信を録り続ける）
+            boolean stoppedByAdmin = stopRequested.contains(videoId);
+            if (!salvage.isPlayable() && fallbackCommand != null && !exit.stoppedByUs() && !stoppedByAdmin
                     && salvage.status() != SalvageStatus.INSUFFICIENT_SPACE
                     && !Thread.currentThread().isInterrupted()) {
                 log.warn("最初からの録画に失敗したため、今の時点から録画し直します: channel={}, video={}, exitCode={}",
@@ -483,6 +580,7 @@ public class StreamRecorder {
             // 結果を記録し終えてから追跡を外す。順序を逆にすると、その隙に
             // RecordingReconciler が「追跡されていないのに RECORDING のまま＝置き去り」と
             // 誤判定してしまう
+            stopRequested.remove(videoId);
             activeVideoJobs.release(videoId);
             if (mdcChannelId != null) {
                 MDC.remove(MDC_CHANNEL_ID_KEY);
