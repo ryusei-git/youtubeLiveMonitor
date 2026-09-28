@@ -415,7 +415,8 @@ Range リクエスト対応とパストラバーサル対策を最初から持�
 
 `collapsibleCell`（長い値の折りたたみ）、`formatFileSize`、`datetimeCell`/`bindDatetimeCells`
 （日時の簡潔表示とクリックでの精密表示切り替え）、`toggleChannelIdReveal`
-（チャンネル名クリックでのID表示切り替え）、`videoLink`/`channelLink`（YouTube への外部リンク化）
+（チャンネル名クリックでのID表示切り替え）、`externalLink`/`channelLink`（サーバーが組み立てた
+URL での外部リンク化。動画 ID の形から URL を推測しない）
 は複数画面で使うため `common.js` に置いている。
 新しい画面を作るときも、同じ表示パターン（長い値・日時・チャンネルID）が必要になったら
 個別実装せずこれらを再利用すること。

@@ -95,11 +95,13 @@
             tbody.innerHTML = "";
             for (const h of data.content) {
                 const tr = document.createElement("tr");
+                // 「動画」列は、サーバーが組み立てた URL だけをリンクにする（動画 ID から URL を推測しない）。
+                // Twitch の通知は URL が null で、動画 ID を文字で出す
                 tr.innerHTML = `
                     <td>${datetimeCell(h.notifiedAt)}</td>
                     <td>${channelLink(h.channelName, h.channelUrl)}</td>
                     <td>${collapsibleCell(h.videoTitle)}</td>
-                    <td>${videoLink(h.videoId)}</td>
+                    <td>${externalLink(h.videoId, h.videoUrl)}</td>
                     <td>${h.status === "SUCCESS" ? "成功" : '<span class="error">失敗</span>'}</td>
                     <td>${collapsibleCell(h.errorMessage)}</td>
                 `;

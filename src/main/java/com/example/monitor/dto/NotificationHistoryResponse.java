@@ -18,7 +18,13 @@ import java.time.LocalDateTime;
  * @param channelUrl       チャンネルページの URL。配信元ごとに形が違う（Twitch はログイン名から作る）ため
  *                         サーバーで組み立てる。Twitch でログイン名が無ければ {@code null}
  * @param videoId          配信の動画 ID
- * @param videoTitle       通知時点での配信タイトル
+ * @param videoUrl         配信の視聴ページの URL（画面の「動画」列のリンク先）。YouTube の通知だけ
+ *                         動画 ID から組み立てる。Twitch の動画 ID は配信 ID で、視聴ページを
+ *                         作れないため {@code null}（画面は動画 ID を文字で出す）。ID の形から
+ *                         配信元を推測しないのは、Twitch の配信 ID（数字だけ）が 11 文字だと
+ *                         YouTube の動画 ID と見分けられないため。URL を履歴に保存せず、返すたびに
+ *                         組み立てるのは、列を足さずに保存済みの履歴にも同じ決まりを効かせるため
+ * @param videoTitle      通知時点での配信タイトル
  * @param status           送信結果（{@code SUCCESS} または {@code FAILED}）
  * @param errorMessage     失敗理由。成功時は {@code null}
  * @param notifiedAt       送信を試みた時刻
@@ -29,6 +35,7 @@ public record NotificationHistoryResponse(
         String channelName,
         String channelUrl,
         String videoId,
+        String videoUrl,
         String videoTitle,
         String status,
         String errorMessage,
@@ -50,6 +57,7 @@ public record NotificationHistoryResponse(
                 StreamLinkUtils.channelUrl(
                         channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
                 history.getVideoId(),
+                StreamLinkUtils.videoUrl(channel.getPlatform(), history.getVideoId(), null),
                 history.getVideoTitle(),
                 history.getStatus().name(),
                 history.getErrorMessage(),

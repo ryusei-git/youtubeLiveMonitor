@@ -505,24 +505,6 @@ function applyTableSort(table) {
 }
 
 /**
- * 動画IDを YouTube の視聴ページへのリンクにする。
- * IDをコピーしてURLを手で組み立てる手間をなくすため、一覧のどこでも同じ形で使えるようにしている。
- *
- * YouTube の動画 ID 専用。Twitch の配信 ID を渡しても YouTube の URL を作ってしまう（ID の形からは配信元を見分けられない）。
- * 新しく使わず、サーバーが組み立てた URL を externalLink に渡すこと（録画は Recording の videoUrl）。
- * 残っている呼び出しは通知履歴だけで、そちらもサーバーから URL を返す形に直したら、この関数を消す。
- *
- * @param {string|null} videoId 動画ID。未設定なら "-" を返す
- * @returns {string} セルへ差し込む HTML
- */
-function videoLink(videoId) {
-    if (!videoId) return "-";
-    const safe = escapeHtml(videoId);
-    // 別タブで開く。rel は別タブ側から開き元を操作されないようにするための定番の指定
-    return `<a href="https://www.youtube.com/watch?v=${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>`;
-}
-
-/**
  * チャンネル名をチャンネルページへのリンクにする。
  *
  * URL は配信元ごとに形が違う（Twitch はログイン名から作る）ため、サーバーが組み立てた
