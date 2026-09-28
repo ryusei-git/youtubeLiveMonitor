@@ -1,6 +1,5 @@
 package com.example.monitor.service;
 
-import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
@@ -10,13 +9,11 @@ import com.example.monitor.exception.ChannelNotFoundException;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
-import com.example.monitor.repository.AppUserRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.repository.UserSubscriptionRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import com.example.monitor.util.ProcessTermination;
-import com.example.monitor.util.RequestContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -41,7 +38,6 @@ public class MonitoredChannelService {
     private final MonitoredChannelRepository monitoredChannelRepository;
     private final StreamPlatformRegistry streamPlatformRegistry;
     private final ChannelLogReader channelLogReader;
-    private final AppUserRepository appUserRepository;
     private final AuditLogger auditLogger;
     private final RecordingRepository recordingRepository;
     private final UserSubscriptionRepository userSubscriptionRepository;
@@ -280,22 +276,18 @@ public class MonitoredChannelService {
     }
 
     /**
-     * 操作者を解決してチャンネル関連の監査ログへ記録する。
+     * チャンネル関連の操作を監査ログへ記録する。
      *
-     * <p>このクラスは CLI からも呼ばれ、CLI にはログインの概念が無いため
-     * {@link RequestContext#currentUsername()} は {@code null} を返す。
-     * その場合は利用者情報を空欄のまま記録する（{@link InvitationService} の
-     * 招待受け入れ記録と同じ考え方）。
+     * <p>操作者と操作元の IP は {@link AuditLogger#recordByCurrentUser} が埋める。このクラスは CLI からも
+     * 呼ばれる。CLI にはログインも HTTP の要求も無いので、そのときは利用者と IP が空欄のまま記録される
+     * （{@link InvitationService} の招待受け入れ記録と同じ考え方）。
      *
      * @param action          操作の種別
      * @param channelRecordId 対象チャンネルの主キー
      * @param detail          補足情報
      */
     private void recordChannelAction(AuditAction action, Long channelRecordId, String detail) {
-        String username = RequestContext.currentUsername();
-        Long userId = username == null ? null
-                : appUserRepository.findByUsername(username).map(AppUser::getId).orElse(null);
-        auditLogger.record(action, AuditOutcome.SUCCESS, userId, username, null,
+        auditLogger.recordByCurrentUser(action, AuditOutcome.SUCCESS,
                 "CHANNEL", String.valueOf(channelRecordId), detail);
     }
 
