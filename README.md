@@ -14,12 +14,12 @@ YouTube と Twitch のライブ配信を監視し、配信開始時に Discord �
 - **CLI**: Picocli
 - **ライブラリ**:
   - google-api-services-youtube（YouTube API クライアント）
-  - discord-webhooks（Discord 通知）
   - jsoup（配信中判定のための HTML 解析）
   - yt-dlp（配信の録画。Java 製で継続的なライブ配信録画に対応するライブラリが存在しないため、
     外部プロセスとして起動している。アプリのソースコード自体は 100% Java）
 - **対応プラットフォーム**: YouTube / Twitch
   （Twitch はクライアントライブラリを使わず、`java.net.http.HttpClient` で Helix API を直接呼んでいる）
+- **Discord 通知**: ライブラリを使わず、`java.net.http.HttpClient` で Webhook へ JSON を POST している
 
 ## 配信を検知する仕組み
 
