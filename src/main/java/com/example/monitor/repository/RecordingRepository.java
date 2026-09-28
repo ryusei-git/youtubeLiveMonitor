@@ -77,6 +77,13 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * チャンネルに紐づかない録画（URL 指定のダウンロード）は {@code c} が {@code null} なので、
      * 購読に限るときは出ない。
      *
+     * <p><b>チャンネルも同時に読み込む（{@code @EntityGraph}）。</b>一覧の詰め替え
+     * （{@link com.example.monitor.dto.RecordingResponse}）はコントローラー、つまりトランザクションの外で
+     * チャンネル名を読むため。{@code spring.jpa.open-in-view} を切っているので、遅延読み込みのままだと
+     * LazyInitializationException になる。上の {@code LEFT JOIN r.channel c} は絞り込みのための結合で、
+     * 読み込みは {@code @EntityGraph} に任せている（{@link OnlineVideoRepository} の検索と同じく、
+     * {@code @Query} とページ指定に {@code @EntityGraph} を併せて使う）。
+     *
      * @param userId    印を見る利用者の主キー。{@code null} なら印は無いものとして扱う
      * @param subscribedOnly {@code userId} の利用者が購読しているチャンネルの録画だけに絞るか
      * @param channelId 絞り込むチャンネルの主キー。{@code null} なら絞り込まない
@@ -89,8 +96,9 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @param favoriteOnly お気に入りだけに絞るか
      * @param playableOnly 再生できる録画（完了・途中まで）だけに絞るか
      * @param pageable  ページ指定と並び順
-     * @return 条件に一致する録画履歴
+     * @return 条件に一致する録画履歴（チャンネル読み込み済み）
      */
+    @EntityGraph(attributePaths = "channel")
     @Query("""
             SELECT r FROM Recording r
              LEFT JOIN r.channel c
@@ -201,6 +209,23 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      */
     @EntityGraph(attributePaths = "channel")
     List<Recording> findWithChannelByStatus(RecordingStatus status);
+
+    /**
+     * 録画履歴を 1 件、チャンネルも同時に読み込んで取得する。
+     *
+     * <p>継承したままではチャンネルが遅延読み込みになるので、{@code @EntityGraph} を付けるためだけに
+     * 宣言し直している。再生画面の 1 件取得（{@code GET /api/recordings/{id}}・{@code GET /api/my/recordings/{id}}）は、
+     * コントローラー（トランザクションの外）で {@link com.example.monitor.dto.RecordingResponse} に詰め替えて
+     * チャンネル名を読む。{@code spring.jpa.open-in-view} を切っているので、遅延読み込みのままだと
+     * LazyInitializationException になる。ほかの呼び出し元（印・耳キス・削除・録画の停止・録画の後始末の補正・CLI）は
+     * チャンネルを読まないが、1 件につき 1 回の結合なので、専用のメソッドには分けていない。
+     *
+     * @param id 録画履歴の主キー
+     * @return 該当する録画履歴（チャンネル読み込み済み）。無ければ空
+     */
+    @Override
+    @EntityGraph(attributePaths = "channel")
+    Optional<Recording> findById(Long id);
 
     /**
      * 指定した状態の録画履歴の件数を数える。
