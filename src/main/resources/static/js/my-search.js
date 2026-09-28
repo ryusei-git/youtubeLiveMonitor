@@ -261,6 +261,8 @@ function mySearchResult(item, subscribed) {
 /**
  * 検索画面。条件は URL（/my/search?...）に残す。「戻る」「進む」はルーターが拾って画面ごと描き直し、描き直した画面が
  * URL から条件を戻して検索し直す（アーカイブと同じ。同じ条件はサーバーが使い回すので回数は使わない。「ライブ中」は 15 分まで）。
+ * 「もっと見る」で足したページの印は history.state に残し、開き直したときに同じところまで足し直す（restorePages。
+ * 1 ページ目のサーバーの使い回しが残っているときだけ）。render はそれを描き終えたら解決する Promise を返す。
  * @type {MyView}
  */
 const mySearchView = {
@@ -403,6 +405,7 @@ const mySearchView = {
          * URL の条件で検索する。読み込み中は検索ボタンを止める。同じ条件の検索が重なると、
          * サーバーの使い回しに入る前に両方が回数を使うため。
          * @param {string|null} pageToken 続きを読むときの印。最初のページは null
+         * @returns {Promise<any|null>} 描いた応答。失敗した・新しい読み込みに追い越された・画面を離れたときは null
          */
         const load = async (pageToken) => {
             const current = ++request;
@@ -412,7 +415,7 @@ const mySearchView = {
             moreButton.disabled = searchButton.disabled = true;
             try {
                 const [data, subscribed] = await Promise.all([apiGet(`/api/my/search?${api}`), subscribedLoad]);
-                if (current !== request || !results.isConnected) return;
+                if (current !== request || !results.isConnected) return null;
                 clearError();
                 if (!pageToken) {
                     results.replaceChildren();
@@ -437,15 +440,58 @@ const mySearchView = {
                 const fetchedLabel = query(".fetchedAt", root);
                 fetchedLabel.textContent = mySearchFetchedLabel(oldestFetchedAt);
                 fetchedLabel.hidden = !fetchedLabel.textContent;
+                return data;
             } catch (e) {
                 // 上限（429）・条件の誤り（400）・API の失敗（503）は、サーバーの文言をそのまま出す
                 if (current === request && results.isConnected) showError(errorMessage(e));
+                return null;
             } finally {
                 if (current === request && results.isConnected) {
                     setBusy(results, false);
                     moreButton.disabled = searchButton.disabled = false;
                 }
             }
+        };
+        /** 「もっと見る」で足したページの印（2 ページ目から順）。 */
+        /** @type {string[]} */
+        const addedTokens = [];
+        /** 1 ページ目を YouTube から取った時刻（応答の fetchedAt。サーバーが使い回したときは、取った元の時刻）。 */
+        /** @type {string|null} */
+        let firstFetchedAt = null;
+        /**
+         * 足したページの印を今の履歴の項目に残す。「戻る」「進む」・再読み込みで開き直したとき、同じところまで足し直すため。
+         * myRememberScroll が残したスクロール位置を消さないよう、history.state に足す。
+         */
+        const rememberPages = () => {
+            history.replaceState({ ...history.state, searchPageTokens: [...addedTokens], searchFetchedAt: firstFetchedAt }, "");
+        };
+        /**
+         * 1 ページ目を読み、前に「もっと見る」で足したページがあれば、同じところまで足し直す。
+         * 足し直すのは、1 ページ目の取得時刻が足したときと同じ（＝サーバーの使い回しがまだ残っている）ときだけ。
+         * 続きのページはその後で取ったものなので、ふつうは使い回しに当たり、検索の回数（1 人 1 日の上限）を使わない。
+         * 使い回しが切れていると、足し直すページごとに回数を使うため、足し直さない。
+         * 続きの印が前と違うとき（結果が変わった）・読めなかったときも、そこで止める。
+         *
+         * @returns {Promise<void>} 描き終えたら解決する（ルーターが「戻る」「進む」のスクロール位置をこの後で戻す）
+         */
+        const restorePages = async () => {
+            /** @type {unknown} */
+            const savedTokens = history.state?.searchPageTokens;
+            const savedFetchedAt = history.state?.searchFetchedAt;
+            /** @type {string[]} */
+            const tokens = Array.isArray(savedTokens) ? savedTokens.filter((t) => typeof t === "string") : [];
+            const first = await load(null);
+            if (!first) return;
+            firstFetchedAt = first.fetchedAt;
+            if (tokens.length === 0) return;
+            if (first.fetchedAt === savedFetchedAt) {
+                for (const token of tokens) {
+                    if (nextPageToken !== token || !await load(token)) break;
+                    addedTokens.push(token);
+                }
+            }
+            // 足し直せなかったページは、次に開き直したときも足し直さない
+            if (addedTokens.length !== tokens.length && results.isConnected) rememberPages();
         };
 
         form.addEventListener("submit", (event) => {
@@ -476,17 +522,23 @@ const mySearchView = {
             for (const [key, value] of Object.entries(range)) {
                 url.searchParams.set(key, value);
             }
-            // 画面ごと描き直す（ルーターと同じ経路）。URL から条件を戻して検索するので、戻る・再読み込みと同じ動きになる
-            history.pushState(null, "", url);
-            myRender();
+            // 画面ごと描き直す（ルーターと同じ経路）。URL から条件を戻して検索するので、戻る・再読み込みと同じ動きになる。
+            // 今の結果の位置を残してから移るので、「戻る」で前の検索結果の同じ位置へ戻れる
+            myNavigate(url);
         });
         form.addEventListener("reset", () => window.setTimeout(syncPeriod));
-        moreButton.addEventListener("click", () => load(nextPageToken));
+        moreButton.addEventListener("click", async () => {
+            const token = nextPageToken;
+            // 足せたページだけを残す（読めなかったページは「戻る」で足し直さない）
+            if (!token || !await load(token)) return;
+            addedTokens.push(token);
+            rememberPages();
+        });
 
         // 視聴画面の「検索結果に戻る」の行き先
         try { sessionStorage.setItem(MY_SEARCH_LAST_URL_KEY, location.pathname + location.search); } catch { /* 残せなくても検索画面へは戻れる */ }
         if (params.get("q") || params.get("channel")) {
-            load(null);
+            return restorePages();
         } else {
             // 検索する前に、今日あと何回探せるかを見せる。失敗しても検索はできるので黙っておく
             apiGet("/api/my/search/quota").then((quota) => {
@@ -547,7 +599,7 @@ const mySearchWatchView = {
         const videoId = match[1];
         let back = "/my/search";
         try { back = sessionStorage.getItem(MY_SEARCH_LAST_URL_KEY) || back; } catch { /* 検索画面の最初へ戻す */ }
-        root.innerHTML = `<p><a href="${escapeHtml(back)}">← 検索結果に戻る</a></p>
+        root.innerHTML = `<p><a class="searchBack" href="${escapeHtml(back)}">← 検索結果に戻る</a></p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <div class="searchPlayer"><iframe src="https://www.youtube-nocookie.com/embed/${videoId}?rel=0&amp;playsinline=1"
               title="YouTube の動画" allow="encrypted-media; fullscreen; picture-in-picture" allowfullscreen
@@ -556,6 +608,16 @@ const mySearchWatchView = {
             <h1>読み込み中...</h1>
             <div class="searchWatchInfo"></div>
             ${mySearchAttribution}`;
+        // 直前の履歴がその検索結果なら、ブラウザの「戻る」と同じにする。リンクとして移ると履歴が 1 つ伸び、その後に
+        // ブラウザの「戻る」を押すと視聴画面へ戻ってしまう。「戻る」で戻れば、結果の位置と「もっと見る」で足したページも戻る。
+        // 直前の履歴がどこかはブラウザからは読めないので、ルーターが移るときに残した from（my-app.js の myNavigate）で見分ける。
+        // 新しいタブで開く操作（修飾キー・左以外のボタン）はリンクのままにする
+        query(".searchBack", root).addEventListener("click", (event) => {
+            if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            if (history.state?.from !== back) return;
+            event.preventDefault();
+            history.back();
+        });
         const heading = query("h1", root);
         const info = query(".searchWatchInfo", root);
         const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
