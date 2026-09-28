@@ -6,6 +6,7 @@ import com.example.monitor.dto.SettingsResponse;
 import com.example.monitor.dto.SettingsUpdateRequest;
 import com.example.monitor.service.EnvironmentSettingsService;
 import com.example.monitor.service.NativeDirectoryPickerService;
+import com.example.monitor.util.DiscordWebhookUrl;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -99,14 +100,26 @@ public class SettingsController {
      *
      * <p>保存できない値は 400、{@code .env} を読めない・書けないときは 500 で、どちらも {@code .env} は変わらない。
      *
+     * <p>Webhook の URL は Discord の Webhook の形（{@link DiscordWebhookUrl#isValid}）でなければ断り、何も保存しない。
+     * 形の誤った URL を保存して再起動すると、全体向けの通知が一切届かなくなるため（以前は起動そのものに失敗していた）。
+     *
      * @param request 変更したい項目
      * @return 本文なしの HTTP 204
+     * @throws IllegalArgumentException Webhook の URL が Discord の Webhook の形でない場合（GlobalExceptionHandler が 400 にする）
      */
     @PutMapping
     public ResponseEntity<Void> updateSettings(@Valid @RequestBody SettingsUpdateRequest request) {
+        String webhookUrl = request.discordWebhookUrl() == null ? null : request.discordWebhookUrl().strip();
+        if (webhookUrl != null && !webhookUrl.isEmpty() && !DiscordWebhookUrl.isValid(webhookUrl)) {
+            // 入力をメッセージに入れない。GlobalExceptionHandler がメッセージをログに残すため、
+            // 打ち間違えた本物の URL（＝秘密）がログに出てしまう
+            throw new IllegalArgumentException("Discord の Webhook の URL"
+                    + "（https://discord.com/api/webhooks/ で始まるもの）を入力してください");
+        }
+
         Map<String, String> updates = new LinkedHashMap<>();
         putIfPresent(updates, KEY_YOUTUBE_API_KEY, request.youtubeApiKey());
-        putIfPresent(updates, KEY_DISCORD_WEBHOOK_URL, request.discordWebhookUrl());
+        putIfPresent(updates, KEY_DISCORD_WEBHOOK_URL, webhookUrl);
         putIfPresent(updates, KEY_TWITCH_CLIENT_ID, request.twitchClientId());
         putIfPresent(updates, KEY_TWITCH_CLIENT_SECRET, request.twitchClientSecret());
         putIfPresent(updates, KEY_RECORDING_DIRECTORY, request.recordingDirectory());
