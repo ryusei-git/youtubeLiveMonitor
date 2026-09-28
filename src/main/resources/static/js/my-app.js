@@ -1739,7 +1739,9 @@ const myDownloadView = {
                 clearError();
                 if (job.status === "READY" && job.fileUrl) {
                     // 既にサービスにある録画。取り直さずに、その録画のファイルをそのまま保存させる
-                    status.innerHTML = `この動画はサービスに保存済みです。受け取れます。<a href="${escapeHtml(job.fileUrl)}" download>端末に保存</a>`;
+                    // download にファイル名を入れないと URL の末尾（動画ID.mp4）で保存される。再生画面の「端末に保存」と同じ名前にする
+                    const fileName = recordingDownloadName({ videoTitle: job.title, videoId: job.videoId });
+                    status.innerHTML = `この動画はサービスに保存済みです。受け取れます。<a href="${escapeHtml(job.fileUrl)}" download="${escapeHtml(fileName)}">端末に保存</a>`;
                     return;
                 }
                 status.textContent = "受け付けました。取得の様子は下の「端末に保存の取得」に出ます。";
