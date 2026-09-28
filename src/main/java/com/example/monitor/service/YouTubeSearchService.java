@@ -61,6 +61,10 @@ import java.util.stream.Stream;
  * （上限の 429 で何も出ないより、取得時刻の付いた古い結果の方が役に立つ）。
  * どちらの場合も、応答の {@code fetchedAt} に取った元の時刻を入れ、画面が「何分前に取ったか」を出す。
  *
+ * <p>{@code search.list} の結果（動画 ID と次のページの印）は、詳細を取り終えるまで別に持つ。
+ * 詳細の取得（{@code videos.list}・{@code channels.list}）だけが失敗したとき、やり直しで回数をもう 1 回使わないため。
+ * 使える時間は検索結果の使い回しと同じ（「ライブ中」は 15 分）。詳細だけを新しくしても、動画の顔ぶれは検索した時点のままのため。
+ *
  * <h2>同じ条件の検索が重なったら、先の読み込みを待つ</h2>
  * 使い回しは結果を入れてから効くので、1 本目の応答が返る前に同じ条件の 2 本目が来ると、両方が外れて回数を 2 回使う
  * （Enter の連打や、戻る・進むで起きる）。そこで鍵ごとに読み込み中の印を置き、後の方は先の読み込みが終わるまで
@@ -70,6 +74,9 @@ import java.util.stream.Stream;
  * <h2>足りないときに次のページを 1 回だけ読む</h2>
  * このサービスの条件で絞ると、50 件が数件になることがある。20 件を下回ったら
  * 次のページを 1 回だけ読む（回数を使う）。何ページも読むと 1 回の操作で回数を使い切るため 1 回まで。
+ * 次のページが読めなかったとき（上限・API の失敗・条件の誤り）は、読めた 1 ページ目だけを返す（回数を使って取ったものを捨てない）。
+ * API の失敗なら次のページの印は 1 ページ目のものを返し（「もっと見る」でやり直せる）、条件の誤り（400 の {@code invalidPageToken} など）なら
+ * 印を返さない（やり直しても同じ失敗で回数を使うだけのため）。
  *
  * <h2>視聴画面の詳細にも回数の上限を設ける</h2>
  * 詳細は検索の回数を使わないが、{@code videos.list} と {@code channels.list} で共有の 10,000 単位を使う。
@@ -124,6 +131,12 @@ public class YouTubeSearchService {
     /** 「公式の条件と pageToken」ごとの検索結果（印は付けていない）。 */
     private final Map<List<String>, Cached<Page>> searchCache = new ConcurrentHashMap<>();
     /**
+     * 「公式の条件と pageToken」ごとの {@code search.list} の結果（動画 ID と次のページの印）のうち、詳細をまだ取れていないもの。
+     * 詳細（{@code videos.list}・{@code channels.list}）の取得だけが失敗したとき、やり直しで {@code search.list} を呼び直して
+     * 検索の回数をもう 1 回使わないようにする（詳細は検索の回数を使わない）。詳細まで取れたら消す。
+     */
+    private final Map<List<String>, Cached<YouTubeSearchClient.SearchPage>> idCache = new ConcurrentHashMap<>();
+    /**
      * 読み込み中の鍵と、その読み込みの終わりを知らせる印。同じ鍵の検索が同時に来たとき、後の方を待たせて使い回しに当てる。
      * 印は成否に関わらず正常に完了させる（失敗を待っていた側に引き継がないため）。
      */
@@ -165,6 +178,15 @@ public class YouTubeSearchService {
             } catch (SearchQuotaExceededException e) {
                 // 続きを読めないだけなので、1 ページ目の結果は返す
                 log.info("検索の上限のため次のページを読みませんでした: user={}", username);
+            } catch (YouTubeApiUnavailableException e) {
+                // 一時的な失敗かもしれない。1 ページ目の続きの印を残し、「もっと見る」でやり直せるようにする
+                log.warn("次のページを読めなかったので、1 ページ目の結果だけを返します: user={}, reason={}",
+                        username, e.getMessage());
+            } catch (IllegalArgumentException e) {
+                // やり直しても同じ失敗で回数を使うだけなので、続きの印を返さない
+                log.warn("次のページを YouTube が受け付けなかったので、1 ページ目の結果だけを返します: user={}, reason={}",
+                        username, e.getMessage());
+                nextPageToken = null;
             }
         }
         return new YouTubeSearchResponse(items, nextPageToken, request.hasServiceFilters(),
@@ -279,16 +301,31 @@ public class YouTubeSearchService {
         return cached != null && cached.isFresh(Instant.now(), searchCacheTtl(request, username)) ? cached.value() : null;
     }
 
-    /** 回数を使って API を呼び、結果を使い回しに入れる。 */
+    /**
+     * 回数を使って API を呼び、結果を使い回しに入れる。前回 {@code search.list} だけが取れていれば、
+     * 回数を使わずに詳細だけを取り直す（理由はクラスの JavaDoc「6 時間の使い回し」）。
+     */
     private Page fetchPage(YouTubeSearchRequest request, String pageToken, String username, List<String> key) {
         Instant now = Instant.now();
         requireApiKey();
-        budget.acquireForUser(username);
-        YouTubeSearchClient.SearchPage found = call(() -> client.searchVideoIds(request, pageToken), true);
-        Page page = new Page(fetchDetails(found.videoIds(), true, false), found.nextPageToken(), now);
+        // search.list の結果が残っていれば（前回は詳細の取得だけが失敗した）、回数を使わずに詳細から取り直す。
+        // 古さは searchCache と同じ時間で測る（「ライブ中」で 15 分を過ぎた ID に今の詳細を付けて、回数の残る人に返さないため）
+        Cached<YouTubeSearchClient.SearchPage> ids = idCache.get(key);
+        if (ids == null || !ids.isFresh(now, searchCacheTtl(request, username))) {
+            budget.acquireForUser(username);
+            YouTubeSearchClient.SearchPage found = call(() -> client.searchVideoIds(request, pageToken), true);
+            ids = new Cached<>(found, now);
+            idCache.values().removeIf(entry -> !entry.isFresh(now, SEARCH_CACHE_TTL));
+            idCache.put(key, ids);
+        }
+        // 取った時刻は search.list を呼んだ時刻にそろえる（使い回しの時間は検索の結果の古さで決めるため）
+        Page page = new Page(fetchDetails(ids.value().videoIds(), true, false), ids.value().nextPageToken(),
+                ids.fetchedAt());
         // 消すのは一番長い時間（6 時間）を過ぎたものだけ。15 分を過ぎた「ライブ中」の結果も、残りが 0 回の利用者に返すので残す
         searchCache.values().removeIf(entry -> !entry.isFresh(now, SEARCH_CACHE_TTL));
-        searchCache.put(key, new Cached<>(page, now));
+        searchCache.put(key, new Cached<>(page, ids.fetchedAt()));
+        // 詳細まで取れたら searchCache が使い回すので、ID だけの結果は消す（使い回しの時間を searchCache の側だけで決めるため）
+        idCache.remove(key);
         return page;
     }
 
