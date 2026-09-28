@@ -221,45 +221,10 @@ public class ResourceMonitorService {
                     children));
         }
 
-        // 録画プロセスとその子孫として数えたものは除く。今のアプリが起動した録画の yt-dlp はアプリの子でもあるため、二重に数えない
-        Set<Integer> counted = new HashSet<>();
-        for (RecorderUsage recorder : recorders) {
-            counted.add(recorder.pid());
-            for (ProcessUsage child : recorder.children()) {
-                counted.add(child.pid());
-            }
-        }
-        List<HelperUsage> helpers = new ArrayList<>();
-        for (OSProcess process : processes) {
-            // アプリの直接の子を親の行にし、その先（yt-dlp が起動する ffmpeg など）は子として親の下に付ける
-            if (process.getParentProcessID() != self.getProcessID() || counted.contains(process.getProcessID())) continue;
-            List<ProcessUsage> children = new ArrayList<>();
-            collectDescendants(process.getProcessID(), childrenByParent, cpu, children);
-            helpers.add(new HelperUsage(process.getProcessID(), process.getName(), helperPurpose(process.getArguments()),
-                    cpu.percent(process), process.getResidentMemory(), children));
-        }
-
-        Double serviceCpu = application.cpuPercent();
-        long serviceMemory = application.memoryBytes();
-        for (RecorderUsage recorder : recorders) {
-            serviceCpu = add(serviceCpu, recorder.cpuPercent());
-            serviceMemory += recorder.memoryBytes();
-            for (ProcessUsage child : recorder.children()) {
-                serviceCpu = add(serviceCpu, child.cpuPercent());
-                serviceMemory += child.memoryBytes();
-            }
-        }
-        for (HelperUsage helper : helpers) {
-            serviceCpu = add(serviceCpu, helper.cpuPercent());
-            serviceMemory += helper.memoryBytes();
-            for (ProcessUsage child : helper.children()) {
-                serviceCpu = add(serviceCpu, child.cpuPercent());
-                serviceMemory += child.memoryBytes();
-            }
-        }
+        List<HelperUsage> helpers = helperUsages(processes, self.getProcessID(), recorders, childrenByParent, cpu);
 
         ResourceSnapshotResponse response = new ResourceSnapshotResponse(LocalDateTime.now(), system,
-                new ServiceUsage(serviceCpu, serviceMemory, application, recorders, helpers), List.of());
+                serviceUsage(application, recorders, helpers), List.of());
         return new Measurement(response, new Baseline(now, ticks, received, sent, tracked));
     }
 
@@ -298,14 +263,90 @@ public class ResourceMonitorService {
     }
 
     /**
+     * アプリが起動した、録画プロセス以外の外部プロセスを、アプリの直接の子ごとにまとめる。
+     *
+     * <p>録画プロセスとその子孫として数えたものは除く。今のアプリが起動した録画の yt-dlp はアプリの子でもあるので、
+     * 除かないと「このサービス」の合計に二重に入る。OSHI のプロセスを受け取る形に切り出したのは、
+     * モックのプロセスで二重に数えないことを確かめるため。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
+     *
+     * @param processes        このサービスのプロセスの候補（{@code processCandidates} の戻り値）
+     * @param selfPid          アプリ（この JVM）のプロセス ID
+     * @param recorders        録画プロセスとして数えたもの
+     * @param childrenByParent 親のプロセス ID → 子のプロセス
+     * @param cpu              CPU 使用率の計算（計測したプロセスを次回の差分のために覚える）
+     * @return その他の外部プロセス。アプリの直接の子ごとに、その先の子孫を {@code children} に持つ
+     */
+    static List<HelperUsage> helperUsages(List<OSProcess> processes, int selfPid, List<RecorderUsage> recorders,
+                                          Map<Integer, List<OSProcess>> childrenByParent, CpuMeter cpu) {
+        // 録画プロセスとその子孫として数えたものは除く。今のアプリが起動した録画の yt-dlp はアプリの子でもあるため、二重に数えない
+        Set<Integer> counted = new HashSet<>();
+        for (RecorderUsage recorder : recorders) {
+            counted.add(recorder.pid());
+            for (ProcessUsage child : recorder.children()) {
+                counted.add(child.pid());
+            }
+        }
+        List<HelperUsage> helpers = new ArrayList<>();
+        for (OSProcess process : processes) {
+            // アプリの直接の子を親の行にし、その先（yt-dlp が起動する ffmpeg など）は子として親の下に付ける
+            if (process.getParentProcessID() != selfPid || counted.contains(process.getProcessID())) continue;
+            List<ProcessUsage> children = new ArrayList<>();
+            collectDescendants(process.getProcessID(), childrenByParent, cpu, children);
+            helpers.add(new HelperUsage(process.getProcessID(), process.getName(), helperPurpose(process.getArguments()),
+                    cpu.percent(process), process.getResidentMemory(), children));
+        }
+        return helpers;
+    }
+
+    /**
+     * アプリ本体・録画プロセス・その他の外部プロセス（どれも子孫を含む）を足し合わせて、「このサービス」の値にする。
+     *
+     * <p>CPU 使用率は、1 つでも分からない（{@code null}）ものがあれば合計も {@code null} にする（{@code add} の理由と同じ）。
+     * 実メモリは常に分かるので、そのまま足す。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
+     *
+     * @param application アプリ本体
+     * @param recorders   録画プロセス
+     * @param helpers     その他の外部プロセス
+     * @return このサービス全体の値
+     */
+    static ServiceUsage serviceUsage(ApplicationUsage application, List<RecorderUsage> recorders,
+                                     List<HelperUsage> helpers) {
+        Double serviceCpu = application.cpuPercent();
+        long serviceMemory = application.memoryBytes();
+        for (RecorderUsage recorder : recorders) {
+            serviceCpu = add(serviceCpu, recorder.cpuPercent());
+            serviceMemory += recorder.memoryBytes();
+            for (ProcessUsage child : recorder.children()) {
+                serviceCpu = add(serviceCpu, child.cpuPercent());
+                serviceMemory += child.memoryBytes();
+            }
+        }
+        for (HelperUsage helper : helpers) {
+            serviceCpu = add(serviceCpu, helper.cpuPercent());
+            serviceMemory += helper.memoryBytes();
+            for (ProcessUsage child : helper.children()) {
+                serviceCpu = add(serviceCpu, child.cpuPercent());
+                serviceMemory += child.memoryBytes();
+            }
+        }
+        return new ServiceUsage(serviceCpu, serviceMemory, application, recorders, helpers);
+    }
+
+    /**
      * 録画プロセスなら出力先の動画 ID を返す。
      *
      * <p>アプリを再起動しても yt-dlp は生き残るため、Java の子プロセスとしてではなく
      * コマンドラインで見分ける。{@code yt-dlp} を含むだけでは利用者が手で動かしたものまで数えるので、
      * 出力先（{@code -o}）が録画の保存先の中にあるものに限る。出力先は相対パスで渡しているため、
      * そのプロセスの作業ディレクトリを起点に解決する。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
      */
-    private static String recordingVideoId(OSProcess process, Path recordingRoot) {
+    static String recordingVideoId(OSProcess process, Path recordingRoot) {
         List<String> args = process.getArguments();
         if (args.stream().noneMatch(arg -> arg.contains("yt-dlp"))) return null;
         int option = args.indexOf("-o");
@@ -328,10 +369,12 @@ public class ResourceMonitorService {
      * 各箇所が組み立てる引数の特徴で見分ける。表示の手がかりにすぎないので、見分けられないものは「その他」にして数え続ける。
      * 起動する箇所の引数を変えたら、ここも合わせる。
      *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
+     *
      * @param args OSHI が返す引数（先頭は実行ファイル）。取れなければ空
      * @return 画面に出す用途
      */
-    private static String helperPurpose(List<String> args) {
+    static String helperPurpose(List<String> args) {
         String executable = args.isEmpty() ? "" : args.getFirst();
         // フォルダ選択の PowerShell のスクリプトには保存先のパスが入るので、yt-dlp の判定より先に見る
         if (executable.contains("zenity") || executable.contains("powershell")) return "フォルダの選択";
@@ -371,13 +414,30 @@ public class ResourceMonitorService {
     }
 
     private List<Warning> warnings(SystemUsage system) {
-        List<Warning> warnings = new ArrayList<>();
-        boolean cpuHigh;
-        // 推移は最大 24 時間分（1440 件）あるので、複製せずに末尾から目安の分数だけを見る
+        List<ResourceHistoryPoint> recent;
+        // 推移は最大 24 時間分（1440 件）あるので、全体は複製せずに末尾から目安の分数だけを取り出す
         synchronized (history) {
-            cpuHigh = history.size() >= CPU_WARNING_MINUTES && history.reversed().stream().limit(CPU_WARNING_MINUTES)
-                    .allMatch(p -> p.systemCpuPercent() != null && p.systemCpuPercent() > CPU_WARNING_PERCENT);
+            recent = history.reversed().stream().limit(CPU_WARNING_MINUTES).toList();
         }
+        return evaluateWarnings(system, recent);
+    }
+
+    /**
+     * 目安を超えている項目を、画面に出す注意にする。
+     *
+     * <p>推移を引数で受け取るのは、推移の排他や OSHI の実測と切り離し、境目（85% ちょうど・記録が
+     * {@code CPU_WARNING_MINUTES} 件に満たない起動直後・容量が取れない保存先）を確かめられるようにするため。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
+     *
+     * @param system 端末全体の値
+     * @param recent 推移の新しい順（先頭が今回の記録）。CPU の注意は先頭から {@code CPU_WARNING_MINUTES} 件だけを見る
+     * @return 注意。cpu・memory・swap・disk の順。無ければ空
+     */
+    static List<Warning> evaluateWarnings(SystemUsage system, List<ResourceHistoryPoint> recent) {
+        List<Warning> warnings = new ArrayList<>();
+        boolean cpuHigh = recent.size() >= CPU_WARNING_MINUTES && recent.stream().limit(CPU_WARNING_MINUTES)
+                .allMatch(p -> p.systemCpuPercent() != null && p.systemCpuPercent() > CPU_WARNING_PERCENT);
         if (cpuHigh) {
             warnings.add(new Warning("cpu", "CPU 使用率が %d 分以上 %.0f%% を超えています"
                     .formatted(CPU_WARNING_MINUTES, CPU_WARNING_PERCENT)));
@@ -405,14 +465,22 @@ public class ResourceMonitorService {
         return "%.1f GB".formatted(bytes / 1e9);
     }
 
-    /** 分からない値（{@code null}）を 0 とみなすと合計が実際より小さく見えるので、1 つでも欠けたら合計も {@code null}。 */
-    private static Double add(Double total, Double value) {
+    /**
+     * 分からない値（{@code null}）を 0 とみなすと合計が実際より小さく見えるので、1 つでも欠けたら合計も {@code null}。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
+     */
+    static Double add(Double total, Double value) {
         return total == null || value == null ? null : total + value;
     }
 
-    /** 差を取るために、前回の記録の時点で残しておく値。 */
-    private record Baseline(long timeMillis, long[] cpuTicks, long receivedBytes, long sentBytes,
-                            Map<Integer, OSProcess> processes) {}
+    /**
+     * 差を取るために、前回の記録の時点で残しておく値。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
+     */
+    record Baseline(long timeMillis, long[] cpuTicks, long receivedBytes, long sentBytes,
+                    Map<Integer, OSProcess> processes) {}
 
     private record Measurement(ResourceSnapshotResponse response, Baseline baseline) {}
 
@@ -423,9 +491,11 @@ public class ResourceMonitorService {
      * 経過時間とコア数で割って端末全体を 100% とした値にそろえる。前回の記録の後に始まったプロセスは
      * 起動からの累計で割る（その期間まるごとが差分の窓に収まっているため）。
      * 次回の差分計算のため、計測したプロセスを {@code tracked} に残す。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
      */
-    private record CpuMeter(Baseline prior, boolean hasWindow, long windowMillis, int cores,
-                            Map<Integer, OSProcess> tracked) {
+    record CpuMeter(Baseline prior, boolean hasWindow, long windowMillis, int cores,
+                    Map<Integer, OSProcess> tracked) {
         Double percent(OSProcess process) {
             tracked.put(process.getProcessID(), process);
             if (!hasWindow) return null;
