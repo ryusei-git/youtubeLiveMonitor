@@ -47,7 +47,7 @@ function mySearchChannelId(input) {
 
 /**
  * URL の条件を検索 API のクエリにする。URL を正本にするのは、戻る・再読み込みで同じクエリになり、
- * サーバーの 6 時間の使い回しに当たって検索の回数を使わないようにするため（「1 週間以内」の起点も URL に残す）。
+ * サーバーの使い回し（6 時間。「ライブ中」は 15 分）に当たって検索の回数を使わないようにするため（「1 週間以内」の起点も URL に残す）。
  *
  * @param {URLSearchParams} url 画面の URL の条件
  * @returns {URLSearchParams} API のクエリ
@@ -155,6 +155,20 @@ function mySearchTimeAgo(iso) {
 }
 
 /**
+ * 検索結果を YouTube から取った時刻を「3 時間前に YouTube から取得」のように出す。サーバーは同じ条件の結果を
+ * 使い回す（最大 6 時間、「ライブ中」は 15 分）ので、再生回数や「ライブ」の札がいつ時点の値かを見せるため
+ * （新人発掘の画面の「N 日前に取得」と同じ考え）。
+ *
+ * @param {string|null} iso 応答の fetchedAt
+ * @returns {string} 表示する文。読めなければ空
+ */
+function mySearchFetchedLabel(iso) {
+    const ago = mySearchTimeAgo(iso);
+    if (!ago) return "";
+    return ago === "たった今" ? "たった今 YouTube から取得" : `${ago}に YouTube から取得`;
+}
+
+/**
  * @param {number|null|undefined} count 再生回数
  * @returns {string} 「再生回数 1,234 回」。取れていなければ空
  */
@@ -203,7 +217,7 @@ function mySearchResult(item) {
 
 /**
  * 検索画面。条件は URL（/my/search?...）に残す。「戻る」「進む」はルーターが拾って画面ごと描き直し、描き直した画面が
- * URL から条件を戻して検索し直す（アーカイブと同じ。同じ条件はサーバーが使い回すので回数は使わない）。
+ * URL から条件を戻して検索し直す（アーカイブと同じ。同じ条件はサーバーが使い回すので回数は使わない。「ライブ中」は 15 分まで）。
  * @type {MyView}
  */
 const mySearchView = {
@@ -211,7 +225,7 @@ const mySearchView = {
     nav: "/my/search",
     render(root, _match, params) {
         root.innerHTML = `<h1>検索</h1>
-            <p class="pageDescription">YouTube の動画を探して、この画面で再生できます。検索できる回数は 1 日に限りがあります（同じ条件で 6 時間以内に探し直したときは数えません）。</p>
+            <p class="pageDescription">YouTube の動画を探して、この画面で再生できます。検索できる回数は 1 日に限りがあります（同じ条件で 6 時間以内に探し直したときは数えません。「ライブ中」で探したときは 15 分以内）。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <form id="searchForm">
               <div class="inline searchMain">
@@ -282,6 +296,7 @@ const mySearchView = {
             <div class="inline searchSummary" hidden>
               <span class="resultCount"></span>
               <span class="statusLamp filteredMark" hidden>このサービスの条件で絞り込み済み</span>
+              <span class="fetchedAt muted" hidden></span>
               <span class="quotaLeft muted"></span>
             </div>
             <div class="searchResults"></div>
@@ -302,10 +317,18 @@ const mySearchView = {
         let nextPageToken = null;
         /** 読み込みの番号。条件を続けて変えたとき、遅れて届いた古い応答で上書きしないため（アーカイブと同じ）。 */
         let request = 0;
+        /**
+         * 出している結果のうち、いちばん古い取得時刻（応答の fetchedAt）。「もっと見る」で足したページは
+         * 別の時刻に取ったものでありうるので、古い方を見せる（新しい方を見せると、古い結果が混ざっていても分からない）。
+         * @type {string|null}
+         */
+        let oldestFetchedAt = null;
 
         /** @param {any} quota 応答の quota */
         const showQuota = (quota) => {
-            query(".quotaLeft", root).textContent = quota ? `今日の残り ${quota.userRemaining} 回` : "";
+            // 使い切ったときは、いつ戻るかを添える（429 の文言は「16〜17 時ごろ」とおおまかなので、正確な時刻を出す）
+            const reset = quota && quota.userRemaining === 0 ? `（${formatInstant(quota.resetsAt)} に戻ります）` : "";
+            query(".quotaLeft", root).textContent = quota ? `今日の残り ${quota.userRemaining} 回${reset}` : "";
         };
 
         // URL の条件を欄へ戻す（select は選択肢に無い値だと空になるので、既定へ戻す）
@@ -349,6 +372,7 @@ const mySearchView = {
                 if (!pageToken) {
                     results.replaceChildren();
                     shown = 0;
+                    oldestFetchedAt = null;
                 }
                 results.append(...data.items.map(mySearchResult));
                 shown += data.items.length;
@@ -362,6 +386,12 @@ const mySearchView = {
                 query(".resultCount", root).textContent = `約 ${shown} 件を表示`;
                 /** @type {HTMLElement} */ (query(".filteredMark", root)).hidden = !data.filteredByService;
                 showQuota(data.quota);
+                if (data.fetchedAt && (!oldestFetchedAt || Date.parse(data.fetchedAt) < Date.parse(oldestFetchedAt))) {
+                    oldestFetchedAt = data.fetchedAt;
+                }
+                const fetchedLabel = query(".fetchedAt", root);
+                fetchedLabel.textContent = mySearchFetchedLabel(oldestFetchedAt);
+                fetchedLabel.hidden = !fetchedLabel.textContent;
             } catch (e) {
                 // 上限（429）・条件の誤り（400）・API の失敗（503）は、サーバーの文言をそのまま出す
                 if (current === request && results.isConnected) showError(errorMessage(e));

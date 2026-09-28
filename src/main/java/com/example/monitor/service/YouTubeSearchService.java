@@ -54,6 +54,13 @@ import java.util.stream.Stream;
  * DB に保存しないのは、API の値を 30 日以内に取り直すか消す規約（III.E.4.d）より十分短く、
  * 再起動で消えても困らないため。
  *
+ * <p>ただし「ライブ中」（{@code eventType=live}）の検索は 15 分にする。配信は数時間で終わるため、
+ * 6 時間使い回すと終わった配信に「ライブ」の札が付き、今配信している動画を探すという目的に合わない。
+ * 15 分を過ぎて探し直す（視聴画面から戻るのを含む）と回数を使うが、古い結果を黙って出すよりよい。
+ * その利用者の今日の残りが 0 回のときは取り直せないので、6 時間以内の古い結果を返す
+ * （上限の 429 で何も出ないより、取得時刻の付いた古い結果の方が役に立つ）。
+ * どちらの場合も、応答の {@code fetchedAt} に取った元の時刻を入れ、画面が「何分前に取ったか」を出す。
+ *
  * <h2>同じ条件の検索が重なったら、先の読み込みを待つ</h2>
  * 使い回しは結果を入れてから効くので、1 本目の応答が返る前に同じ条件の 2 本目が来ると、両方が外れて回数を 2 回使う
  * （Enter の連打や、戻る・進むで起きる）。そこで鍵ごとに読み込み中の印を置き、後の方は先の読み込みが終わるまで
@@ -78,6 +85,12 @@ public class YouTubeSearchService {
 
     /** 検索結果を使い回す時間。 */
     private static final Duration SEARCH_CACHE_TTL = Duration.ofHours(6);
+    /**
+     * 「ライブ中」（{@code eventType=live}）の検索結果を使い回す時間。配信は数時間で終わるため、
+     * 6 時間使い回すと終わった配信に「ライブ」の札が付いたまま出る。探し直すと回数を使うが、
+     * 「今配信している動画を探す」検索で古い結果を黙って返すより、15 分ごとに取り直す方が目的に合う。
+     */
+    private static final Duration LIVE_SEARCH_CACHE_TTL = Duration.ofMinutes(15);
     /** 動画の詳細を使い回す時間。視聴画面は再生回数などが動くので検索より短くする。 */
     private static final Duration VIDEO_CACHE_TTL = Duration.ofHours(1);
     /** この件数を下回ったら次のページを読む。 */
@@ -202,7 +215,7 @@ public class YouTubeSearchService {
     private Page loadPage(YouTubeSearchRequest request, String pageToken, String username) {
         List<String> key = cacheKey(request, pageToken);
         while (true) {
-            Page cached = freshPage(key);
+            Page cached = freshPage(key, request, username);
             if (cached != null) {
                 return cached;
             }
@@ -216,7 +229,7 @@ public class YouTubeSearchService {
             }
             try {
                 // 使い回しを見てから印を置くまでの間に、先の読み込みが終わって入れていた場合
-                cached = freshPage(key);
+                cached = freshPage(key, request, username);
                 if (cached != null) {
                     return cached;
                 }
@@ -230,9 +243,9 @@ public class YouTubeSearchService {
     }
 
     /** 使い回せる 1 ページを返す。無いか古ければ {@code null}。 */
-    private Page freshPage(List<String> key) {
+    private Page freshPage(List<String> key, YouTubeSearchRequest request, String username) {
         Cached<Page> cached = searchCache.get(key);
-        return cached != null && cached.isFresh(Instant.now(), SEARCH_CACHE_TTL) ? cached.value() : null;
+        return cached != null && cached.isFresh(Instant.now(), searchCacheTtl(request, username)) ? cached.value() : null;
     }
 
     /** 回数を使って API を呼び、結果を使い回しに入れる。 */
@@ -242,6 +255,7 @@ public class YouTubeSearchService {
         budget.acquireForUser(username);
         YouTubeSearchClient.SearchPage found = call(() -> client.searchVideoIds(request, pageToken), true);
         Page page = new Page(fetchDetails(found.videoIds(), true, false), found.nextPageToken(), now);
+        // 消すのは一番長い時間（6 時間）を過ぎたものだけ。15 分を過ぎた「ライブ中」の結果も、残りが 0 回の利用者に返すので残す
         searchCache.values().removeIf(entry -> !entry.isFresh(now, SEARCH_CACHE_TTL));
         searchCache.put(key, new Cached<>(page, now));
         return page;
@@ -255,6 +269,18 @@ public class YouTubeSearchService {
         return Arrays.asList(r.q(), r.order(), r.publishedAfter(), r.publishedBefore(), r.duration(),
                 r.eventType(), r.channelId(), r.categoryId(), r.definition(), r.caption(), r.license(),
                 r.safeSearch() == null ? "moderate" : r.safeSearch(), pageToken);
+    }
+
+    /**
+     * 検索結果を使い回す時間を返す。「ライブ中」の検索だけ短くする（{@code LIVE_SEARCH_CACHE_TTL}）。
+     * ただし、その利用者の今日の残りが 0 回なら 6 時間のままにする。取り直そうとしても上限の 429 になり
+     * 何も出せないので、取得時刻の付いた 6 時間以内の古い結果を返す方がよいため。
+     */
+    private Duration searchCacheTtl(YouTubeSearchRequest request, String username) {
+        if (!"live".equals(request.eventType())) {
+            return SEARCH_CACHE_TTL;
+        }
+        return budget.status(username).userRemaining() > 0 ? LIVE_SEARCH_CACHE_TTL : SEARCH_CACHE_TTL;
     }
 
     /**
