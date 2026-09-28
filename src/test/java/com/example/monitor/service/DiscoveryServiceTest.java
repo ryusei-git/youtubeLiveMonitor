@@ -708,11 +708,12 @@ class DiscoveryServiceTest {
             when(candidates.findById("ch1")).thenReturn(Optional.of(row));
             Instant firstUpload = Instant.parse("2026-08-01T00:00:00Z");
             when(youtube.oldestUpload("UUch1")).thenReturn(Optional.of(firstUpload));
-            when(youtube.videoTitles(List.of("vid00000001"))).thenReturn(Map.of("vid00000001", "新しい動画のタイトル"));
+            when(youtube.videoTitles(anyList())).thenReturn(Map.of("vid00000001", "新しい動画のタイトル"));
             stubSaveReturnsArgument();
 
             service.add(INPUT);
 
+            verify(youtube).videoTitles(List.of("vid00000001"));
             assertThat(row.getFirstUploadAt()).isEqualTo(firstUpload);
             assertThat(row.getSampleVideoTitle()).isEqualTo("新しい動画のタイトル");
         }

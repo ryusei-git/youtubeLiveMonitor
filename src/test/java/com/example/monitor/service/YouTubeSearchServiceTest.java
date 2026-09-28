@@ -556,8 +556,7 @@ class YouTubeSearchServiceTest {
             clip.getSnippet().setTitle("【切り抜き】歌枠まとめ");
             Video song = video("vid00000002", CHANNEL_ID, "none", "PT20M", 500L, null);
             song.getSnippet().setTitle("歌枠");
-            when(client.searchVideoIds(any(), isNull())).thenReturn(
-                    new YouTubeSearchClient.SearchPage(List.of("vid00000001", "vid00000002"), null));
+            when(client.searchVideoIds(any(), isNull())).thenReturn(page(null, "vid00000001", "vid00000002"));
             when(client.fetchVideos(any())).thenReturn(List.of(clip, song));
             Req req = new Req();
 
@@ -566,8 +565,8 @@ class YouTubeSearchServiceTest {
             req.titleExcludes = "切り抜き";
             YouTubeSearchResponse plain = service.search(req.build(), "alice");
 
-            assertThat(dashed.items()).extracting(YouTubeVideoResponse::videoId).containsExactly("vid00000002");
-            assertThat(plain.items()).extracting(YouTubeVideoResponse::videoId).containsExactly("vid00000002");
+            assertThat(videoIdsOf(dashed)).containsExactly("vid00000002");
+            assertThat(videoIdsOf(plain)).containsExactly("vid00000002");
         }
 
         @Test
@@ -579,8 +578,8 @@ class YouTubeSearchServiceTest {
             halfWidthKana.getSnippet().setTitle("【ASMR】【ｶﾗｵｹ】歌枠");
             Video other = video("vid00000003", CHANNEL_ID, "none", "PT20M", 500L, null);
             other.getSnippet().setTitle("雑談");
-            when(client.searchVideoIds(any(), isNull())).thenReturn(new YouTubeSearchClient.SearchPage(
-                    List.of("vid00000001", "vid00000002", "vid00000003"), null));
+            when(client.searchVideoIds(any(), isNull())).thenReturn(
+                    page(null, "vid00000001", "vid00000002", "vid00000003"));
             when(client.fetchVideos(any())).thenReturn(List.of(fullWidth, halfWidthKana, other));
             Req req = new Req();
             req.titleIncludes = "asmr";
@@ -590,8 +589,7 @@ class YouTubeSearchServiceTest {
 
             // 全角の ＡＳＭＲ は asmr に一致して残る。半角カナの ｶﾗｵｹ はカラオケとして除外される。
             // 雑談は含む語に無いので落ちる
-            assertThat(response.items()).extracting(YouTubeVideoResponse::videoId)
-                    .containsExactly("vid00000001");
+            assertThat(videoIdsOf(response)).containsExactly("vid00000001");
         }
 
         /** 後の要求が先の読み込みの終わりを待つ（{@code WAITING}）まで、最大 5 秒回る。 */
