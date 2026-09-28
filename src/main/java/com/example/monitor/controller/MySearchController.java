@@ -58,14 +58,15 @@ public class MySearchController {
     }
 
     /**
-     * 視聴画面のために動画 1 件の詳細を返す。検索の回数は使わない。
+     * 視聴画面のために動画 1 件の詳細を返す。検索の回数は使わないが、API から取るときは
+     * 詳細の回数（1 人 1 日 100 件）を使い、超えたら 429 を返す。
      *
      * @param videoId 動画 ID
      * @return 詳細。無ければ 404
      */
     @GetMapping("/api/my/youtube/videos/{videoId}")
     public ResponseEntity<?> video(@PathVariable String videoId) {
-        return searchService.findVideo(videoId)
+        return searchService.findVideo(videoId, currentAppUser.require().getUsername())
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(Map.of("error", "動画が見つかりません")));

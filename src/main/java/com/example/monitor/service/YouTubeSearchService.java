@@ -71,6 +71,12 @@ import java.util.stream.Stream;
  * このサービスの条件で絞ると、50 件が数件になることがある。20 件を下回ったら
  * 次のページを 1 回だけ読む（回数を使う）。何ページも読むと 1 回の操作で回数を使い切るため 1 回まで。
  *
+ * <h2>視聴画面の詳細にも回数の上限を設ける</h2>
+ * 詳細は検索の回数を使わないが、{@code videos.list} と {@code channels.list} で共有の 10,000 単位を使う。
+ * ログインしていれば誰でも呼べるので、上限が無いと ID を変えながら叩かれて、監視・通知に残した分まで
+ * 使い切られる。そこで {@link YouTubeSearchBudget#acquireDetailForUser} で数え、見つからなかった ID も
+ * 10 分覚えて同じ ID で何度も API を呼ばないようにする。
+ *
  * <h2>印は毎回 DB から付け直す</h2>
  * 「監視中」「保存済み」は、使い回した結果でも今の DB の状態を出す。まとめて 2 回の問い合わせで引く。
  *
@@ -93,6 +99,11 @@ public class YouTubeSearchService {
     private static final Duration LIVE_SEARCH_CACHE_TTL = Duration.ofMinutes(15);
     /** 動画の詳細を使い回す時間。視聴画面は再生回数などが動くので検索より短くする。 */
     private static final Duration VIDEO_CACHE_TTL = Duration.ofHours(1);
+    /**
+     * 見つからなかった動画 ID を覚えておく時間。削除・非公開の ID を開き直すたびに 1 単位を使わないため。
+     * 公開に戻った動画を長く見失わないよう、見つかった動画（1 時間）より短くする。
+     */
+    private static final Duration MISSING_VIDEO_CACHE_TTL = Duration.ofMinutes(10);
     /** この件数を下回ったら次のページを読む。 */
     private static final int REFILL_THRESHOLD = 20;
     /** これ以下の長さをショートとみなす（YouTube のショートは 3 分まで）。 */
@@ -117,8 +128,14 @@ public class YouTubeSearchService {
      * 印は成否に関わらず正常に完了させる（失敗を待っていた側に引き継がないため）。
      */
     private final Map<List<String>, CompletableFuture<Void>> loading = new ConcurrentHashMap<>();
-    /** 動画 ID ごとの詳細（印は付けていない）。 */
+    /**
+     * 動画 ID ごとの詳細（印は付けていない）。件数の上限を別に持たないのは、API から取れる件数が
+     * {@link YouTubeSearchBudget#acquireDetailForUser} で 1 日 400 件に抑えられ、1 時間で消えるので、
+     * 日付の変わり目をまたいでも 800 件を超えないため。
+     */
     private final Map<String, Cached<YouTubeVideoResponse>> videoCache = new ConcurrentHashMap<>();
+    /** 見つからなかった動画 ID と、それを確かめた時刻。API の失敗（例外）は入れない。 */
+    private final Map<String, Instant> missingVideoCache = new ConcurrentHashMap<>();
 
     /**
      * 検索する。
@@ -157,23 +174,37 @@ public class YouTubeSearchService {
     /**
      * 視聴画面のために動画 1 件の詳細を返す。検索の回数は使わない。
      *
-     * @param videoId 動画 ID
+     * <p>使い回せないときは、API を呼ぶ前に詳細の回数（{@link YouTubeSearchBudget#acquireDetailForUser}）を使う。
+     * 見つからなかった ID は 10 分覚え、その間は API を呼ばずに空を返す。
+     *
+     * @param videoId  動画 ID
+     * @param username 開いた利用者のログイン ID（詳細の回数を数えるため）
      * @return 詳細（説明文の全文とタグを含む）。無ければ空
+     * @throws SearchQuotaExceededException  詳細の本日の上限に達した場合
      * @throws YouTubeApiUnavailableException API キーが無い・API が失敗した場合
      */
-    public Optional<YouTubeVideoResponse> findVideo(String videoId) {
+    public Optional<YouTubeVideoResponse> findVideo(String videoId, String username) {
         if (!VIDEO_ID.matcher(videoId).matches()) {
             return Optional.empty();
         }
         Instant now = Instant.now();
+        Instant missingAt = missingVideoCache.get(videoId);
+        if (missingAt != null && missingAt.plus(MISSING_VIDEO_CACHE_TTL).isAfter(now)) {
+            return Optional.empty();
+        }
         Cached<YouTubeVideoResponse> cached = videoCache.get(videoId);
         YouTubeVideoResponse video;
         if (cached != null && cached.isFresh(now, VIDEO_CACHE_TTL)) {
             video = cached.value();
         } else {
             requireApiKey();
+            // 使い回せないときだけ数える。キーが無いときは API を呼ばないので数えない
+            budget.acquireDetailForUser(username);
             List<YouTubeVideoResponse> found = fetchDetails(List.of(videoId), false, true);
             if (found.isEmpty()) {
+                // 「見つからない」と分かったときだけ覚える。API の失敗は fetchDetails が例外で抜けるので覚えない
+                missingVideoCache.values().removeIf(at -> !at.plus(MISSING_VIDEO_CACHE_TTL).isAfter(now));
+                missingVideoCache.put(videoId, now);
                 return Optional.empty();
             }
             video = found.get(0);
