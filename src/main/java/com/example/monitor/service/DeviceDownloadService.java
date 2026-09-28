@@ -16,6 +16,8 @@ import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.RecordingRepository;
+import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
+import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.YtDlpLogFile;
@@ -103,7 +105,8 @@ public class DeviceDownloadService {
      * 「端末に保存」を受け付ける。プロセスを起動したらすぐに返る。
      *
      * <p>既にサービスに完成した録画があれば取り直さず、そのファイルの場所を {@code READY} で返す。
-     * {@code PARTIAL}（途中まで）・{@code FAILED} の録画は渡しても役に立たないので、改めて一時取得する。
+     * サービスの録画が {@code PARTIAL}（途中まで）・{@code FAILED} のときは渡さず、改めて一時取得する。取り直せば最後まで
+     * 取れることがあるため（一時取得でも途中までしか取れなかったときは、途中までだと知らせたうえで渡す）。
      *
      * @param rawUrl 利用者が入力した動画の URL
      * @return 受け付けた内容
@@ -171,15 +174,15 @@ public class DeviceDownloadService {
     }
 
     /**
-     * 受け取れる状態のファイルを返す。
+     * 受け取れる状態のファイル（完成品か途中までのもの）を返す。
      *
      * @param jobId 仕事 ID
      * @return ファイルと、保存するときのファイル名
-     * @throws DeviceDownloadNotFoundException 無い・他人の仕事・まだ受け取れない場合（404）
+     * @throws DeviceDownloadNotFoundException 無い・他人の仕事・取得中・失敗した場合（404）
      */
     public ReadyFile readyFile(String jobId) {
         Job job = ownedJob(jobId);
-        if (job.status != Status.READY || !Files.isRegularFile(job.outputFile())) {
+        if (!job.status.hasFile() || !Files.isRegularFile(job.outputFile())) {
             throw new DeviceDownloadNotFoundException();
         }
         return new ReadyFile(job.outputFile(), downloadName(job.title, job.videoId));
@@ -282,6 +285,10 @@ public class DeviceDownloadService {
      * 終了を待って成否を決める。成否は終了コードではなく、再生できるファイルを用意できたかで決める
      * （{@code docs/pitfalls.md}「録画の成否は終了コードではなく…」。判断は録画と同じ {@link RecordingSalvager}）。
      *
+     * <p>詰め替えて再生できる形にしたもの（{@code SALVAGED}）は {@link Status#PARTIAL} にする。{@code READY} にすると、
+     * 音声の無い・途中で切れた動画を完成品として渡してしまう。{@code FAILED} にしないのは、yt-dlp の結合だけが失敗して
+     * 中身は揃っている場合もあり、捨てると取り直すしかなくなるため（サービスへの保存の {@code PARTIAL} と同じ扱い）。
+     *
      * @param job 仕事
      */
     private void awaitCompletion(Job job) {
@@ -291,9 +298,17 @@ public class DeviceDownloadService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        boolean playable = recordingSalvager.ensurePlayable(job.outputFile()).isPlayable();
+        SalvageOutcome salvage = recordingSalvager.ensurePlayable(job.outputFile());
+        Status status;
+        if (!salvage.isPlayable()) {
+            status = Status.FAILED;
+        } else if (salvage.status() == SalvageStatus.SALVAGED) {
+            status = Status.PARTIAL;
+        } else {
+            status = Status.READY;
+        }
         job.completedAt = Instant.now();
-        job.status = playable ? Status.READY : Status.FAILED;
+        job.status = status;
         log.info("端末に保存する動画の取得が終わりました: job={}, video={}, status={}, exitCode={}",
                 job.id, job.videoId, job.status, exitCode);
     }
@@ -408,7 +423,7 @@ public class DeviceDownloadService {
         }
 
         private DeviceDownloadResponse toResponse() {
-            String fileUrl = status == Status.READY ? "/api/my/downloads/device/" + id + "/file" : null;
+            String fileUrl = status.hasFile() ? "/api/my/downloads/device/" + id + "/file" : null;
             return new DeviceDownloadResponse(id, status, title, null, fileUrl);
         }
     }

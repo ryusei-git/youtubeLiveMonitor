@@ -1503,6 +1503,9 @@ const myDownloadView = {
                     if (job.status === "READY") {
                         myDownloadStopPolling?.();
                         status.innerHTML = `受け取れます。<a href="/api/my/downloads/device/${escapeHtml(encodeURIComponent(jobId))}/file">端末に保存</a>`;
+                    } else if (job.status === "PARTIAL") {
+                        myDownloadStopPolling?.();
+                        status.innerHTML = `途中までしか取得できませんでした（音声が無い、または途中で切れていることがあります）。<a href="/api/my/downloads/device/${escapeHtml(encodeURIComponent(jobId))}/file">それでも端末に保存</a>　もう一度「ダウンロードを始める」を押すと取り直します。`;
                     } else if (job.status === "FAILED") {
                         myDownloadStopPolling?.();
                         status.textContent = "失敗しました";
