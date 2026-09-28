@@ -217,8 +217,8 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * 宣言し直している。再生画面の 1 件取得（{@code GET /api/recordings/{id}}・{@code GET /api/my/recordings/{id}}）は、
      * コントローラー（トランザクションの外）で {@link com.example.monitor.dto.RecordingResponse} に詰め替えて
      * チャンネル名を読む。{@code spring.jpa.open-in-view} を切っているので、遅延読み込みのままだと
-     * LazyInitializationException になる。ほかの呼び出し元（印・耳キス・削除）はチャンネルを読まないが、
-     * 1 件につき 1 回の結合なので、専用のメソッドには分けていない。
+     * LazyInitializationException になる。ほかの呼び出し元（印・耳キス・削除・録画の停止・録画の後始末の補正・CLI）は
+     * チャンネルを読まないが、1 件につき 1 回の結合なので、専用のメソッドには分けていない。
      *
      * @param id 録画履歴の主キー
      * @return 該当する録画履歴（チャンネル読み込み済み）。無ければ空
