@@ -537,7 +537,8 @@ const myWatchView = {
         };
         query("tbody", root).innerHTML = [
             ["チャンネル", channelLink(rec.channelName, rec.channelUrl)],
-            ["元の配信", videoLink(rec.videoId)],
+            // 動画 ID から URL を推測しない。Twitch の録画は URL が null で、ID を文字で出す
+            ["元の配信", externalLink(rec.videoId, rec.videoUrl)],
             ["録画開始", datetimeCell(rec.startedAt)],
             ["録画終了", datetimeCell(rec.completedAt)],
             ["再生時間", formatDuration(rec.durationSeconds)],

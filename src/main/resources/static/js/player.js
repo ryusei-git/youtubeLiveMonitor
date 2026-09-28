@@ -43,7 +43,8 @@ function renderDetail(rec) {
 
     query("#detailTable tbody").innerHTML = [
         detailRow("チャンネル", channelLink(rec.channelName, rec.channelUrl)),
-        detailRow("元の配信", videoLink(rec.videoId)),
+        // 動画 ID から URL を推測しない。Twitch の録画は URL が null で、ID を文字で出す
+        detailRow("元の配信", externalLink(rec.videoId, rec.videoUrl)),
         detailRow("録画開始", datetimeCell(rec.startedAt)),
         detailRow("録画終了", datetimeCell(rec.completedAt)),
         detailRow("再生時間", formatDuration(rec.durationSeconds)),
