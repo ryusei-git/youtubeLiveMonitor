@@ -60,7 +60,7 @@ public class DiscoveryService {
      * これより前には広げない。検索は新しい順の 50 件しか取らないので、広げても古い分は結局取れず、回数の割に得が無いため。
      */
     private static final Duration FIRST_LOOKBACK = Duration.ofHours(72);
-    /** 前回の実行と重ねる幅。検索結果の反映の遅れで取りこぼさないように。 */
+    /** その語を前回検索できた巡回と重ねる幅。検索結果の反映の遅れで取りこぼさないように。 */
     private static final Duration OVERLAP = Duration.ofHours(1);
     /** 説明を持つ長さ。 */
     private static final int DESCRIPTION_LENGTH = 500;
