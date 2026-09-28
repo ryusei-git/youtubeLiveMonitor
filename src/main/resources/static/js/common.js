@@ -162,6 +162,21 @@ function loginPagePath() {
 }
 
 /**
+ * ログインが切れたときに、ログイン画面へ移る。ログインし直した後に今の画面へ戻れるよう、戻る先を渡す。
+ * 同時に複数の要求がログイン切れで失敗しても、移るのは 1 回だけにする。
+ *
+ * <p>API の 401（{@link authenticatedFetch}）と、録画ファイルの読み込みの失敗（{@link describeVideoError}）の両方から呼ぶ。
+ * 録画ファイルは API ではないので、ログインが切れていると 401 ではなくログイン画面への転送になり、
+ * {@link authenticatedFetch} の判定では拾えないため、移す処理だけを分けている。
+ */
+function redirectToLogin() {
+    if (["/userLogin.html", "/adminLogin.html"].includes(location.pathname) || loginRedirectPending) return;
+    loginRedirectPending = true;
+    const target = location.pathname + location.search + location.hash;
+    location.assign(loginPagePath() + "?expired=1&returnTo=" + encodeURIComponent(target));
+}
+
+/**
  * セッション切れをJSON解析より先に扱い、同時に複数のAPIが失敗しても一度だけ遷移する。
  * @param {string} path APIパス
  * @param {RequestInit} [options] 通信設定
@@ -170,11 +185,7 @@ function loginPagePath() {
 async function authenticatedFetch(path, options) {
     const response = await fetch(path, options);
     if (response.status === 401) {
-        if (!["/userLogin.html", "/adminLogin.html"].includes(location.pathname) && !loginRedirectPending) {
-            loginRedirectPending = true;
-            const target = location.pathname + location.search + location.hash;
-            location.assign(loginPagePath() + "?expired=1&returnTo=" + encodeURIComponent(target));
-        }
+        redirectToLogin();
         throw new Error("ログインの有効期限が切れました。ログインし直してください");
     }
     return response;
@@ -1224,6 +1235,41 @@ function bindPictureInPictureButton(button, video) {
         }
     });
     button.hidden = false;
+}
+
+/**
+ * 動画の読み込み・再生の失敗を、利用者に出す文にする。
+ *
+ * <p>video の error の種類だけでは理由が分からない。録画のファイルが無い（404）ときも、ログインが切れて録画の代わりに
+ * ログイン画面の HTML が返ったときも、形式に対応していないときと同じ MEDIA_ERR_SRC_NOT_SUPPORTED になる。
+ * そのまま「再生できない形式」と出すと、ファイルが消えた録画や、ログインし直せば見られる録画まで形式のせいに見えるため、
+ * 同じ URL を HEAD で取り直して切り分ける。録画ファイル（/recordings/**）は API ではないので、ログインが切れていると
+ * 401 ではなくログイン画面への転送になる。転送されたかは Response.redirected で見る。
+ *
+ * <p>形式で失敗しやすいのは iPhone。録画は画質を優先して取るため（YtDlpFormatSelector）、AV1・VP9・Opus を含む mp4 になることがあり、
+ * AV1 を復号できない端末では再生できない。その場合は、端末に保存して別のアプリで開くか、パソコンで見るよう案内する。
+ *
+ * @param {HTMLVideoElement} video error イベントが来た動画要素
+ * @returns {Promise<string|null>} エラー帯に出す文。出さなくてよいとき（失敗していない・読み込みを止めただけ・ログイン画面へ移る）は null
+ */
+async function describeVideoError(video) {
+    const code = video.error?.code;
+    if (!code || code === MediaError.MEDIA_ERR_ABORTED || !video.src) return null;
+    // 「ページを読み込み直す」とは書かない。ミニプレーヤーのときにほかの画面を読み込み直すと、ドックごと消えて録画に戻れないため。
+    // 再生画面を開き直せば、ドック（my-app.js の myDockLoad）も管理者の再生画面も読み込み直す
+    const network = "録画を再生できません。通信が途切れました。通信の良い所で、再生画面を開き直してください";
+    // 本文は要らないので HEAD にする（数 GB の録画を取り直さない）。今のファイルの有無で切り分けたいので、
+    // キャッシュに残った応答は使わず、必ずサーバーに問い合わせる
+    const res = await fetch(video.src, { method: "HEAD", cache: "no-store" }).catch(() => null);
+    if (!res) return network;
+    if (res.redirected) {
+        redirectToLogin();
+        return null;
+    }
+    if (res.status === 404) return "録画を再生できません。録画のファイルが見つかりません（削除されたか、保存先が変わった可能性があります）";
+    if (!res.ok) return `録画を再生できません（サーバーの応答: ${res.status}）`;
+    if (code === MediaError.MEDIA_ERR_NETWORK) return network;
+    return "録画を再生できません。このブラウザでは再生できない形式か、ファイルが壊れています。録画を端末に保存して別のアプリ（VLC など）で開くか、パソコンのブラウザで再生してください";
 }
 
 /* ============================================================

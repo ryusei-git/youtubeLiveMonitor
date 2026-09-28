@@ -57,10 +57,12 @@ function renderDetail(rec) {
 function bindPlayer(rec) {
     const player = /** @type {HTMLVideoElement} */ (el("player"));
     // 状態が再生できるものでも、ファイルが消えている・ログインが切れている・このブラウザで再生できない形式のときは
-    // 読み込みに失敗する。何も出さないと黒い画面のまま理由が分からないため、エラー帯に出す。
+    // 読み込みに失敗する。何も出さないと黒い画面のまま理由が分からないため、理由を調べてエラー帯に出す
+    // （調べ方は利用者のドックと同じ common.js の describeVideoError）。
     // 読み込みの失敗を取りこぼさないよう、src を入れる前に付ける
-    player.addEventListener("error", () => {
-        showError("録画のファイルを読み込めませんでした（ファイルが見つからないか、このブラウザでは再生できない形式です）");
+    player.addEventListener("error", async () => {
+        const message = await describeVideoError(player);
+        if (message) showError(message);
     });
     // ファイル名に日本語や記号が入るため、パスとして安全な形に符号化する
     player.src = `/recordings/${encodeURI(rec.filePath)}`;
