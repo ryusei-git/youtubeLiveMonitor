@@ -137,7 +137,7 @@ class SettingsControllerTest {
         void testMethod01() {
             SettingsController controller = newController("", "", 0);
             SettingsUpdateRequest request = new SettingsUpdateRequest(
-                    "new-api-key", "https://discord.com/api/webhooks/x/y",
+                    "new-api-key", "https://discord.com/api/webhooks/123456789012345678/dummy-token",
                     "twitch-id", "twitch-secret", 60, "movies", 720);
 
             controller.updateSettings(request);
@@ -146,7 +146,7 @@ class SettingsControllerTest {
             verify(environmentSettingsService).updateEnvFile(captor.capture());
             assertThat(captor.getValue())
                     .containsEntry("YOUTUBE_API_KEY", "new-api-key")
-                    .containsEntry("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/x/y")
+                    .containsEntry("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123456789012345678/dummy-token")
                     .containsEntry("TWITCH_CLIENT_ID", "twitch-id")
                     .containsEntry("TWITCH_CLIENT_SECRET", "twitch-secret")
                     .containsEntry("MONITOR_INTERVAL_SECONDS", "60")
