@@ -45,7 +45,7 @@
       <input type="checkbox" id="addRecordEnabled">
       <span class="hint" title="録画には yt-dlp が必要です。画質・音質は落とさず最高品質のまま保存するため、配信中は数十GB〜になりうるのでディスク容量に注意してください。">ⓘ</span>
     </label>
-    <input type="text" id="addTitleKeywords" placeholder="絞り込むキーワード（例: ASMR,生配信）" size="26">
+    <input type="text" id="addTitleKeywords" placeholder="絞り込むキーワード（例: ASMR,-切り抜き）" size="26">
     <button type="submit">登録</button>
   </form>
 
@@ -79,7 +79,7 @@
           <th data-sort="text">録画</th>
           <th data-sort="number">録画済み</th>
           <th data-sort="number">購読者</th>
-          <th data-sort="text">フィルター <span class="hint" title="登録後に条件のボタンを押して絞り込めます（例: 「ASMR,生配信」）。配信タイトル、または配信のカテゴリ（Twitchのみ）にいずれかのキーワードを含む配信だけを通知・録画します。どちらにも含まれない配信は通知されません。空欄なら絞り込みなし。">ⓘ</span></th>
+          <th data-sort="text">フィルター <span class="hint" title="登録後に条件のボタンを押して絞り込めます（例: 「ASMR,生配信」）。配信タイトル、または配信のカテゴリ（Twitchのみ）にいずれかのキーワードを含む配信だけを通知・録画します。どちらにも含まれない配信は通知されません。先頭に「-」を付けた語（例: 「ASMR,-切り抜き」の「-切り抜き」。日本語入力のまま打った「ー」でもかまいません）は除外で、タイトルかカテゴリに含む配信は通知・録画しません。「-」の付いた語だけなら、それ以外のすべての配信が対象です。全角・半角、大文字・小文字は区別しません。空欄なら絞り込みなし。">ⓘ</span></th>
           <th></th>
         </tr>
       </thead>
