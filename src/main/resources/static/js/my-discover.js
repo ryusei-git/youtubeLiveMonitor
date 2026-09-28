@@ -64,7 +64,7 @@ function myDiscoverCard(item, subscribed) {
     const card = document.createElement("article");
     card.className = "discoverCard";
     card.dataset.channelId = item.channelId;
-    // 判定でカードを消した後に、隣のカードへフォーカスを移すための目印（rememberFocus）
+    // 「監視する」を札に置き換えた後に、同じカードへフォーカスを戻すための目印（rememberFocus）
     card.dataset.focusKey = item.channelId;
     card.innerHTML = `${item.iconUrl ? `<img class="discoverIcon" src="${escapeHtml(item.iconUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="discoverIcon"></span>'}
         <div class="discoverInfo">
@@ -77,6 +77,26 @@ function myDiscoverCard(item, subscribed) {
           <p class="discoverActions">${myDiscoverActions(item, subscribed)}</p>
         </div>`;
     return card;
+}
+
+/**
+ * 判定した候補のカードの代わりに置く行（取り消しのボタン付き）。
+ * 候補は利用者全員で共有していて、「ちがう」にした候補はどの一覧にも出ないため、押し間違えてもここでしか戻せない。
+ * 確認ダイアログは 1 件ずつ判定する速さを落とすので出さず、代わりにこの行を画面を離れるまで残す。
+ *
+ * @param {string} channelId チャンネル ID
+ * @param {string} title チャンネル名
+ * @param {string} message 判定の結果の文（例：「「ちがう」にしました」）
+ * @returns {HTMLElement} 差し込む要素
+ */
+function myDiscoverUndoRow(channelId, title, message) {
+    const row = document.createElement("p");
+    row.className = "discoverUndo";
+    row.dataset.channelId = channelId;
+    row.dataset.title = title;
+    row.innerHTML = `<span>${escapeHtml(title)} を${escapeHtml(message)}</span>
+        <button type="button" aria-label="${escapeHtml(title)} の判定を取り消す">取り消し</button>`;
+    return row;
 }
 
 /**
@@ -104,7 +124,10 @@ const myDiscoverView = {
             ${mySearchAttribution}`;
         const list = query(".discoverList", root);
         const showEmptyIfNone = () => {
-            if (!list.querySelector(".discoverCard")) list.innerHTML = emptyState(tab.empty[0], tab.empty[1]);
+            // 取り消しの行（.discoverUndo）は消さずに残し、その後ろに空の表示を足す
+            if (!list.querySelector(".discoverCard") && !list.querySelector(".emptyState")) {
+                list.insertAdjacentHTML("beforeend", emptyState(tab.empty[0], tab.empty[1]));
+            }
         };
 
         apiGet("/api/my/discover/status").then((s) => {
@@ -126,14 +149,61 @@ const myDiscoverView = {
             if (list.isConnected) showError(errorMessage(e));
         }).finally(() => setBusy(list, false));
 
+        /**
+         * 判定を取り消す。一覧のカードはどれもタブの状態（tab.status）なので、その状態へ戻す。
+         * apiPut は応答を返さないので、戻したカードの値は一覧の API から取り直す
+         * （「ちがう」から戻すと、サーバーが消した値を YouTube から取り直すので、押す前のカードとは値が変わる）。
+         *
+         * @param {HTMLElement} row 取り消しの行
+         * @param {HTMLButtonElement} button 取り消しのボタン
+         */
+        const undoDecision = async (row, button) => {
+            const channelId = row.dataset.channelId || "";
+            const title = row.dataset.title || channelId;
+            button.disabled = true;
+            try {
+                await apiPut(`/api/my/discover/candidates/${encodeURIComponent(channelId)}`, { status: tab.status });
+                /** @type {any[]} */
+                const items = await apiGet(`/api/my/discover/candidates?status=${tab.status}`);
+                if (!list.isConnected) return;
+                const item = items.find((i) => i.channelId === channelId);
+                if (item) {
+                    const card = myDiscoverCard(item, await subscribedLoad);
+                    row.replaceWith(card);
+                    list.querySelector(".emptyState")?.remove();
+                    // 取り消しのボタンが消えるので、戻したカードの最初の判定のボタンへフォーカスを移す（body に落とさない）
+                    const first = card.querySelector("button[data-status]");
+                    if (first instanceof HTMLButtonElement) first.focus();
+                } else {
+                    // 取り消している間に、ほかの人が判定を変えた。行が消えてフォーカスが body に落ちないよう、今のタブへ移す
+                    row.remove();
+                    showEmptyIfNone();
+                    query(".discoverTabs a[aria-current]", root).focus();
+                }
+                clearError();
+                showToast(`${title} の判定を取り消しました`);
+            } catch (e) {
+                if (!list.isConnected) return;
+                showError(errorMessage(e), { reveal: true });
+                button.disabled = false;
+            }
+        };
+
         list.addEventListener("click", async (event) => {
             const button = event.target instanceof Element ? event.target.closest("button") : null;
-            const card = button?.closest(".discoverCard");
-            if (!(button instanceof HTMLButtonElement) || !(card instanceof HTMLElement)) return;
+            if (!(button instanceof HTMLButtonElement)) return;
+            const undoRow = button.closest(".discoverUndo");
+            if (undoRow instanceof HTMLElement) {
+                await undoDecision(undoRow, button);
+                return;
+            }
+            const card = button.closest(".discoverCard");
+            if (!(card instanceof HTMLElement)) return;
             const channelId = card.dataset.channelId || "";
             const title = query(".discoverTitle", card).textContent || channelId;
-            // 押したボタンの場所を disabled にする前に覚える。判定でカードを消す・「監視する」を札に置き換えると、
-            // 押したボタンが DOM から外れてフォーカスが body へ落ちるので、隣のカード（無ければ今のタブ）へ戻す
+            // 押したボタンの場所を disabled にする前に覚える。「監視する」を札に置き換えると、
+            // 押したボタンが DOM から外れてフォーカスが body へ落ちるので、同じカードの操作へ戻す
+            // （判定のときはカードを取り消しの行に置き換え、フォーカスは取り消しのボタンへ移すので使わない）
             const restoreFocus = rememberFocus(list, query(".discoverTabs a[aria-current]", root));
             button.disabled = true;
             try {
@@ -141,11 +211,14 @@ const myDiscoverView = {
                     const status = button.dataset.status;
                     await apiPut(`/api/my/discover/candidates/${encodeURIComponent(channelId)}`, { status });
                     if (!list.isConnected) return;
-                    card.remove();
-                    showEmptyIfNone();
-                    restoreFocus();
                     /** @type {Record<string, string>} */
                     const done = { VTUBER: " VTuber と判定しました", REJECTED: "「ちがう」にしました", CANDIDATE: "候補に戻しました" };
+                    // カードを消さずに取り消しの行へ置き換える（押し間違えをその場で戻せるように）。
+                    // 押したボタンが消えるので、フォーカスは取り消しのボタンへ移す（body に落とさない）
+                    const row = myDiscoverUndoRow(channelId, title, done[status]);
+                    card.replaceWith(row);
+                    query("button", row).focus();
+                    showEmptyIfNone();
                     showToast(`${title} を${done[status]}`);
                 } else {
                     await apiPost("/api/my/channels", { platform: "YOUTUBE", channelInput: channelId, channelName: title });
@@ -176,8 +249,9 @@ const myDiscoverView = {
                 clearError();
                 input.value = "";
                 if (item.status === tab.status) {
-                    // 既にあった候補は取り直した値で置き換える
-                    list.querySelector(`.discoverCard[data-channel-id="${CSS.escape(item.channelId)}"]`)?.remove();
+                    // 既にあった候補と、同じチャンネルの取り消しの行は、取り直した値のカードで置き換える
+                    // （「ちがう」にした候補を URL で足し直すとサーバーが候補に戻すので、取り消しの行を残すとカードが 2 枚になる）
+                    list.querySelectorAll(`[data-channel-id="${CSS.escape(item.channelId)}"]`).forEach((node) => node.remove());
                     list.querySelector(".emptyState")?.remove();
                     list.prepend(myDiscoverCard(item, await subscribedLoad));
                 }
