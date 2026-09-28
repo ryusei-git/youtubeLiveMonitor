@@ -113,13 +113,15 @@ public class RecordingSalvager {
      * 後始末（{@link RecordingReconciler}）が直す（{@link SalvageStatus#INSUFFICIENT_SPACE}）。
      * ここで消すと、直せたはずの録画を失う。判定は {@link #remux} と同じ {@link #lacksSpaceFor} を使う。
      *
-     * <p>入力は {@link #ensurePlayable} と同じく、{@code {動画ID}.mp4} があればそれ、無ければ結合前の断片とする。
-     * {@code {動画ID}.mp4} がそのまま再生できるかは確かめない（{@code ffprobe} を起動しないため）。
-     * 再生できる MP4 でも、空きが足りなければ {@code true} を返す（消さない側に倒れる）。
+     * <p>入力は {@link #ensurePlayable} と同じく、{@code {動画ID}.mp4} があればそれ、
+     * 無ければ結合前の断片とする。{@code {動画ID}.mp4} がそのまま再生できるかは確かめない
+     * （{@code ffprobe} を起動しないため）。再生できる MP4 でも、空きが足りなければ
+     * {@code true} を返す（消さない側に倒れる）。
      *
      * @param outputFile 完成予定の録画ファイルのパス（{@code {動画ID}.mp4}）
-     * @return 詰め替えの入力があり、空き容量を読めて、それが「入力の合計＋下限」に満たなければ {@code true}。
-     *         入力が無い・空き容量を読めない・{@link #minFreeGb} が 0 以下なら {@code false}
+     * @return 詰め替えの入力があり、空き容量を読めて、それが「入力の合計＋下限」に満たなければ
+     *         {@code true}。入力が無い・空き容量を読めない・{@link #minFreeGb} が 0 以下なら
+     *         {@code false}
      */
     public boolean lacksSpaceToSalvage(Path outputFile) {
         List<Path> inputs = Files.isRegularFile(outputFile)
