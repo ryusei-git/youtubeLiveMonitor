@@ -27,7 +27,8 @@ import java.util.Optional;
  *   <li>{@link YouTubeChannelInputParser} … URL・ハンドルからチャンネル ID の取り出し</li>
  * </ul>
  *
- * <p>{@link #fallbackDetails} だけは委譲先が無く、ここで検知結果を詰め替えている（詳細の取得に失敗したときに使う代わりの本文）。
+ * <p>{@link #fallbackDetails} だけは委譲先が無く、ここで検知結果を詰め替えている
+ * （詳細の取得に失敗したときに使う代わりの本文）。
  *
  * <p>{@code detectLiveStreams}（まとめて問い合わせ）は既定のまま上書きしない。
  * YouTube はチャンネルごとにページを取得する方式で、まとめる手段が無いため。
