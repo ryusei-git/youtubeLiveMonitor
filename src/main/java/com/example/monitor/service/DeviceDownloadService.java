@@ -148,7 +148,7 @@ public class DeviceDownloadService {
             if (existing.isPresent() && existing.get().getStatus() == RecordingStatus.COMPLETED) {
                 Recording recording = existing.get();
                 audit(user, "RECORDING", String.valueOf(recording.getId()), url, job.videoId);
-                return new DeviceDownloadResponse(null, Status.READY, recording.getVideoTitle(),
+                return new DeviceDownloadResponse(null, Status.READY, recording.getVideoId(), recording.getVideoTitle(),
                         recording.getId(), "/recordings/" + recording.getFilePath());
             }
 
@@ -450,7 +450,7 @@ public class DeviceDownloadService {
         private DeviceDownloadResponse toResponse() {
             Status current = status;
             String fileUrl = current.hasFile() ? "/api/my/downloads/device/" + id + "/file" : null;
-            return new DeviceDownloadResponse(id, current, title, null, fileUrl);
+            return new DeviceDownloadResponse(id, current, videoId, title, null, fileUrl);
         }
     }
 }

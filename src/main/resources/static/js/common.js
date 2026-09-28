@@ -562,7 +562,8 @@ const PLAYABLE_RECORDING_STATUSES = ["COMPLETED", "PARTIAL"];
  * ブラウザに任せると、置き換え方がブラウザごとに違うため。長いタイトルは、端末によってはファイル名の長さの上限を
  * 超えるため 100 文字で切る。
  *
- * @param {Recording} recording 録画
+ * @param {Pick<Recording, "videoTitle" | "videoId">} recording 録画（タイトルと動画 ID だけを使う。
+ *   端末保存の応答（DeviceDownloadResponse）からも呼ぶため、録画履歴 1 件の全項目は求めない）
  * @returns {string} ファイル名
  */
 function recordingDownloadName(recording) {

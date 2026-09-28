@@ -9,13 +9,15 @@ package com.example.monitor.dto;
  *
  * @param jobId       仕事の ID。既にある録画を渡す場合は {@code null}
  * @param status      状態
- * @param title       動画のタイトル。取得できなかった場合は動画 ID。受け付けた直後（動画の情報を調べている数秒）の仕事は {@code null}
+ * @param videoId     動画 ID。画面が端末に保存するときのファイル名（タイトルが無い場合は {@code <動画ID>.mp4}）を作るのに使う。受け付けた直後（動画の情報を調べている数秒）の仕事は {@code null}
+ * @param title      動画のタイトル。取得できなかった場合は動画 ID。受け付けた直後（動画の情報を調べている数秒）の仕事は {@code null}
  * @param recordingId 既にある録画を渡す場合の録画履歴の主キー。一時取得なら {@code null}
  * @param fileUrl     受け取り先の URL。{@link Status#READY} と {@link Status#PARTIAL} のときだけ入る
  */
 public record DeviceDownloadResponse(
         String jobId,
         Status status,
+        String videoId,
         String title,
         Long recordingId,
         String fileUrl
