@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -52,6 +53,12 @@ import java.util.stream.Stream;
  * このサービスの条件はその結果にあとから当てるので、変えても回数を使わない。
  * DB に保存しないのは、API の値を 30 日以内に取り直すか消す規約（III.E.4.d）より十分短く、
  * 再起動で消えても困らないため。
+ *
+ * <h2>同じ条件の検索が重なったら、先の読み込みを待つ</h2>
+ * 使い回しは結果を入れてから効くので、1 本目の応答が返る前に同じ条件の 2 本目が来ると、両方が外れて回数を 2 回使う
+ * （Enter の連打や、戻る・進むで起きる）。そこで鍵ごとに読み込み中の印を置き、後の方は先の読み込みが終わるまで
+ * 待ってから使い回しを見直す。先の読み込みが失敗したときは後の方が自分の回数で読み直す（失敗の理由がその人の
+ * 上限のこともあり、別の利用者に引き継ぐと、回数が残っている人まで 429 になるため）。
  *
  * <h2>足りないときに次のページを 1 回だけ読む</h2>
  * このサービスの条件で絞ると、50 件が数件になることがある。20 件を下回ったら
@@ -92,6 +99,11 @@ public class YouTubeSearchService {
 
     /** 「公式の条件と pageToken」ごとの検索結果（印は付けていない）。 */
     private final Map<List<String>, Cached<Page>> searchCache = new ConcurrentHashMap<>();
+    /**
+     * 読み込み中の鍵と、その読み込みの終わりを知らせる印。同じ鍵の検索が同時に来たとき、後の方を待たせて使い回しに当てる。
+     * 印は成否に関わらず正常に完了させる（失敗を待っていた側に引き継がないため）。
+     */
+    private final Map<List<String>, CompletableFuture<Void>> loading = new ConcurrentHashMap<>();
     /** 動画 ID ごとの詳細（印は付けていない）。 */
     private final Map<String, Cached<YouTubeVideoResponse>> videoCache = new ConcurrentHashMap<>();
 
@@ -185,14 +197,47 @@ public class YouTubeSearchService {
 
     /**
      * 1 ページを読む。使い回せるならそれを返し、無ければ回数を使って API を呼ぶ。
+     * 同じ鍵を読み込み中なら、その終わりを待ってから使い回しを見直す。
      */
     private Page loadPage(YouTubeSearchRequest request, String pageToken, String username) {
         List<String> key = cacheKey(request, pageToken);
-        Instant now = Instant.now();
-        Cached<Page> cached = searchCache.get(key);
-        if (cached != null && cached.isFresh(now, SEARCH_CACHE_TTL)) {
-            return cached.value();
+        while (true) {
+            Page cached = freshPage(key);
+            if (cached != null) {
+                return cached;
+            }
+            CompletableFuture<Void> mine = new CompletableFuture<>();
+            CompletableFuture<Void> running = loading.putIfAbsent(key, mine);
+            if (running != null) {
+                // 先に来た同じ条件の読み込みを待つ。成功していれば次の周で使い回しに当たる。
+                // 失敗していれば、この要求が自分の回数で読み直す
+                running.join();
+                continue;
+            }
+            try {
+                // 使い回しを見てから印を置くまでの間に、先の読み込みが終わって入れていた場合
+                cached = freshPage(key);
+                if (cached != null) {
+                    return cached;
+                }
+                return fetchPage(request, pageToken, username, key);
+            } finally {
+                // 先に外してから知らせる（逆だと、起きた側が完了済みの古い印を拾って空回りする）
+                loading.remove(key, mine);
+                mine.complete(null);
+            }
         }
+    }
+
+    /** 使い回せる 1 ページを返す。無いか古ければ {@code null}。 */
+    private Page freshPage(List<String> key) {
+        Cached<Page> cached = searchCache.get(key);
+        return cached != null && cached.isFresh(Instant.now(), SEARCH_CACHE_TTL) ? cached.value() : null;
+    }
+
+    /** 回数を使って API を呼び、結果を使い回しに入れる。 */
+    private Page fetchPage(YouTubeSearchRequest request, String pageToken, String username, List<String> key) {
+        Instant now = Instant.now();
         requireApiKey();
         budget.acquireForUser(username);
         YouTubeSearchClient.SearchPage found = call(() -> client.searchVideoIds(request, pageToken), true);
