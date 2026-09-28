@@ -25,6 +25,9 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -180,6 +183,36 @@ class SettingsControllerTest {
             ResponseEntity<Void> response = controller.updateSettings(request);
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        }
+
+        @Test
+        @DisplayName("異常系：DiscordのWebhookの形でないURLは断り、一緒に送った項目も保存しない")
+        void testMethod04() {
+            SettingsController controller = newController("", "", 0);
+            SettingsUpdateRequest request = new SettingsUpdateRequest(
+                    null, "https://example.com/api/webhooks/1/secret-token", null, null, 1234, null, null);
+
+            assertThatThrownBy(() -> controller.updateSettings(request))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageNotContaining("secret-token");
+
+            verify(environmentSettingsService, never()).updateEnvFile(any());
+        }
+
+        @Test
+        @DisplayName("正常系：前後の空白を落としたWebhookのURLを保存する")
+        void testMethod05() {
+            SettingsController controller = newController("", "", 0);
+            SettingsUpdateRequest request = new SettingsUpdateRequest(
+                    null, "  https://discord.com/api/webhooks/123456789012345678/dummy-token \n",
+                    null, null, null, null, null);
+
+            controller.updateSettings(request);
+
+            ArgumentCaptor<Map<String, String>> captor = ArgumentCaptor.forClass(Map.class);
+            verify(environmentSettingsService).updateEnvFile(captor.capture());
+            assertThat(captor.getValue())
+                    .containsEntry("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/123456789012345678/dummy-token");
         }
     }
 
