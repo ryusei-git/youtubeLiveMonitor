@@ -8,8 +8,10 @@ import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
+import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.exception.InsufficientDiskSpaceException;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
+import com.example.monitor.exception.RecordingNotFoundException;
 import com.example.monitor.exception.ServiceDownloadInProgressException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.platform.StreamPlatform;
@@ -131,6 +133,9 @@ public class VideoDownloadService {
      * <p><b>自動録画（{@link StreamRecorder}）と予約を共有している。</b>手動ダウンロード中の
      * 配信の自動録画が次の巡回で始まる、という経路があるため、それぞれが別々の集合を持つと
      * 同時開始の競合を防げない（詳細は {@link ActiveVideoJobs} の JavaDoc 参照）。
+     *
+     * <p>失敗の履歴を消して取り直すとき（{@code discardFailedHistory}）も、予約を持ったまま消す。
+     * 予約が無いと、同じ動画の自動録画や後始末が触っている最中のファイルまで消しうる。
      */
     private final ActiveVideoJobs activeVideoJobs;
 
@@ -169,13 +174,16 @@ public class VideoDownloadService {
      * {@code yt-dlp} のダウンロードプロセスを起動する前に拒否する。理由は
      * {@link LiveStreamDownloadRejectedException} の JavaDoc を参照。
      *
+     * <p>失敗（{@code FAILED}）の履歴だけが残っている動画は、その履歴とファイルを消して取り直す
+     * （{@code discardFailedHistory} の JavaDoc 参照）。
+     *
      * @param rawUrl 利用者が入力した動画の URL
      * @return 受け付けた内容（録画履歴の主キー・動画 ID・タイトル・紐づいたチャンネル）
      * @throws IllegalArgumentException           URL が空、対応していないプラットフォーム、
      *                                            または動画の情報を取得できなかった場合
      * @throws LiveStreamDownloadRejectedException 配信中・配信開始前の URL の場合
-     * @throws VideoAlreadyDownloadedException    同じ動画の録画履歴が既にある、
-     *                                            または既に処理中の場合
+     * @throws VideoAlreadyDownloadedException    同じ動画を取得中、または再生できる録画（完了・途中まで）が
+     *                                            既にある場合。失敗の履歴だけなら投げずに、消して取り直す
      * @throws InsufficientDiskSpaceException     空き容量がしきい値を下回る場合（503）
      * @throws ServiceDownloadInProgressException 一般利用者が既に 1 件保存中の場合（409）
      * @throws IllegalStateException              保存先を作れない、
@@ -218,7 +226,7 @@ public class VideoDownloadService {
 
             try {
                 if (recordingRepository.existsByVideoId(videoId)) {
-                    throw new VideoAlreadyDownloadedException(videoId);
+                    discardFailedHistory(videoId);
                 }
 
                 if (limitedUserId != null) {
@@ -242,6 +250,66 @@ public class VideoDownloadService {
                 userSlots.remove(limitedUserId);
             }
         }
+    }
+
+    /**
+     * 失敗（{@code FAILED}）の履歴だけが残っている動画なら、その履歴とファイルを消して取り直せるようにする。
+     *
+     * <p><b>なぜ消して取り直すのか。</b>以前は状態を問わず断り、録画履歴を先に消すよう求めていた。
+     * #450 でこの処理を一般利用者にも開いたが、録画を消す API（{@code /api/recordings/**}）は管理者だけなので、
+     * 一時的な通信エラーで失敗した動画は、利用者からは二度と保存できなかった。{@code FAILED} は再生できるものが
+     * 何も無い状態（{@link RecordingStatus#FAILED}）で、利用者のアーカイブにも出ないので、消しても失うものは無い。
+     * 「既にサービスの録画にあるときは取り直さない」（#449 の決定）は、再生できる録画（完了・途中まで）があるときに守る。
+     * ファイルも消すのは、再生できない {@code {動画ID}.mp4} や断片が残っていると、yt-dlp が出力先にある
+     * ファイルを使い回して、また失敗になりうるため。
+     *
+     * <p><b>1 件でも失敗以外の履歴があれば何も消さない。</b>{@link RecordingHistoryService#deleteRecording(Long)} は
+     * 同じフォルダーにある同じ動画 ID のファイルをまとめて消すので、完了した録画と同じ動画 ID の失敗の履歴を消すと、
+     * 完了した録画のファイルまで消える。
+     *
+     * <p><b>呼び出し元がこの動画 ID を {@link ActiveVideoJobs} で予約していること。</b>予約を持ったまま消すので、
+     * 同じ動画の自動録画や後始末（{@link RecordingReconciler}）が触っている最中のファイルを消すことは無い
+     * （後始末も予約を取ってから行を読み直す）。{@link RecordingHistoryService#deleteRecording(Long)} は予約を見ないので、
+     * 予約を持ったまま呼べる。予約を見るように変えるなら、ここも合わせて直す。
+     *
+     * <p><b>OS 上のプロセスは確かめない</b>（後始末の 2 段階の確認のうち、
+     * {@link ProcessLauncher#isRunningWithCommandLineContaining(String)} は使わない）。「端末に保存」
+     * （{@link DeviceDownloadService}）の {@code yt-dlp} も同じ動画 ID をコマンドラインに含むので、確かめると、
+     * 誰かが端末に保存しているだけで断ってしまうため。予約で避けられないのは、再起動前の JVM が失敗の行に始めた
+     * 詰め替えの {@code ffmpeg} が生き残っている間（1 件最大 600 秒）だけ（{@code docs/pitfalls.md}
+     * 「録画中にアプリを再起動すると「録画中」のまま更新されなくなる」）。そのファイルを消しても、失敗の録画なので
+     * 再生できるものは失わない。消せずに残って取り直しがまた失敗しても、その {@code ffmpeg} が終わった後に
+     * もう一度保存すれば通る。
+     *
+     * <p>監査ログには、操作した人の操作として {@code RECORDING_DELETE}（消した失敗の履歴）と
+     * {@code DOWNLOAD_REQUEST}（取り直し）が並ぶので、何を消して取り直したかを後から追える。
+     *
+     * @param videoId 動画 ID
+     * @throws VideoAlreadyDownloadedException 再生できる録画がある場合（保存済みの文言）。取得中の履歴がある、
+     *                                         または確かめている間に履歴が消えた場合（取得中の文言。もう一度押せば通る）
+     */
+    private void discardFailedHistory(String videoId) {
+        List<Recording> history = recordingRepository.findByVideoId(videoId);
+        boolean playable = history.stream().anyMatch(recording -> recording.getStatus() == RecordingStatus.COMPLETED
+                || recording.getStatus() == RecordingStatus.PARTIAL);
+        if (playable) {
+            throw VideoAlreadyDownloadedException.alreadySaved(videoId);
+        }
+        // RECORDING が残っている（再起動で追跡を失った取得がまだ動いている・後始末を待っている）か、
+        // existsByVideoId の後に行が消えた（管理者が同時に消した）。どちらも少し待てば通る
+        boolean onlyFailed = !history.isEmpty()
+                && history.stream().allMatch(recording -> recording.getStatus() == RecordingStatus.FAILED);
+        if (!onlyFailed) {
+            throw new VideoAlreadyDownloadedException(videoId);
+        }
+        for (Recording failed : history) {
+            try {
+                recordingHistoryService.deleteRecording(failed.getId());
+            } catch (RecordingNotFoundException e) {
+                // 確かめてから消すまでの間に、管理者が同じ履歴を消した。消えていれば目的は果たしている
+            }
+        }
+        log.info("失敗で終わった履歴を消して、取り直します: video={}, count={}", videoId, history.size());
     }
 
     /**

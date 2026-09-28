@@ -411,8 +411,11 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
     /**
      * 指定した動画 ID の録画履歴が既に存在するかを判定する。
      *
-     * <p>同じ動画を二重にダウンロードしないための確認に使う
-     * （状態は問わない。失敗した録画が残っている場合は、先にその履歴を削除してもらう）。
+     * <p>URL 指定のダウンロードが新しい動画（ほとんどの場合）を 1 回の問い合わせで通すためと、
+     * 孤立ファイルの確認（{@link com.example.monitor.service.OrphanedPreviewService}）が履歴のある動画の
+     * ファイルを消さないために使う。状態は問わない。ダウンロードは、履歴があれば {@link #findByVideoId} で
+     * 状態を見て、失敗（{@code FAILED}）だけなら消して取り直す
+     * （{@link com.example.monitor.service.VideoDownloadService#startDownload(String)}）。
      *
      * @param videoId 確認する動画 ID
      * @return 履歴が存在すれば {@code true}
@@ -420,11 +423,27 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
     boolean existsByVideoId(String videoId);
 
     /**
+     * 指定した動画 ID の録画履歴をすべて返す。
+     *
+     * <p>URL 指定のダウンロード（{@link com.example.monitor.service.VideoDownloadService}）が、
+     * 失敗（{@code FAILED}）の履歴だけが残っているか（消して取り直してよいか）を確かめるために使う。
+     * {@link #findFirstByVideoId} の 1 件だけで判断しないのは、失敗と完了の履歴が並んでいるときに完了を見落とすと、
+     * 失敗の履歴と一緒に完了した録画のファイルまで消してしまうため
+     * （{@link com.example.monitor.service.RecordingFileService#deleteFile(Recording)} は、同じフォルダーにある
+     * 同じ動画 ID のファイルをまとめて消す）。
+     *
+     * @param videoId 動画 ID
+     * @return 録画履歴。無ければ空
+     */
+    List<Recording> findByVideoId(String videoId);
+
+    /**
      * 指定した動画 ID の録画履歴を 1 件返す。
      *
      * <p>「端末に保存」で、既にサービスにある録画のファイルをそのまま渡すために使う
      * （{@link #existsByVideoId} だけでは渡すファイルの場所が分からない）。
-     * 取り直さない決まりなので同じ動画 ID の履歴は通常 1 件だが、念のため先頭だけを取る。
+     * サービスへの保存は、再生できる録画や取得中の履歴があれば取り直さず、失敗の履歴は消してから取り直すので、
+     * 同じ動画 ID の履歴は通常 1 件だが、念のため先頭だけを取る。
      *
      * @param videoId 動画 ID
      * @return 録画履歴。無ければ空
