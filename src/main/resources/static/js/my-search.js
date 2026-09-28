@@ -443,7 +443,7 @@ const mySearchView = {
                 return data;
             } catch (e) {
                 // 上限（429）・条件の誤り（400）・API の失敗（503）は、サーバーの文言をそのまま出す
-                if (current === request && results.isConnected) showError(errorMessage(e));
+                if (current === request && results.isConnected) showError(errorMessage(e), { reveal: true });
                 return null;
             } finally {
                 if (current === request && results.isConnected) {
@@ -509,11 +509,11 @@ const mySearchView = {
             }
             const channel = url.searchParams.get("channel");
             if (channel && !mySearchChannelId(channel)) {
-                showError("チャンネルの ID（UC で始まる 24 文字）か、/channel/UC… の URL を入れてください。@ で始まるハンドルは使えません");
+                showError("チャンネルの ID（UC で始まる 24 文字）か、/channel/UC… の URL を入れてください。@ で始まるハンドルは使えません", { reveal: true });
                 return;
             }
             if (!url.searchParams.get("q") && !channel) {
-                showError("キーワードを入れてください（チャンネルを限定したときは空でも探せます）");
+                showError("キーワードを入れてください（チャンネルを限定したときは空でも探せます）", { reveal: true });
                 return;
             }
             // 公式の条件が前と同じなら、投稿日の起点は前の検索のものを使う（数え直すと、このサービスの条件だけを変えても回数を使うため）
@@ -680,7 +680,7 @@ const mySearchWatchView = {
                 showToast("保存を始めました。終わるとアーカイブに出ます");
             } catch (e) {
                 // 配信中・同時に 2 件目・空き容量不足は、サーバーの文言をそのまま出す
-                if (info.isConnected) showError(errorMessage(e));
+                if (info.isConnected) showError(errorMessage(e), { reveal: true });
                 button.disabled = false;
             }
         });
@@ -697,7 +697,7 @@ const mySearchWatchView = {
                 info.querySelector(".serviceWatchLamp")?.remove();
                 button.outerHTML = MY_SEARCH_SUBSCRIBED_LAMP;
             } catch (e) {
-                if (info.isConnected) showError(errorMessage(e));
+                if (info.isConnected) showError(errorMessage(e), { reveal: true });
                 button.disabled = false;
             }
         });
