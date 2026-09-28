@@ -1,10 +1,13 @@
 package com.example.monitor.service;
 
 import com.example.monitor.dto.VideoSource;
+import com.example.monitor.util.YtDlpJsRuntime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,6 +42,20 @@ public class VideoSourceProbe {
     private final ExternalCommandRunner externalCommandRunner;
 
     /**
+     * {@code yt-dlp} に {@code --js-runtimes} で渡す JavaScript のランタイム（空なら付けない）。
+     * 理由は {@link YtDlpJsRuntime} を参照。
+     *
+     * <p>録画・ダウンロード本体と同じ設定を使う。下調べだけ付けないと、yt-dlp が JS ランタイムなしでは
+     * YouTube の形式を取れなくなったとき、ダウンロード本体は取れるのに下調べが先に失敗して、
+     * 手動ダウンロード（サービスに保存・端末に保存）が全部止まる。
+     *
+     * <p>final でないので {@code @RequiredArgsConstructor} のコンストラクタは変わらない
+     * （Spring を通さずに組み立てる {@code VideoSourceProbeTest} がそのまま動く。{@link VideoDownloadService} と同じ）。
+     */
+    @Value("${monitor.recording.js-runtime:}")
+    private String jsRuntime = "";
+
+    /**
      * URL から動画のメタデータを取得する。
      *
      * @param url ダウンロード対象の動画 URL
@@ -46,8 +63,10 @@ public class VideoSourceProbe {
      *         {@code yt-dlp} が未インストール等）場合は {@link Optional#empty()}
      */
     public Optional<VideoSource> probe(String url) {
-        List<String> command = List.of(
-                "yt-dlp",
+        List<String> command = new ArrayList<>();
+        command.add("yt-dlp");
+        command.addAll(YtDlpJsRuntime.options(jsRuntime));
+        command.addAll(List.of(
                 // 警告文が標準出力に混ざると解析対象の行が特定しづらくなる
                 "--no-warnings",
                 // 再生リスト付きの URL（&list=...）を貼られても、対象は1本だけにする
@@ -55,7 +74,7 @@ public class VideoSourceProbe {
                 // --print だけでもダウンロードはされないが、意図を明示しておく
                 "--simulate",
                 "--print", VideoSource.PRINT_TEMPLATE,
-                url);
+                url));
 
         Optional<VideoSource> source = externalCommandRunner
                 .run(command, url, COMMAND_TIMEOUT_SECONDS)
