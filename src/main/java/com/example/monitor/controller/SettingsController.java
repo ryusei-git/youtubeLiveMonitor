@@ -6,6 +6,7 @@ import com.example.monitor.dto.SettingsResponse;
 import com.example.monitor.dto.SettingsUpdateRequest;
 import com.example.monitor.service.EnvironmentSettingsService;
 import com.example.monitor.service.NativeDirectoryPickerService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -71,11 +72,13 @@ public class SettingsController {
      * 保存しても実行中のアプリにはすぐ反映されないため、反映には
      * {@code bin/service.sh restart} が必要（{@link EnvironmentSettingsService}参照）。
      *
+     * <p>保存できない値は 400、{@code .env} を読めない・書けないときは 500 で、どちらも {@code .env} は変わらない。
+     *
      * @param request 変更したい項目
      * @return 本文なしの HTTP 204
      */
     @PutMapping
-    public ResponseEntity<Void> updateSettings(@RequestBody SettingsUpdateRequest request) {
+    public ResponseEntity<Void> updateSettings(@Valid @RequestBody SettingsUpdateRequest request) {
         Map<String, String> updates = new LinkedHashMap<>();
         putIfPresent(updates, KEY_YOUTUBE_API_KEY, request.youtubeApiKey());
         putIfPresent(updates, KEY_DISCORD_WEBHOOK_URL, request.discordWebhookUrl());
@@ -117,11 +120,11 @@ public class SettingsController {
      *
      * @param updates 更新内容を集めるマップ
      * @param key     {@code .env} のキー名
-     * @param value   利用者からの入力値。{@code null}または空文字なら何もしない
+     * @param value   利用者からの入力値。{@code null}または空文字なら何もしない。前後の空白は落とす
      */
     private void putIfPresent(Map<String, String> updates, String key, String value) {
         if (value != null && !value.isBlank()) {
-            updates.put(key, value);
+            updates.put(key, value.strip());
         }
     }
 
