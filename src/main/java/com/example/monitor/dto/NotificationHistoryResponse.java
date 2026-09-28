@@ -24,7 +24,7 @@ import java.time.LocalDateTime;
  *                         配信元を推測しないのは、Twitch の配信 ID（数字だけ）が 11 文字だと
  *                         YouTube の動画 ID と見分けられないため。URL を履歴に保存せず、返すたびに
  *                         組み立てるのは、列を足さずに保存済みの履歴にも同じ決まりを効かせるため
- * @param videoTitle      通知時点での配信タイトル
+ * @param videoTitle       通知時点での配信タイトル
  * @param status           送信結果（{@code SUCCESS} または {@code FAILED}）
  * @param errorMessage     失敗理由。成功時は {@code null}
  * @param notifiedAt       送信を試みた時刻
