@@ -385,7 +385,11 @@ function ensureOptionPresent(select, currentValue, formatLabel) {
  * <p>読み込めていない間は null にして、保存させない。読めないまま保存すると選択欄の先頭の値
  * （60 秒・上限なし）が送られ、本当の設定を上書きしてしまうため。
  *
- * @type {{intervalSeconds: number, recordingDirectory: string, recordingMaxHeight: number} | null}
+ * <p>{@code pendingRestart} は読み込んだときの再起動待ちの文。保存が要らなかったときや失敗したときに
+ * 結果の欄をこれへ戻し、再起動待ちの表示が消えないようにする。
+ *
+ * @type {{intervalSeconds: number, recordingDirectory: string, recordingMaxHeight: number,
+ *     pendingRestart: string} | null}
  */
 let loadedSettings = null;
 
@@ -473,7 +477,7 @@ async function loadSettings() {
         result.textContent = pending;
         query("summary", el("monitorSettings")).textContent =
             pending ? "監視・録画の設定（再起動待ちあり）" : "監視・録画の設定";
-        loadedSettings = { intervalSeconds, recordingDirectory, recordingMaxHeight };
+        loadedSettings = { intervalSeconds, recordingDirectory, recordingMaxHeight, pendingRestart: pending };
         submitBtn.disabled = false;
         return true;
     } catch (e) {
@@ -540,7 +544,7 @@ formEl("settingsForm").addEventListener("submit", async (ev) => {
         recordingMaxHeight: recordingMaxHeight !== loaded.recordingMaxHeight ? recordingMaxHeight : null,
     };
     if (Object.values(body).every((value) => value === null)) {
-        result.textContent = "変更された項目がありません。";
+        result.textContent = `変更された項目がありません。${loaded.pendingRestart}`;
         return;
     }
 
@@ -555,7 +559,9 @@ formEl("settingsForm").addEventListener("submit", async (ev) => {
         twitchClientIdInput.value = "";
         twitchClientSecretInput.value = "";
     } catch (e) {
-        result.textContent = "";
+        // 400・500 なら .env は変わっていない（SettingsController.updateSettings() 参照）ので、
+        // 読み込んだときの再起動待ちの文に戻す（空にすると、再起動待ちの変更まで消えたように見える）
+        result.textContent = loaded.pendingRestart;
         showError(errorMessage(e));
         submitBtn.disabled = false;
         return;
