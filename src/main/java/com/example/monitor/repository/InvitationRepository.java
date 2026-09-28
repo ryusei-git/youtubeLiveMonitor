@@ -37,8 +37,10 @@ public interface InvitationRepository extends JpaRepository<Invitation, Long> {
      * 1 回しか通さないため。読んでから {@code save} する 2 段にすると、両方が「未使用」を読んで両方通り、
      * 1 つの招待から複数のアカウントができる。{@link AppUserRepository#resetPasswordByToken} と同じ考え方。
      *
-     * <p>{@code @Transactional} を付けないのは、呼び出し側（利用者の登録）のトランザクションに入れ、
-     * 利用者の作成が失敗したときに使用済みの書き込みも一緒に巻き戻すため。
+     * <p>利用者の登録（{@code InvitationService.register}）のトランザクションの中で呼ぶこと。
+     * 使用済みの書き込みと利用者の作成を同じトランザクションに入れ、作成が失敗したら使用済みも一緒に
+     * 巻き戻すため。単独で確定させる使い方はしないので、{@link AppUserRepository#disableUser} と同じく
+     * {@code @Transactional} は付けていない。
      *
      * @param id       招待の主キー
      * @param username この招待で作る利用者名
