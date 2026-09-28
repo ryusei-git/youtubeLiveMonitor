@@ -265,6 +265,11 @@ td .markBtn { margin-right: 0; }
 #playerDock.is-full + main.shell { padding-top: 16px; }
 #playerDock.is-full .dockMiniOnly { display: none; }
 .dockBar { display: flex; align-items: center; gap: 8px; }
+/* 再生画面ではボタンが増えて、狭い画面では 1 行に収まらないので折り返す */
+#playerDock.is-full .dockBar { flex-wrap: wrap; }
+.dockRateLabel { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.83rem; color: var(--text-muted); white-space: nowrap; }
+/* 速度は一度決めれば変えないことが多い設定なので、再生画面でだけ出す（ミニプレーヤーは題名の幅を残す） */
+#playerDock.is-mini .dockRateLabel { display: none; }
 #playerDock.is-mini { position: fixed; left: 236px; right: 0; bottom: 0; z-index: 25; display: flex; align-items: center; gap: 14px; height: var(--dock-mini-height); padding: 8px 20px; background: #fff; border-top: 1px solid var(--border); box-shadow: 0 -6px 18px #23212d10; }
 #playerDock.is-mini .player { width: 100px; height: 56px; max-height: none; margin: 0; border-radius: 6px; flex: none; }
 #playerDock.is-mini .dockBar { flex: 1; min-width: 0; }
@@ -277,6 +282,8 @@ body:has(#playerDock.is-mini) { padding-bottom: var(--dock-mini-height); }
 body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height) + 12px); }
 @media (max-width: 1150px) {
     #playerDock.is-full { padding: 24px 24px 0; }
+    /* ミニプレーヤーの ±10 秒は、題名の幅が残る広い画面でだけ出す（狭いと題名が読めなくなり、760px 付近ではボタンがはみ出す） */
+    #playerDock.is-mini .dockSeek { display: none; }
 }
 @media (max-width: 760px) {
     :root { --dock-mini-height: 60px; }
