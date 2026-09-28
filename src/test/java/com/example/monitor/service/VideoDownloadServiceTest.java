@@ -75,6 +75,9 @@ class VideoDownloadServiceTest {
     private RecordingSalvager recordingSalvager;
 
     @Mock
+    private RecordingFileService recordingFileService;
+
+    @Mock
     private RecordingRepository recordingRepository;
 
     @Mock
@@ -103,7 +106,7 @@ class VideoDownloadServiceTest {
                 new RecordingProperties(recordingDirectory.toString(), 0),
                 new MonitorProperties.AdminProperties("admin", ""));
         return new VideoDownloadService(properties, streamPlatformRegistry, videoSourceProbe,
-                processLauncher, recordingHistoryService, recordingSalvager,
+                processLauncher, recordingHistoryService, recordingSalvager, recordingFileService,
                 recordingRepository, monitoredChannelRepository, appUserRepository, auditLogger,
                 new ActiveVideoJobs());
     }
@@ -127,7 +130,7 @@ class VideoDownloadServiceTest {
                 new RecordingProperties(recordingDirectory.toString(), 0),
                 new MonitorProperties.AdminProperties("admin", ""));
         return new VideoDownloadService(properties, streamPlatformRegistry, videoSourceProbe,
-                processLauncher, recordingHistoryService, recordingSalvager,
+                processLauncher, recordingHistoryService, recordingSalvager, recordingFileService,
                 recordingRepository, monitoredChannelRepository, appUserRepository, auditLogger,
                 activeVideoJobs);
     }
