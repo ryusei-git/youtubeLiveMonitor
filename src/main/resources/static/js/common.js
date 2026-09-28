@@ -1582,8 +1582,11 @@ function editTitleFilterCell(td, oldValue, save) {
     const input = document.createElement("input");
     input.value = oldValue;
     input.setAttribute("aria-label", "通知・録画の条件");
-    // 何を入れる欄なのかが空のときに分からないため、例を出しておく
-    input.placeholder = "例：ASMR（空欄で条件なし）";
+    // 何を入れる欄なのかが空のときに分からないため、例を出しておく。
+    // 除外（先頭の -）は例を見ないと気づけないので例に入れる。欄の幅（style.css の .filterEdit input、11rem）に
+    // 収まるよう例だけにし、書き方の説明は title に回す
+    input.placeholder = "例：ASMR,-切り抜き";
+    input.title = "カンマ区切りのどれかを含む配信が対象。先頭に - を付けた語を含む配信は除外。空欄で条件なし";
     const saveButton = document.createElement("button");
     saveButton.type = "button";
     saveButton.className = "filterSave";
