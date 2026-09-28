@@ -20,7 +20,7 @@ import java.util.List;
  * @param sampleVideoTitle   見つけた動画のタイトル
  * @param matchedWords       一致した語
  * @param foundByTerm        見つけた検索語。手動の登録では {@code null}
- * @param discoveredAt       見つけた日時
+ * @param discoveredAt       見つけた日時。「候補に戻す」とその日時になる（判定されない候補を消す期限の起点）
  * @param refreshedAt        API の値を最後に取った日時（画面の値が「いつ時点か」、規約 III.E.4.f）
  * @param status             {@code CANDIDATE}・{@code VTUBER}・{@code REJECTED}
  * @param decidedBy          判定した利用者のログイン ID

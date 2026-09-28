@@ -22,7 +22,9 @@ import java.time.Instant;
  * <h2>30 日の決まり（YouTube API Services の規約 III.E.4.d）</h2>
  * API で取った値は 30 日以内に取り直すか消す。そのため {@link Status#REJECTED} にしたら
  * {@link #channelId}・{@link #status}・{@link #decidedBy}・{@link #decidedAt} 以外を消し（{@link #clearApiData()}）、
- * それ以外の行は毎日の見回りが取り直す（{@code DiscoveryService.sweep()}）。
+ * それ以外の行は毎日の見回りが取り直す（{@code DiscoveryService.sweep()}）。{@link #refreshedAt} を進めるときは、
+ * API で取った値（チャンネルの値・見つけた動画のタイトル・最初の投稿日）をすべて取り直す。
+ * 一部だけ取り直すと、残りの値が 30 日を超えて残る。
  *
  * <p>NOT NULL の列には DB 側の既定値を書き、enum は文字列の列にする
  * （{@code docs/pitfalls.md}「既存データがある状態で NOT NULL の boolean カラムを追加すると失敗する」
@@ -68,7 +70,9 @@ public class DiscoveryCandidate {
     /** 見つけた検索語。手動の登録では {@code null}。 */
     private String foundByTerm;
 
+    /** 見つけた日時。「候補に戻す」と、その日時にする（判定されない候補を消す期限の起点なので）。 */
     private Instant discoveredAt;
+    /** API の値をすべて最後に取り直した日時。見回りはこれが {@code monitor.discovery.refresh-days} 日より前の行を取り直す。 */
     private Instant refreshedAt;
 
     @Enumerated(EnumType.STRING)
