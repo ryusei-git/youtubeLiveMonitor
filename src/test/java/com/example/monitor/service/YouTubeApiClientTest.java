@@ -49,6 +49,9 @@ class YouTubeApiClientTest {
     @Mock
     private YouTube.Search.List searchListRequest;
 
+    @Mock
+    private YouTubeSearchBudget searchBudget;
+
     @InjectMocks
     private YouTubeApiClient youTubeApiClient;
 

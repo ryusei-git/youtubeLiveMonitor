@@ -2,6 +2,7 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.ChannelSearchResult;
 import com.example.monitor.dto.LiveStreamDetails;
+import com.example.monitor.exception.SearchQuotaExceededException;
 import com.example.monitor.util.ApiKeyRedactor;
 import com.example.monitor.util.EpochTimeConverter;
 import com.example.monitor.util.YouTubeWatchUrl;
@@ -33,7 +34,7 @@ import java.util.Optional;
  *   <caption>メソッドごとのクォータ消費量</caption>
  *   <tr><th>メソッド</th><th>使用 API</th><th>消費クォータ</th><th>想定される呼び出し頻度</th></tr>
  *   <tr><td>{@link #fetchLiveStreamDetails}</td><td>videos.list</td><td>1</td><td>配信を検知した瞬間だけ</td></tr>
- *   <tr><td>{@link #searchChannelsByName}</td><td>search.list</td><td>100</td><td>利用者が手動で検索したときだけ</td></tr>
+ *   <tr><td>{@link #searchChannelsByName}</td><td>search.list</td><td>100</td><td>管理者が手動で検索したときだけ（{@link YouTubeSearchBudget} で回数を数える）</td></tr>
  *   <tr><td>{@link #resolveHandleToChannelId}</td><td>channels.list</td><td>1</td><td>ハンドル形式のチャンネル登録時だけ</td></tr>
  * </table>
  *
@@ -51,6 +52,9 @@ public class YouTubeApiClient {
     private static final long SEARCH_RESULT_LIMIT = 10L;
 
     private final YouTube youtube;
+
+    /** 管理者のチャンネル名検索（{@code search.list}）の回数を、利用者の検索・発掘と同じ予算で数える。 */
+    private final YouTubeSearchBudget searchBudget;
 
     /**
      * 動画 ID から配信の詳細情報を取得する。消費クォータは 1。
@@ -87,10 +91,23 @@ public class YouTubeApiClient {
      * <p>1 日の上限（既定 10,000）に対して 1 回 100 は重いため、
      * 定期監視では絶対に使わず、チャンネル ID が分からないときの手動検索に限って使う。
      *
+     * <p>API を叩く前に {@link YouTubeSearchBudget#acquireForAdmin()} で検索の回数を数える。呼び出し元は
+     * 管理画面（{@code GET /api/channels/search}）と CLI（{@code channel search}）の 2 つあり、片方でも数え忘れると
+     * 利用者の検索・新人発掘と合わせた 1 日の上限の前提が崩れる。そのため呼ぶ側ではなくここで数える。
+     * 利用者の検索（{@link YouTubeSearchService}）は呼ぶ側で数えているが、それは 6 時間の使い回しに
+     * 当たったときに数えないためで、こちらには使い回しが無い。
+     *
+     * <p>YouTube が {@code quotaExceeded} を返したときは空のリストにせず、{@link YouTubeSearchBudget#markExhausted()}
+     * でその日の検索を止めてから例外にする。空で返すと、上限で検索できなかったのに「該当するチャンネルが
+     * 見つかりませんでした」と表示されるため。
+     *
      * @param query 検索したいチャンネル名（部分一致）
      * @return 見つかった候補。該当なし／通信に失敗した場合は空リスト
+     * @throws SearchQuotaExceededException 検索の回数が本日の上限に達している場合、または YouTube が
+     *                                      {@code quotaExceeded} を返した場合（管理画面では 429 になる）
      */
     public List<ChannelSearchResult> searchChannelsByName(String query) {
+        searchBudget.acquireForAdmin();
         List<ChannelSearchResult> searchResults = new ArrayList<>();
         try {
             SearchListResponse response = youtube.search()
@@ -112,6 +129,11 @@ public class YouTubeApiClient {
                 ));
             }
         } catch (IOException e) {
+            if (DiscoveryYouTubeClient.isQuotaExceeded(e)) {
+                searchBudget.markExhausted();
+                log.warn("YouTube のクォータを使い切ったので、今日の検索を止めます: query={}", query);
+                throw new SearchQuotaExceededException();
+            }
             log.error("チャンネル名検索に失敗しました: query={}, reason={}", query, ApiKeyRedactor.describe(e));
         }
         return searchResults;
