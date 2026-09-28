@@ -54,7 +54,11 @@ public enum AuditAction {
     /** 管理者が招待リンクを取り消した。 */
     INVITATION_REVOKE,
 
-    /** 権限の無いパスへのアクセスを試みた。試行そのものが不正の証跡になる。 */
+    /**
+     * ログイン済みで、権限の無いパス（画面・API）へのアクセスを試みた。試行そのものが不正の証跡になる。
+     * CSRF トークンの不一致も同じ種別で記録し、{@link AuditLog#detail} に {@code csrf=true} を付けて見分ける
+     * （記録する条件は {@code RequestAuthenticationHandler} を参照）。
+     */
     ACCESS_DENIED,
 
     /** チャンネルを監視対象として登録した。 */
