@@ -24,7 +24,8 @@ import java.util.List;
  * @param refreshedAt        API の値を最後に取った日時（画面の値が「いつ時点か」、規約 III.E.4.f）
  * @param status             {@code CANDIDATE}・{@code VTUBER}・{@code REJECTED}
  * @param decidedBy          判定した利用者のログイン ID
- * @param registered         監視中のチャンネルか
+ * @param registered         このサービスで監視中のチャンネルか（誰かが登録していれば true。見ている利用者の購読ではない。
+ *                           画面は購読を {@code GET /api/my/channels} で見分け、「マイチャンネル」の札と登録のボタンを出し分ける）
  */
 public record DiscoveryCandidateResponse(String channelId, String title, String iconUrl, String channelUrl,
         Long subscriberCount, boolean subscriberHidden, Long videoCount, String channelPublishedAt,

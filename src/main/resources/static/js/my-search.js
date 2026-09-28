@@ -188,18 +188,61 @@ function mySearchChannel(item) {
     return `<span class="channelWithIcon">${channelIcon(item.channelIconUrl)}${externalLink(item.channelTitle, url)}</span>`;
 }
 
+/** 自分が購読している（マイチャンネルにある）チャンネルの札。 */
+const MY_SEARCH_SUBSCRIBED_LAMP = '<span class="statusLamp">マイチャンネル</span>';
+
+/**
+ * ログイン中の利用者が購読している YouTube のチャンネル ID（UC...）を返す。
+ *
+ * 検索結果・動画の詳細・発掘の候補の registered は「このサービスの誰かが監視しているか」で、自分の購読とは別。
+ * 個人の通知は購読した人にしか届かないので、「マイチャンネル」の札と登録のボタンは自分の購読で出し分ける。
+ * 応答に購読を足さずにマイチャンネルの一覧（GET /api/my/channels）から引くのは、札の意味（マイチャンネルにあるか）と
+ * 一致し、検索・発掘の API に利用者ごとの項目を持ち込まずに済むため。
+ * 比べるのは youtubeChannelId（UC...）で、id（DB の主キー）ではない（docs/pitfalls.md「ID が 2 種類ある」）。
+ * 読めなかったときは空の集合を返す。ボタンが出すぎるだけで、押しても「既に登録されています」が出るだけなので、
+ * 検索結果や候補の表示は止めない。
+ *
+ * @returns {Promise<Set<string>>} チャンネル ID の集合
+ */
+async function mySearchSubscribedChannelIds() {
+    try {
+        const channels = /** @type {any[]} */ (await apiGet("/api/my/channels"));
+        return new Set(channels.filter((c) => c.platform === "YOUTUBE").map((c) => c.youtubeChannelId));
+    } catch {
+        return new Set();
+    }
+}
+
+/**
+ * チャンネルの監視の札とボタン（検索の視聴画面と新人発掘の候補で使う）。
+ * 自分が購読していれば「マイチャンネル」の札だけを出す。購読していなければ登録のボタンを出し、このサービスの誰かが
+ * 監視していれば「サービスで監視中」の札を前に添える。registered だけでボタンを消さないのは、別の人が監視していても
+ * 自分には通知が届かず、ここで登録できないと困るため。
+ *
+ * @param {{channelId: string, registered: boolean}} item 動画の詳細か発掘の候補
+ * @param {Set<string>} subscribed 自分が購読している YouTube のチャンネル ID
+ * @returns {string} 差し込む HTML
+ */
+function mySearchWatchChannel(item, subscribed) {
+    if (subscribed.has(item.channelId)) return MY_SEARCH_SUBSCRIBED_LAMP;
+    const service = item.registered ? '<span class="statusLamp serviceWatchLamp">サービスで監視中</span>' : "";
+    return `${service}<button type="button" class="watchChannelBtn">監視する（マイチャンネルに登録）</button>`;
+}
+
 /**
  * 検索結果の 1 件。タイトルとサムネイルは API の値をそのまま出す（規約 III.C.5。書き換えない）。
  *
  * @param {any} item 検索結果の 1 件
+ * @param {Set<string>} subscribed 自分が購読している YouTube のチャンネル ID
  * @returns {HTMLElement} 差し込む要素
  */
-function mySearchResult(item) {
+function mySearchResult(item, subscribed) {
     const watch = `/my/search/watch/${encodeURIComponent(item.videoId)}`;
     const badge = item.liveBroadcastContent === "live" ? '<span class="searchBadge is-live">ライブ</span>'
         : item.liveBroadcastContent === "upcoming" ? '<span class="searchBadge">配信予定</span>'
         : item.durationSeconds ? `<span class="duration">${formatDuration(item.durationSeconds)}</span>` : "";
-    const marks = [item.saved ? "保存済み" : "", item.registered ? "監視中" : ""].filter(Boolean)
+    const channelMark = subscribed.has(item.channelId) ? "マイチャンネル" : item.registered ? "サービスで監視中" : "";
+    const marks = [item.saved ? "保存済み" : "", channelMark].filter(Boolean)
         .map((label) => `<span class="statusLamp">${label}</span>`).join("");
     const result = document.createElement("article");
     result.className = "searchResult";
@@ -310,6 +353,8 @@ const mySearchView = {
         const results = query(".searchResults", root);
         const summary = /** @type {HTMLElement} */ (query(".searchSummary", root));
         const moreButton = /** @type {HTMLButtonElement} */ (query(".moreBtn", root));
+        // 札の出し分けに使う。「もっと見る」では引き直さない（条件を変えた検索・戻る・進むは画面ごと描き直すので、そのとき引き直す）
+        const subscribedLoad = mySearchSubscribedChannelIds();
         const searchButton = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
         /** 今出している件数と、次のページの印。「もっと見る」で続きを足すため。 */
         let shown = 0;
@@ -366,7 +411,7 @@ const mySearchView = {
             setBusy(results, true);
             moreButton.disabled = searchButton.disabled = true;
             try {
-                const data = await apiGet(`/api/my/search?${api}`);
+                const [data, subscribed] = await Promise.all([apiGet(`/api/my/search?${api}`), subscribedLoad]);
                 if (current !== request || !results.isConnected) return;
                 clearError();
                 if (!pageToken) {
@@ -374,7 +419,7 @@ const mySearchView = {
                     shown = 0;
                     oldestFetchedAt = null;
                 }
-                results.append(...data.items.map(mySearchResult));
+                results.append(...(/** @type {any[]} */ (data.items)).map((item) => mySearchResult(item, subscribed)));
                 shown += data.items.length;
                 if (shown === 0) {
                     results.innerHTML = emptyState("該当する動画はありません",
@@ -493,6 +538,7 @@ const mySearchWatchView = {
         const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
         /** @type {any} */
         let video;
+        const subscribedLoad = mySearchSubscribedChannelIds();
         try {
             // 無い動画（削除・非公開）は 404 で返る。ほかの失敗と分けて伝えるため、状態コードを見られるよう apiGet を使わない
             const res = await authenticatedFetch(`/api/my/youtube/videos/${encodeURIComponent(videoId)}`);
@@ -510,6 +556,8 @@ const mySearchWatchView = {
             return;
         }
         if (!heading.isConnected) return;
+        const subscribed = await subscribedLoad;
+        if (!heading.isConnected) return;
 
         document.title = `${video.title} - YouTube Live Monitor`;
         heading.textContent = video.title;
@@ -523,7 +571,7 @@ const mySearchWatchView = {
               <a href="${watchUrl}" target="_blank" rel="noopener noreferrer">YouTube で開く</a>
               ${saved}
               <a href="/my/download?${new URLSearchParams({ url: watchUrl, destination: "device" })}">端末に保存</a>
-              ${video.registered ? "" : '<button type="button" class="watchChannelBtn">監視する（マイチャンネルに登録）</button>'}
+              ${mySearchWatchChannel(video, subscribed)}
             </p>
             <div class="searchWatchDescription">${mySearchLinkify(video.description)}</div>
             <button type="button" class="descriptionToggle" hidden>もっと見る</button>`;
@@ -561,7 +609,8 @@ const mySearchWatchView = {
                 if (!info.isConnected) return;
                 clearError();
                 showToast(`${video.channelTitle} をマイチャンネルに登録しました`);
-                button.remove();
+                info.querySelector(".serviceWatchLamp")?.remove();
+                button.outerHTML = MY_SEARCH_SUBSCRIBED_LAMP;
             } catch (e) {
                 if (info.isConnected) showError(errorMessage(e));
                 button.disabled = false;
