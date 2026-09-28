@@ -5,6 +5,7 @@ import com.example.monitor.dto.LiveStreamDetails;
 import com.example.monitor.exception.SearchQuotaExceededException;
 import com.example.monitor.util.ApiKeyRedactor;
 import com.example.monitor.util.EpochTimeConverter;
+import com.example.monitor.util.HtmlEntities;
 import com.example.monitor.util.YouTubeWatchUrl;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.ChannelListResponse;
@@ -124,9 +125,10 @@ public class YouTubeApiClient {
             }
 
             for (SearchResult item : response.getItems()) {
+                // search.list の名前は文字参照のまま返る。管理画面の「登録」はこの名前をチャンネル名として保存するので、ここで戻す
                 searchResults.add(new ChannelSearchResult(
                         item.getId().getChannelId(),
-                        item.getSnippet().getTitle(),
+                        HtmlEntities.unescape(item.getSnippet().getTitle()),
                         item.getSnippet().getThumbnails().getDefault().getUrl()
                 ));
             }
