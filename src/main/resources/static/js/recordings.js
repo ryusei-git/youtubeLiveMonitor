@@ -14,16 +14,26 @@
     /** 読み直しの予約。多重に走らせないよう1本だけ持ち、予約し直すたびに前の予約を捨てる。 */
     let refreshTimer = 0;
 
-    /** 一覧とディスク使用量を読み直す。見えるようになるのを待つ間の登録と解除で同じ関数を使うため名前を付ける。 */
+    /**
+     * 「動画URLから追加・保存容量の管理」の折りたたみ。ディスク使用量の表はこの中にあり、既定で閉じている。
+     * 開閉の状態（open）を見て、表が見えているときだけ使用量を読むために持つ。
+     */
+    const recordingTools = /** @type {HTMLDetailsElement} */ (el("recordingTools"));
+
+    /**
+     * 一覧を読み直す。見えるようになるのを待つ間の登録と解除で同じ関数を使うため名前を付ける。
+     * ディスク使用量は読まない。使用量の API は録画フォルダー全体を走査する重い処理で、ここで読むと、
+     * 録画が続く数時間、ほとんど見えていない表のために 10 秒ごとに走査し続けてしまうため。
+     * 使用量は、折りたたみを開いたときと、削除などの操作の後に、開いているときだけ読む。
+     */
     function refreshRunning() {
         loadRecordings(false);
-        loadDiskUsage();
     }
 
     /**
      * 実行中のものが残っていれば、一覧の読み直しを予約する。
-     * タブが見えていない間は読み直さない（ディスク使用量は録画フォルダー全体を走査するため、
-     * 録画が続く数時間ずっと無駄に走査し続けてしまう）。代わりに見えるようになった時点で直ちに 1 回読み直す。
+     * タブが見えていない間は読み直さない（誰も見ていない画面のために、録画が続く数時間ずっと
+     * 一覧を問い合わせ続けないため）。代わりに見えるようになった時点で直ちに 1 回読み直す。
      *
      * @param {Recording[]} recordings 今表示している録画
      */
@@ -43,9 +53,9 @@
 
     /**
      * 録画の保存先の使用量を読み込む。
-     * 成功してもエラー帯は消さない。この読み込みは利用者の操作の結果を知らせるものではなく、一覧の読み込みや
-     * 他の操作の後に裏で走るため、ここで消すと、直前の操作の失敗（ダウンロードの拒否・削除や印の切り替えの失敗）や、
-     * 並んで走る選択肢の読み込みの失敗を、利用者が読む前に消してしまう（showToast の「消えてしまっては困る情報を自動で消さない」）。
+     * 成功してもエラー帯は消さない。この読み込みは利用者の操作の結果を知らせるものではなく、容量の表の折りたたみを
+     * 開いたときや他の操作の後に裏で走るため、ここで消すと、直前の操作の失敗（ダウンロードの拒否・削除や印の切り替えの失敗）や、
+     * 画面を開いたときの選択肢の読み込みの失敗を、利用者が読む前に消してしまう（showToast の「消えてしまっては困る情報を自動で消さない」）。
      */
     async function loadDiskUsage() {
         try {
@@ -67,6 +77,16 @@
         } catch (e) {
             showError(errorMessage(e));
         }
+    }
+
+    /**
+     * ディスク使用量の表が見えている（折りたたみが開いている）ときだけ、使用量を読み直す。
+     * 使用量の API は録画フォルダー全体を走査する重い処理で、閉じたままの表のために走らせても誰も見ない。
+     * 閉じている間に変わった分は、開いたとき（toggle）に読み直すので取りこぼさない。
+     * ダッシュボードが容量の表を毎分の自動更新から外しているのと同じ考え方（#190）。
+     */
+    function loadDiskUsageIfOpen() {
+        if (recordingTools.open) loadDiskUsage();
     }
 
     async function loadChannelOptions() {
@@ -103,10 +123,10 @@
         }
     }
 
-    /** 削除・停止の後は一覧とディスク使用量の両方を引き直す。エラー帯は deleteRecording・stopRecording が成功時に消しているので、ここでは消さない */
+    /** 削除・停止の後は一覧を引き直す。ディスク使用量は表が開いているときだけ引き直す（閉じていれば、開いたときに読む）。エラー帯は deleteRecording・stopRecording が成功時に消しているので、ここでは消さない */
     function afterDelete() {
         loadRecordings(false);
-        loadDiskUsage();
+        loadDiskUsageIfOpen();
     }
 
     /**
@@ -232,7 +252,7 @@
             summary.textContent = `「${res.title}」（${owner}）のダウンロードを開始しました`;
             // 開始直後は一覧の先頭に「録画中」として並ぶ
             search.goToPage(0);
-            loadDiskUsage();
+            loadDiskUsageIfOpen();
         } catch (e) {
             summary.textContent = "";
             showError(errorMessage(e));
@@ -276,7 +296,7 @@
                     }
                     summary.textContent = message;
                     container.replaceChildren();
-                    loadDiskUsage();
+                    loadDiskUsageIfOpen();
                     loadRecordings(false);
                 } catch (e) {
                     showError(errorMessage(e));
@@ -296,5 +316,7 @@
         search.restore();
         loadRecordings(false);
     });
-    loadDiskUsage();
+    // 容量の表は既定で閉じた折りたたみの中にあるので、開いたときに読む（開くたびに読み直し、閉じている間の変化を取りこぼさない）。
+    // toggle は閉じたときにも届くが、閉じていれば何も読まない
+    recordingTools.addEventListener("toggle", loadDiskUsageIfOpen);
 })();
