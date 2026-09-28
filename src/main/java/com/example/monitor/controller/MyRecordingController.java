@@ -188,6 +188,36 @@ public class MyRecordingController {
     }
 
     /**
+     * ログイン中の利用者がその録画で保存した再生位置を返す。再生画面が録画を読み込んだときに、続きから始めるために使う。
+     *
+     * <p>録画 1 件の取得（{@link #getRecording}）の応答に含めないのは、一覧の応答の形（画面の型）まで変えずに済ませるため。
+     *
+     * @param id 録画の主キー
+     * @return 再生位置。保存していなければ {@code positionSeconds} が {@code null}
+     * @throws com.example.monitor.exception.RecordingNotFoundException 無い場合（404）
+     */
+    @GetMapping("/{id}/position")
+    public RecordingPosition getPosition(@PathVariable Long id) {
+        return new RecordingPosition(recordingMarkService.getPosition(id));
+    }
+
+    /**
+     * 再生位置を保存する。{@code positionSeconds} が {@code null} なら消す（最後まで見たとき）。
+     * 見られる範囲は {@link #setWatched} と同じ（この端末のすべての録画。#419）。
+     *
+     * @param id      録画の主キー
+     * @param request 保存する再生位置
+     * @return 保存した再生位置
+     * @throws com.example.monitor.exception.RecordingNotFoundException 無い場合（404）
+     * @throws IllegalArgumentException 位置が負の場合（400）
+     */
+    @PutMapping("/{id}/position")
+    public RecordingPosition setPosition(@PathVariable Long id, @RequestBody RecordingPosition request) {
+        recordingMarkService.setPosition(id, request.positionSeconds());
+        return new RecordingPosition(request.positionSeconds());
+    }
+
+    /**
      * 再生回数（全員の合計）に 1 を足す。画面が再生を始めたときに 1 回だけ呼ぶ。
      *
      * <p>見られる範囲は {@link #setWatched} と同じ（この端末のすべての録画。#419）なので、
@@ -211,5 +241,13 @@ public class MyRecordingController {
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<Map<String, String>> handleInvalidPage(MethodArgumentTypeMismatchException exception) {
         return ResponseEntity.badRequest().body(Map.of("error", "数値・日付・状態・真偽値の指定が正しくありません"));
+    }
+
+    /**
+     * 再生位置の本文と応答。GET・PUT で同じ形にする（画面が送った値と、読み直した値を同じ読み方で扱えるように）。
+     *
+     * @param positionSeconds 再生位置（秒）。保存していない・最後まで見たなら {@code null}
+     */
+    public record RecordingPosition(Integer positionSeconds) {
     }
 }

@@ -37,9 +37,95 @@ let myDockPlayCounted = false;
  */
 let myDockOnWatched = null;
 
+/** 視聴済みの印を送っている最中か。その間は再生位置を送らない（{@link myDockSavePosition} を参照）。 */
+let myDockWatchedPending = false;
+
+/** 再生位置を最後に送った時刻（Date.now() の値）。再生中は {@link MY_POSITION_SAVE_INTERVAL_MS} おきにだけ送るため。 */
+let myDockPositionSentAt = 0;
+
+/**
+ * 再生中に再生位置を送る間隔（ミリ秒）。timeupdate は 1 秒に数回来るので、そのたびには送らない。
+ * 端末が急に落ちたときに失う長さ（最大 15 秒）と、要求の数との釣り合いで決めた。
+ */
+const MY_POSITION_SAVE_INTERVAL_MS = 15000;
+
+/** これより前（秒）の位置からは続けない。冒頭を少し見ただけの録画を、途中から始めないため。 */
+const MY_RESUME_MIN_SECONDS = 30;
+
+/**
+ * 長さに対してこの割合より後ろの位置からは続けない（先頭から始める）。終わり際で止めた録画を、終わる寸前から始めないため
+ * （Invidious は見終わった動画が終わりの 15 秒前から始まる不具合を、同じような閾値で直した。PR #4731）。
+ */
+const MY_RESUME_MAX_RATIO = 0.95;
+
 /** @returns {HTMLVideoElement} ドックの動画要素 */
 function myDockVideo() {
     return /** @type {HTMLVideoElement} */ (el("dockVideo"));
+}
+
+/**
+ * 保存した再生位置から、続きとして戻す位置を決める。
+ *
+ * @param {number|null} savedSeconds 保存した再生位置（秒）。保存していなければ null
+ * @param {number} durationSeconds 動画の長さ（秒）。まだ分からなければ NaN、長さの無いものなら Infinity
+ * @returns {number|null} 戻す位置（秒）。先頭から始めるなら null
+ */
+function myResumeStartSeconds(savedSeconds, durationSeconds) {
+    if (typeof savedSeconds !== "number" || !Number.isFinite(durationSeconds)) return null;
+    if (savedSeconds < MY_RESUME_MIN_SECONDS || savedSeconds >= durationSeconds * MY_RESUME_MAX_RATIO) return null;
+    return savedSeconds;
+}
+
+/**
+ * ドックの録画の再生位置をサーバーへ送る。利用者ごと・録画ごとに 1 つ持ち、別の端末で開いても続きから見られるようにする。
+ * 最後まで見たときは位置を消す（次に開いたら先頭から始める）。
+ *
+ * 次のときは送らない。
+ * - この読み込みで一度も再生していない（myDockPlayCounted が false）: 開いただけで離れたときに、保存してある位置を上書きしないため
+ * - 視聴済みの印を送っている最中: まだ印の行が無い録画では、2 つの要求が同時に行を作ろうとして、片方が一意制約で失敗するため
+ *
+ * apiPut を使わないのは、ログインが切れていてもログイン画面へ移さないため（裏で送るだけの要求で、再生中の画面を切り替えない）。
+ * 送れなくても再生には関係ないので、失敗しても何も出さない（視聴済みの印と同じ）。
+ *
+ * @param {boolean} keepalive ページを離れる直前に送るときは true。ページが閉じても要求を最後まで送らせる
+ *   （navigator.sendBeacon は CSRF のヘッダーを付けられないので使わない）
+ */
+function myDockSavePosition(keepalive) {
+    const rec = myDockRecording;
+    if (!rec || !myDockPlayCounted || myDockWatchedPending) return;
+    const video = myDockVideo();
+    myDockPositionSentAt = Date.now();
+    fetch(`/api/my/recordings/${rec.id}/position`, {
+        method: "PUT",
+        keepalive,
+        headers: { "Content-Type": "application/json", ...csrfHeaders() },
+        body: JSON.stringify({ positionSeconds: video.ended ? null : Math.floor(video.currentTime) }),
+    }).catch(() => {});
+}
+
+/**
+ * 読み込んだ録画を、前回の続きの位置にする（位置は {@link myDockSavePosition} が送ったもの）。
+ * 位置を入れるのは動画の長さが分かってから（loadedmetadata の後）。iPhone の Safari は、長さが分かる前に入れた位置を捨てることがあるため。
+ * 利用者が既に動かしていたら（位置が 1 秒を超えていたら）入れない。読み込みを待つ間に再生・シーク・耳キスの候補の確認を
+ * 始めていたら、そちらを優先する。
+ *
+ * @param {Recording} rec 読み込んだ録画
+ */
+function myDockRestorePosition(rec) {
+    const video = myDockVideo();
+    // 読めなくても先頭から見られるので、何も出さない
+    const saved = apiGet(`/api/my/recordings/${rec.id}/position`)
+        .then((/** @type {{positionSeconds: number|null}} */ body) => body.positionSeconds)
+        .catch(() => null);
+    video.addEventListener("loadedmetadata", async () => {
+        const start = myResumeStartSeconds(await saved, video.duration);
+        // 待つ間に別の録画を読み込んだ・閉じたときは、その位置を今の録画に入れない。id ではなくオブジェクトで比べる:
+        // 長さが分かる前に閉じて同じ録画を開き直すと、前の読み込みのこの処理が残っていて、新しい読み込みで
+        // 2 回目の位置とトーストを入れてしまうため（再生画面は開くたびに録画を取り直すので、別のオブジェクトになる）
+        if (start === null || myDockRecording !== rec || video.currentTime > 1) return;
+        video.currentTime = start;
+        showToast(`前回の続き（${formatDuration(start)}）から再生します`);
+    }, { once: true });
 }
 
 /**
@@ -51,12 +137,18 @@ function myDockVideo() {
  */
 function myDockLoad(rec) {
     if (myDockRecording?.id === rec.id) return;
+    // 別の録画へ切り替えると pause が来ない（emptied だけが来る）ので、前の録画の位置はここで送る
+    myDockSavePosition(false);
     myDockRecording = rec;
     myDockWatchedSent = false;
     myDockPlayCounted = false;
+    // 送る間隔はこの読み込みから数える（前の録画で最後に送った時刻を引き継がない）
+    myDockPositionSentAt = Date.now();
     const video = myDockVideo();
     // ファイル名に日本語や記号が入るため、パスとして安全な形に符号化する
     video.src = `/recordings/${encodeURI(rec.filePath)}`;
+    // src を入れた後に呼ぶ（前の録画の読み込みで位置を入れないため）
+    myDockRestorePosition(rec);
     const title = /** @type {HTMLAnchorElement} */ (el("dockTitle"));
     title.textContent = rec.videoTitle;
     title.href = myWatchPath(rec);
@@ -88,6 +180,8 @@ function myDockMinimize() {
 
 /** 再生を止めてドックを消す。 */
 function myDockClose() {
+    // pause のイベントは閉じ終えた後に届き、そのときには録画を外している（位置も 0 に戻っている）ので、先にここで送る
+    myDockSavePosition(false);
     const video = myDockVideo();
     // 小窓は src を外しても開いたまま残る（Chrome で確認）ため、先に閉じる
     if (document.pictureInPictureElement === video) document.exitPictureInPicture().catch(() => {});
@@ -129,13 +223,27 @@ function myDockInit() {
         }
         if (myDockWatchedSent) return;
         myDockWatchedSent = true;
+        myDockWatchedPending = true;
         const id = myDockRecording.id;
         apiPut(`/api/my/recordings/${id}/watched`, { watched: true })
             .then(() => myDockOnWatched?.(id))
-            .catch(() => {});
+            .catch(() => {})
+            .finally(() => { myDockWatchedPending = false; });
     });
     buttonEl("dockClose").addEventListener("click", myDockClose);
     bindPictureInPictureButton(buttonEl("dockPip"), video);
+    // 再生位置を送る。再生中は間隔を空けて送り、止めた・最後まで見たときはすぐ送る（最後まで見たときは pause の後に ended が来る。
+    // どちらも video.ended が true なので位置を消す要求になる）
+    video.addEventListener("timeupdate", () => {
+        if (!video.paused && Date.now() - myDockPositionSentAt >= MY_POSITION_SAVE_INTERVAL_MS) myDockSavePosition(false);
+    });
+    for (const type of ["pause", "ended"]) video.addEventListener(type, () => myDockSavePosition(false));
+    // ページを閉じる・別のタブやアプリへ移る・画面をロックするときにも送る。iPhone の Safari は閉じても pagehide が来ないことがあり、
+    // 見えなくなった時点（visibilitychange）でしか送れない場合がある
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") myDockSavePosition(true);
+    });
+    window.addEventListener("pagehide", () => myDockSavePosition(true));
 }
 
 /* ============================================================
