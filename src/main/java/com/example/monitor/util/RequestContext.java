@@ -1,8 +1,11 @@
 package com.example.monitor.util;
 
+import com.example.monitor.security.AuthenticatedAppUser;
 import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -26,6 +29,7 @@ import java.util.function.Supplier;
  * ID を付けたいため）。その時点ではまだ誰か分からない。
  * 利用者名が要る場面（監査ログの記録）は認証後なので、そのときに
  * {@link #currentUsername()} で取得すればよい。
+ * 利用者 ID と接続元 IP も同じく、要るときに {@link #currentUserId()}・{@link #currentClientIp()} で取得する。
  */
 public final class RequestContext {
 
@@ -133,5 +137,38 @@ public final class RequestContext {
         }
         String name = authentication.getName();
         return "anonymousUser".equals(name) ? null : name;
+    }
+
+    /**
+     * 現在ログインしている利用者の主キーを返す。
+     *
+     * <p>名前から DB を引き直さず、ログイン時に主体へ載せた {@link AuthenticatedAppUser#getUserId()} を使う。
+     * 削除した利用者と同じ名前で別の利用者が登録されても、以前のセッションの操作を新しい利用者の ID で
+     * 記録しないため（{@link AuthenticatedAppUser} が ID を持つ理由と同じ）。
+     *
+     * @return 利用者の主キー。未認証、または主体が {@link AuthenticatedAppUser} でない場合
+     *         （CLI・監視ループ・録画スレッドなど）は {@code null}
+     */
+    public static Long currentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return null;
+        }
+        return authentication.getPrincipal() instanceof AuthenticatedAppUser user ? user.getUserId() : null;
+    }
+
+    /**
+     * 処理中の HTTP 要求の接続元 IP を返す。
+     *
+     * <p>{@code forward-headers-strategy: native}（application.yml）で Tomcat が転送ヘッダーを読んだ後の値なので、
+     * tailscale serve を通った要求でも本来の接続元になる。{@code X-Forwarded-For} を自分で読まないのは、
+     * 直接つないだ人が偽装できるため（{@code LoginAttemptFilter} と同じ判断）。
+     *
+     * @return 接続元 IP。HTTP の要求の外（CLI・監視ループ・録画スレッド）では {@code null}
+     */
+    public static String currentClientIp() {
+        return RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes
+                ? attributes.getRequest().getRemoteAddr()
+                : null;
     }
 }
