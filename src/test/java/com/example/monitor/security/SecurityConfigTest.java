@@ -100,7 +100,7 @@ class SecurityConfigTest {
         }
     }
 
-    /** この Issue のテストで作る利用者のパスワード。 */
+    /** {@code createUser()} で作る利用者（名前は {@code t04-} で始まる）のパスワード。 */
     private static final String T04_PASSWORD = "t04-password-1";
 
     /** 「ログインしたままにする」の Cookie の名前（Spring Security の既定）。 */
@@ -118,7 +118,13 @@ class SecurityConfigTest {
     @Autowired
     private InvitationRepository invitationRepository;
 
-    /** テスト用の利用者を作る。同じ名前が既にあればそれを返す。 */
+    /**
+     * テスト用の利用者を作る。同じ名前が既にあればそれを返す。
+     *
+     * <p>このクラスは Spring のコンテキストとインメモリ H2 を {@code AppUserManagementControllerTest} と共有し
+     * （コンテキストのキャッシュ）、テストの間で DB は消えない。パスワードの変更や無効化が別のテストに漏れないよう、
+     * 名前はテストごとに変える。
+     */
     private AppUser createUser(String username, Role role) {
         return appUserRepository.findByUsername(username).orElseGet(() ->
                 appUserRepository.save(new AppUser(username, passwordEncoder.encode(T04_PASSWORD), role)));

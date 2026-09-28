@@ -161,8 +161,8 @@ class InvitationServiceTest {
         void testMethod06() {
             when(invitationRepository.findByToken("token-10")).thenReturn(Optional.of(invitation(10, valid(), null)));
 
-            // 見えない文字をそのままソースに入れず、エスケープで書く
-            for (String username : List.of("ali\nce", "ali　ce", "ali​ce")) {
+            // 見えない文字（全角空白 U+3000・ゼロ幅スペース U+200B）をそのままソースに入れず、エスケープで書く
+            for (String username : List.of("ali\nce", "ali\u3000ce", "ali\u200Bce")) {
                 assertThatThrownBy(() -> service.register("token-10", username, "password-123"))
                         .isInstanceOf(IllegalArgumentException.class)
                         .hasMessage("利用者名に空白・改行・見えない文字は使えません");
