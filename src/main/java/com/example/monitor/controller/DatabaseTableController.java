@@ -21,8 +21,8 @@ import java.util.Map;
  * DB のテーブルを表形式で閲覧・編集する REST API。H2 標準コンソールの代替。
  *
  * <p><b>任意のテーブルの任意の行を書き換えられる。</b>
- * 認証を持たない個人用ローカルツールという前提の機能なので、
- * 外部からアクセスできる環境に置く場合は必ずアクセス制御を追加すること。
+ * そのため管理者（ADMIN）だけが使える（{@code SecurityConfig} が {@code /api/admin/tables/**} を ADMIN に閉じている）。
+ * この制限を緩めないこと。秘密や証跡を持つテーブルは {@link DatabaseTableService} が対象から外している。
  */
 @RestController
 @RequestMapping("/api/admin/tables")
