@@ -293,8 +293,10 @@ class YouTubeStreamPlatformTest {
         @Test
         @DisplayName("正常系：検知結果とチャンネル名から通知に要る値を詰め、APIは呼ばない")
         void testMethod01() {
+            // 動画 ID から組み立て直した URL（YouTubeWatchUrl.of）と見分けられるよう、それとは別の形にする
+            String detectedWatchUrl = "https://www.youtube.com/live/abcdefghijk";
             LiveStreamDetection detection = LiveStreamDetection.live(
-                    "abcdefghijk", "【雑談】おはよう", null, "https://www.youtube.com/watch?v=abcdefghijk");
+                    "abcdefghijk", "【雑談】おはよう", null, detectedWatchUrl);
 
             LiveStreamDetails details = platform.fallbackDetails("テストチャンネル", detection).orElseThrow();
 
@@ -302,7 +304,7 @@ class YouTubeStreamPlatformTest {
             assertThat(details.getTitle()).isEqualTo("【雑談】おはよう");
             assertThat(details.getChannelTitle()).isEqualTo("テストチャンネル");
             // 視聴 URL は検知結果が運んだものをそのまま使う
-            assertThat(details.getWatchUrl()).isEqualTo("https://www.youtube.com/watch?v=abcdefghijk");
+            assertThat(details.getWatchUrl()).isEqualTo(detectedWatchUrl);
             assertThat(details.getThumbnailUrl()).isEqualTo(YouTubeWatchUrl.thumbnailOf("abcdefghijk"));
             // API でしか分からない値は入れない（待機所の見送りの判定に使われないように）
             assertThat(details.getBroadcastStatus()).isNull();
