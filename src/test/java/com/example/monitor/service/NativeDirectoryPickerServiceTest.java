@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -12,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -56,13 +58,13 @@ class NativeDirectoryPickerServiceTest {
 
         @Test
         @DisplayName("正常系：選ばれたパスを返す")
-        void testMethod01() throws Exception {
-            Process process = mockProcess("/home/user/recordings\n", 0);
+        void testMethod01(@TempDir Path tempDir) throws Exception {
+            Process process = mockProcess(tempDir + "\n", 0);
             when(processLauncher.launch(any())).thenReturn(process);
 
             Optional<String> result = service.pickDirectory(null);
 
-            assertThat(result).contains("/home/user/recordings");
+            assertThat(result).contains(tempDir.toString());
         }
 
         @Test
@@ -85,8 +87,8 @@ class NativeDirectoryPickerServiceTest {
 
         @Test
         @DisplayName("正常系：初期ディレクトリを指定すると起動コマンドに含める")
-        void testMethod04() throws Exception {
-            Process process = mockProcess("/home/user/movies\n", 0);
+        void testMethod04(@TempDir Path tempDir) throws Exception {
+            Process process = mockProcess(tempDir + "\n", 0);
             when(processLauncher.launch(any())).thenReturn(process);
 
             service.pickDirectory("/home/user/movies");
