@@ -6,7 +6,9 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -26,11 +28,28 @@ import java.util.Locale;
  * 読み手がいなくなって ffmpeg も止まってよい（止まってほしい）。ファイルに書き出すと、2 時間で 900MB の
  * 一時ファイルができ、止めた後の掃除も要る。
  *
- * <p>標準エラーは JVM の標準エラーへそのまま流す（{@code -loglevel error} なので、ふつうは何も出ない）。
- * 読まないパイプにすると、壊れた入力でエラーが続いたときにパイプが詰まり、ffmpeg が止まって読み込みも進まなくなる。
- * CLI では ffmpeg の失敗の理由が画面に出る。
+ * <h2>標準エラーを読み、失敗の理由に入れる理由</h2>
+ * 以前は JVM の標準エラーへそのまま流していたが、本番では {@code logs/service.log} に録画の番号なしで混ざり、
+ * 実行記録の理由（{@code message}）には「終了コード N」しか残らず、なぜ失敗したか分からなかった。
+ * そこで読み手のスレッドで末尾だけを持ち、失敗したときの {@link IOException} の文言に入れる。
+ * 検出の失敗のログ（録画の番号つき）・実行記録・CLI の画面（{@code sound detect}）に、そのまま理由が出る。
+ * 成功したときの出力は捨てる（{@code -loglevel error} で成功したなら、読み飛ばした壊れたフレームなどで、検出の結果は使える）。
+ * 最後まで読み続けるのは、読まないパイプにすると、壊れた入力でエラーが続いたときにパイプが詰まり、ffmpeg が止まって
+ * 読み込みも進まなくなるため。
  */
 public final class PcmDecoder {
+
+    /** ffmpeg の標準エラーのうち、読み手のスレッドが持つ末尾の長さ（バイト）。 */
+    private static final int STDERR_TAIL_BYTES = 4096;
+
+    /**
+     * 失敗の理由に入れる標準エラーの末尾の長さ（文字）。実行記録の理由は先頭から 500 文字までしか残らないので、
+     * 文言ではパスより前に置き、この長さに収めて、失敗の理由がふつう書かれる最後の行を残す。
+     */
+    private static final int STDERR_MESSAGE_CHARS = 300;
+
+    /** 失敗したとき、標準エラーを読み終えるまで待つ上限。ffmpeg は終わっているので、ふつうはすぐ読み終わる。 */
+    private static final Duration STDERR_JOIN = Duration.ofSeconds(1);
 
     private PcmDecoder() {
     }
@@ -40,7 +59,8 @@ public final class PcmDecoder {
      *
      * <p>{@code -ss}・{@code -to} は入力の側に付ける（入力の時刻で指定し、開始位置までは読み飛ばす）。
      * 返したストリームは、最後まで読むと ffmpeg の終了コードを確かめ、0 以外なら {@link IOException} を投げる
-     * （途中で失敗したのに、そこまでの音声だけで「候補なし」と見誤らないため）。閉じると ffmpeg を止める。
+     * （途中で失敗したのに、そこまでの音声だけで「候補なし」と見誤らないため。文言には ffmpeg の標準エラーの末尾を入れる）。
+     * 閉じると ffmpeg を止める。
      *
      * @param file        録画ファイル
      * @param fromSeconds 開始位置（秒）。{@code null} なら先頭から
@@ -60,10 +80,11 @@ public final class PcmDecoder {
                 "-ac", String.valueOf(EarKissDetector.CHANNELS),
                 "-ar", String.valueOf(EarKissDetector.SAMPLE_RATE),
                 "-f", "s16le", "-"));
-        Process process = new ProcessBuilder(command)
-                .redirectError(ProcessBuilder.Redirect.INHERIT)
-                .start();
-        return new DecodedStream(process, file);
+        // 標準エラーは既定のパイプのまま受け、StderrTail が最後まで読む（クラスの JavaDoc）
+        Process process = new ProcessBuilder(command).start();
+        StderrTail stderr = new StderrTail(process.getErrorStream());
+        Thread stderrReader = Thread.ofVirtual().name("ffmpeg-stderr").start(stderr);
+        return new DecodedStream(process, file, stderr, stderrReader);
     }
 
     /** ffmpeg に渡す秒数。{@code Double.toString} は大きい値を指数表記（{@code 1.0E7}）にし、ffmpeg が読めないため。 */
@@ -76,11 +97,15 @@ public final class PcmDecoder {
 
         private final Process process;
         private final Path file;
+        private final StderrTail stderr;
+        private final Thread stderrReader;
 
-        DecodedStream(Process process, Path file) {
+        DecodedStream(Process process, Path file, StderrTail stderr, Thread stderrReader) {
             super(process.getInputStream());
             this.process = process;
             this.file = file;
+            this.stderr = stderr;
+            this.stderrReader = stderrReader;
         }
 
         @Override
@@ -110,8 +135,28 @@ public final class PcmDecoder {
                 throw new InterruptedIOException("ffmpeg の終了を待つ間に中断されました: " + file);
             }
             if (exitCode != 0) {
-                throw new IOException("ffmpeg が終了コード " + exitCode + " で失敗しました: " + file);
+                throw new IOException("ffmpeg が終了コード " + exitCode + " で失敗しました" + stderrSuffix() + ": " + file);
             }
+        }
+
+        /**
+         * 失敗の理由に添える ffmpeg の標準エラーの末尾（{@code STDERR_MESSAGE_CHARS} 文字まで）。ffmpeg は終わっているので
+         * 読み手もすぐ EOF で終わるが、待ち過ぎないよう {@code STDERR_JOIN} で打ち切り、それまでに読めた分を使う。
+         */
+        private String stderrSuffix() {
+            try {
+                stderrReader.join(STDERR_JOIN);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            String text = stderr.text();
+            if (text.isEmpty()) {
+                return "";
+            }
+            if (text.length() > STDERR_MESSAGE_CHARS) {
+                text = "…" + text.substring(text.length() - STDERR_MESSAGE_CHARS);
+            }
+            return "（ffmpeg の出力: " + text + "）";
         }
 
         @Override
@@ -126,6 +171,49 @@ public final class PcmDecoder {
                     Thread.currentThread().interrupt();
                 }
             }
+        }
+    }
+
+    /**
+     * ffmpeg の標準エラーを EOF まで読み、末尾の {@code STDERR_TAIL_BYTES} バイトだけを持つ。
+     *
+     * <p>最後まで読み続けるのは、読まないとパイプが詰まり、ffmpeg が止まって読み込みも進まなくなるため。
+     * 末尾だけ持つのは、壊れた入力でエラーが続いてもメモリを使い過ぎないためで、失敗の理由はふつう最後の行にある。
+     */
+    private static final class StderrTail implements Runnable {
+
+        private final InputStream in;
+        private final byte[] tail = new byte[STDERR_TAIL_BYTES];
+        private int length;
+
+        StderrTail(InputStream in) {
+            this.in = in;
+        }
+
+        @Override
+        public void run() {
+            byte[] buffer = new byte[1024];
+            try (InputStream stream = in) {
+                int n;
+                while ((n = stream.read(buffer)) >= 0) {
+                    append(buffer, n);
+                }
+            } catch (IOException e) {
+                // ffmpeg を止めるとパイプが閉じられて読めなくなる。それまでに読んだ分で足りるので、ここでは何もしない
+            }
+        }
+
+        /** 読んだ分を末尾に足し、{@code STDERR_TAIL_BYTES} を超えた分を先頭から捨てる（{@code n} は配列の長さ以下）。 */
+        private synchronized void append(byte[] buffer, int n) {
+            int keep = Math.min(length, tail.length - n);
+            System.arraycopy(tail, length - keep, tail, 0, keep);
+            System.arraycopy(buffer, 0, tail, keep, n);
+            length = keep + n;
+        }
+
+        /** 読めた分を 1 行にして返す。改行は「 / 」にする（ログの行と実行記録の理由を 1 行に収めるため）。 */
+        synchronized String text() {
+            return new String(tail, 0, length, StandardCharsets.UTF_8).strip().replaceAll("\\s*\\R\\s*", " / ");
         }
     }
 }
