@@ -1,14 +1,11 @@
 package com.example.monitor.notification;
 
-import club.minnced.discord.webhook.WebhookClient;
-import club.minnced.discord.webhook.WebhookClientBuilder;
 import club.minnced.discord.webhook.send.WebhookEmbed;
 import club.minnced.discord.webhook.send.WebhookEmbedBuilder;
 import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.dto.LiveStreamDetails;
 import com.example.monitor.util.DiscordWebhookUrl;
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.json.JSONArray;
@@ -31,15 +28,21 @@ import java.time.Duration;
  * {@link com.example.monitor.service.NotificationDispatcher}（全体向け）と
  * {@link com.example.monitor.service.UserNotificationService}（利用者向け）の役割。
  *
- * <p>Webhook URL が未設定でもアプリは起動できるようにしてある（起動時に WARN を出すだけ）。
+ * <p>Webhook URL が未設定でも、形が崩れていてもアプリは起動できるようにしてある（起動時に WARN を出すだけ）。
  * 設定前でもチャンネル登録などの他の機能は使えた方が都合が良いため。
  *
  * <h2>宛先が 2 種類ある</h2>
- * 全体向け（{@code .env} の {@code DISCORD_WEBHOOK_URL}）は起動時に作った {@link WebhookClient} で送る。
- * 利用者ごとの Webhook へは、共有の {@link HttpClient} で JSON を POST する。
- * 利用者ごとに {@link WebhookClient} を作らないのは、1 つごとに OkHttp の接続と専用のスレッドを抱えるため
+ * 全体向け（{@code .env} の {@code DISCORD_WEBHOOK_URL}）と利用者ごとの Webhook のどちらへも、
+ * 共有の {@link HttpClient} で JSON を POST する（{@link #post}）。
+ * 以前は全体向けだけ discord-webhooks の {@code WebhookClient} で送っていたが、次の 2 つの理由でやめた。
+ * (1) 送った後に {@code join()} で待つ時間に上限が無く、429（送りすぎ）を受けるとライブラリの中で待って
+ * 送り直すので、その間は巡回が止まる。(2) URL が Webhook の形でないと、作る時点で例外になって
+ * アプリ全体が起動しなかった。
+ * 429 は他の失敗と同じく 1 回の失敗として扱い、次の巡回で送り直す（送り直しの上限は巡回側で数える）。
+ * 利用者ごとに {@code WebhookClient} を作ることもしない。1 つごとに OkHttp の接続と専用のスレッドを抱えるため
  * （宛先が利用者の数だけあり、送るたびに作ると使い捨てのスレッドが増え、持ち続けると利用者の数だけ残る）。
- * どちらも本文は {@link #liveStartEmbed} で組み立て、同じ見た目の通知になるようにしている。
+ * ライブラリは本文の組み立て（{@link WebhookEmbed}／{@link WebhookEmbedBuilder}）にだけ使う。
+ * どちらの宛先も本文は {@link #liveStartEmbed} で組み立て、同じ見た目の通知になるようにしている。
  */
 @Component
 @RequiredArgsConstructor
@@ -50,7 +53,8 @@ public class DiscordNotifier {
     private static final int EMBED_COLOR = Color.RED.getRGB();
 
     /**
-     * 利用者ごとの Webhook へ送るときの応答待ちの上限。
+     * Discord の Webhook へ送るときの上限（応答本文の受け取りまで含む。
+     * {@link com.example.monitor.config.HttpClientConfig} 参照）。
      *
      * <p>送信は巡回の中で順に行うため、Discord が応答しないまま待ち続けると巡回全体が止まる。
      * 接続の待ちは共有の {@link HttpClient} 側で切っているので、ここでは応答の待ちを切る。
@@ -62,45 +66,44 @@ public class DiscordNotifier {
 
     private final MonitorProperties monitorProperties;
 
-    /** 利用者ごとの Webhook への送信に使う、アプリ全体で共有の HTTP クライアント。 */
+    /** Discord の Webhook への送信（全体向け・利用者ごとの両方）に使う、アプリ全体で共有の HTTP クライアント。 */
     private final HttpClient httpClient;
 
-    /** Webhook URL が未設定の場合は {@code null} のままとなり、送信時に例外を投げる。 */
-    private WebhookClient webhookClient;
-
     /**
-     * Webhook クライアントを初期化する。Spring が Bean 生成後に呼び出す。
+     * 全体向けの Webhook URL が使えない状態なら、起動時に WARN を出す。Spring が Bean 生成後に呼び出す。
      *
-     * <p>URL が未設定でも例外は投げない。設定漏れでアプリ全体が起動しなくなるのを避けるため。
+     * <p>未設定でも形が崩れていても例外は投げない。設定の誤りでアプリ全体が起動しなくなるのを避けるため。
+     * どちらの文言にも URL（秘密のトークンを含む）は入れない。
      */
     @PostConstruct
-    void initializeWebhookClient() {
+    void warnIfWebhookUrlUnusable() {
         String webhookUrl = monitorProperties.discord().webhookUrl();
         if (webhookUrl == null || webhookUrl.isBlank()) {
             log.warn("Discord の Webhook URL が未設定です。設定されるまで通知は送信されません。");
             return;
         }
-        this.webhookClient = new WebhookClientBuilder(webhookUrl)
-                .setWait(true)
-                .build();
+        if (!DiscordWebhookUrl.isValid(webhookUrl)) {
+            log.warn("DISCORD_WEBHOOK_URL が Discord の Webhook の URL の形（https://discord.com/api/webhooks/<数字>/<トークン>）"
+                    + "ではありません。直すまで全体向けの通知は送信されません。");
+        }
     }
 
     /**
      * 配信開始を知らせる埋め込みメッセージを全体向けの Webhook へ送信する。
      *
-     * <p>{@code setWait(true)} で構築したクライアントを使い、
-     * Discord 側が受理するまで待ってから復帰する。送信できたかどうかを
-     * 呼び出し側が確実に判定できるようにするため。
+     * <p>{@link #post} が {@code ?wait=true} を付けて Discord が受理するまで待つので、
+     * 送れたかどうかを呼び出し側が確実に判定できる。
      *
      * @param liveStream 通知対象の配信情報
-     * @throws IllegalStateException Webhook URL が未設定の場合
-     * @throws java.util.concurrent.CompletionException Discord への送信に失敗した場合（原因は {@code getCause()}）
+     * @throws IllegalStateException Webhook URL が未設定・Discord の Webhook の形でない場合や、
+     *                               送信できなかった場合（メッセージに URL は含めない）
      */
     public void sendLiveStartNotification(LiveStreamDetails liveStream) {
-        if (webhookClient == null) {
+        String webhookUrl = monitorProperties.discord().webhookUrl();
+        if (webhookUrl == null || webhookUrl.isBlank()) {
             throw new IllegalStateException("Discord の Webhook URL が未設定です（環境変数 DISCORD_WEBHOOK_URL を設定してください）");
         }
-        webhookClient.send(liveStartEmbed(liveStream)).join();
+        post(webhookUrl, liveStartEmbed(liveStream));
     }
 
     /**
@@ -132,9 +135,8 @@ public class DiscordNotifier {
     /**
      * 管理者向けの知らせを、全体向けの Webhook（{@code DISCORD_WEBHOOK_URL}）へ送る。
      *
-     * <p>起動時に作った {@link WebhookClient} ではなく {@link #post} で送るのは、
-     * 利用者ごとの送信と同じく応答待ちの上限（{@link #SEND_TIMEOUT}）が効くため。
-     * 呼び出し元は録画の開始判断の途中にあり、Discord の応答待ちで巡回を止めたくない。
+     * <p>呼び出し元は録画の開始判断の途中にあり、Discord の応答待ちで巡回を止めたくないので、
+     * 上限（{@link #SEND_TIMEOUT}）つきの {@link #post} で送る。
      *
      * @param message 知らせる本文
      * @throws IllegalStateException Webhook URL が未設定・不正な場合や、送信できなかった場合
@@ -169,9 +171,8 @@ public class DiscordNotifier {
     /**
      * 埋め込みメッセージを 1 つ、指定した Webhook へ POST する。
      *
-     * <p>本文の JSON は {@link WebhookEmbed} 自身の変換（ライブラリが全体向けの送信で使うもの）で作る。
-     * {@code wait=true} を付けるのは全体向けの {@code setWait(true)} と同じ理由で、Discord が
-     * 受理したかを応答で確実に判定するため。
+     * <p>本文の JSON は {@link WebhookEmbed} 自身の変換で作る。
+     * {@code wait=true} を付けるのは、Discord が受理したかを応答で確実に判定するため。
      *
      * <p>失敗のメッセージには URL を入れない（呼び出し側がログや API の応答に使うため）。
      * 形を先に確かめるのも、崩れた URL で要求を組み立てたときの例外に URL が入るのを防ぐため
@@ -207,14 +208,6 @@ public class DiscordNotifier {
             String body = response.body() == null ? "" : response.body();
             throw new IllegalStateException("Discord が HTTP " + response.statusCode() + " を返しました: "
                     + body.substring(0, Math.min(body.length(), MAX_ERROR_BODY_LENGTH)));
-        }
-    }
-
-    /** アプリ終了時に Webhook クライアントの内部スレッドを解放する。Spring が Bean 破棄前に呼び出す。 */
-    @PreDestroy
-    void closeWebhookClient() {
-        if (webhookClient != null) {
-            webhookClient.close();
         }
     }
 }

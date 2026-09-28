@@ -1,13 +1,12 @@
 package com.example.monitor.notification;
 
-import club.minnced.discord.webhook.WebhookClient;
-import club.minnced.discord.webhook.send.WebhookEmbed;
 import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.config.MonitorProperties.DiscordProperties;
 import com.example.monitor.config.MonitorProperties.TwitchProperties;
 import com.example.monitor.config.MonitorProperties.RecordingProperties;
 import com.example.monitor.config.MonitorProperties.YouTubeProperties;
 import com.example.monitor.dto.LiveStreamDetails;
+import org.json.JSONObject;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -15,28 +14,32 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.net.http.HttpClient;
-import java.util.concurrent.CompletableFuture;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.Flow;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("DiscordNotifier")
+@SuppressWarnings("unchecked")
 class DiscordNotifierTest {
 
-    @Mock
-    private WebhookClient webhookClient;
+    /** {@code DiscordWebhookUrl.isValid} を通る形の Webhook の URL。 */
+    private static final String WEBHOOK_URL = "https://discord.com/api/webhooks/123456789012345678/dummy-token";
 
-    /** 利用者ごとの Webhook への送信に使う。全体向けの送信を扱うここでは使われない。 */
+    /** Discord の Webhook への送信に使う（全体向けも {@code post} で送る）。 */
     @Mock
     private HttpClient httpClient;
 
@@ -45,43 +48,38 @@ class DiscordNotifierTest {
                 new RecordingProperties("recordings", 1080), new MonitorProperties.AdminProperties("admin", ""));
     }
 
-    @Nested
-    @DisplayName("initializeWebhookClient()")
-    class InitializeWebhookClient {
+    /**
+     * 送った要求の本文を文字列として読み出す。
+     *
+     * <p>{@link HttpRequest} は本文を {@code bodyPublisher()} としてしか持たないため、購読して集める。
+     *
+     * @param request 送った要求
+     * @return 要求の本文
+     */
+    private static String requestBody(HttpRequest request) {
+        HttpResponse.BodySubscriber<String> collector = HttpResponse.BodySubscribers.ofString(StandardCharsets.UTF_8);
+        request.bodyPublisher().orElseThrow().subscribe(new Flow.Subscriber<ByteBuffer>() {
+            @Override
+            public void onSubscribe(Flow.Subscription subscription) {
+                collector.onSubscribe(subscription);
+            }
 
-        @Test
-        @DisplayName("正常系：Webhook URLが設定されている場合はWebhookClientが生成される")
-        void testMethod01() {
-            DiscordNotifier notifier = new DiscordNotifier(
-                    monitorProperties("https://discord.com/api/webhooks/123456789012345678/dummy-token"), httpClient);
+            @Override
+            public void onNext(ByteBuffer item) {
+                collector.onNext(List.of(item));
+            }
 
-            notifier.initializeWebhookClient();
+            @Override
+            public void onError(Throwable throwable) {
+                collector.onError(throwable);
+            }
 
-            Object client = ReflectionTestUtils.getField(notifier, "webhookClient");
-            assertThat(client).isNotNull();
-        }
-
-        @Test
-        @DisplayName("正常系：Webhook URLが空文字の場合はWebhookClientがnullのままになる")
-        void testMethod02() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(""), httpClient);
-
-            notifier.initializeWebhookClient();
-
-            Object client = ReflectionTestUtils.getField(notifier, "webhookClient");
-            assertThat(client).isNull();
-        }
-
-        @Test
-        @DisplayName("正常系：Webhook URLがnullの場合もWebhookClientがnullのままになる")
-        void testMethod03() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(null), httpClient);
-
-            notifier.initializeWebhookClient();
-
-            Object client = ReflectionTestUtils.getField(notifier, "webhookClient");
-            assertThat(client).isNull();
-        }
+            @Override
+            public void onComplete() {
+                collector.onComplete();
+            }
+        });
+        return collector.getBody().toCompletableFuture().join();
     }
 
     @Nested
@@ -89,11 +87,12 @@ class DiscordNotifierTest {
     class SendLiveStartNotification {
 
         @Test
-        @DisplayName("正常系：WebhookClientへタイトル・チャンネル名を含むembedを送信する")
-        void testMethod01() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
-            ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
-            when(webhookClient.send(any(WebhookEmbed.class))).thenReturn(CompletableFuture.completedFuture(null));
+        @DisplayName("正常系：全体向けのWebhookへタイトル・チャンネル名を含むembedをPOSTする")
+        void testMethod01() throws Exception {
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(WEBHOOK_URL), httpClient);
+            HttpResponse<String> response = mock(HttpResponse.class);
+            when(response.statusCode()).thenReturn(200);
+            when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
 
             LiveStreamDetails liveStream = LiveStreamDetails.builder()
                     .videoId("video001")
@@ -104,23 +103,25 @@ class DiscordNotifierTest {
 
             notifier.sendLiveStartNotification(liveStream);
 
-            ArgumentCaptor<WebhookEmbed> captor = ArgumentCaptor.forClass(WebhookEmbed.class);
-            verify(webhookClient, times(1)).send(captor.capture());
-            WebhookEmbed sentEmbed = captor.getValue();
-            assertThat(sentEmbed.getTitle().getText()).isEqualTo("配信タイトル");
-            assertThat(sentEmbed.getTitle().getUrl()).isEqualTo("https://www.youtube.com/watch?v=video001");
-            assertThat(sentEmbed.getAuthor().getName()).isEqualTo("テストチャンネル");
+            ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+            verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+            assertThat(captor.getValue().uri().toString()).isEqualTo(WEBHOOK_URL + "?wait=true");
+            JSONObject embed = new JSONObject(requestBody(captor.getValue())).getJSONArray("embeds").getJSONObject(0);
+            assertThat(embed.getString("title")).isEqualTo("配信タイトル");
+            assertThat(embed.getString("url")).isEqualTo("https://www.youtube.com/watch?v=video001");
+            assertThat(embed.getJSONObject("author").getString("name")).isEqualTo("テストチャンネル");
         }
 
         @Test
         @DisplayName("正常系：YouTube以外の視聴URLもそのままリンク先になる")
-        void testMethod05() {
+        void testMethod05() throws Exception {
             // 以前は LiveStreamDetails 側で videoId から YouTube の URL を組み立てていたため、
             // Twitch の配信を通知すると存在しない YouTube の URL が貼られていた。
             // 渡された URL がそのまま使われることを固定する
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
-            ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
-            when(webhookClient.send(any(WebhookEmbed.class))).thenReturn(CompletableFuture.completedFuture(null));
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(WEBHOOK_URL), httpClient);
+            HttpResponse<String> response = mock(HttpResponse.class);
+            when(response.statusCode()).thenReturn(200);
+            when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
 
             LiveStreamDetails liveStream = LiveStreamDetails.builder()
                     .videoId("320300019550")
@@ -131,17 +132,19 @@ class DiscordNotifierTest {
 
             notifier.sendLiveStartNotification(liveStream);
 
-            ArgumentCaptor<WebhookEmbed> captor = ArgumentCaptor.forClass(WebhookEmbed.class);
-            verify(webhookClient, times(1)).send(captor.capture());
-            assertThat(captor.getValue().getTitle().getUrl()).isEqualTo("https://www.twitch.tv/testuser");
+            ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+            verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+            JSONObject embed = new JSONObject(requestBody(captor.getValue())).getJSONArray("embeds").getJSONObject(0);
+            assertThat(embed.getString("url")).isEqualTo("https://www.twitch.tv/testuser");
         }
 
         @Test
         @DisplayName("正常系：サムネイルURLが設定されている場合はembedの画像として設定される")
-        void testMethod02() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
-            ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
-            when(webhookClient.send(any(WebhookEmbed.class))).thenReturn(CompletableFuture.completedFuture(null));
+        void testMethod02() throws Exception {
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(WEBHOOK_URL), httpClient);
+            HttpResponse<String> response = mock(HttpResponse.class);
+            when(response.statusCode()).thenReturn(200);
+            when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
 
             LiveStreamDetails liveStream = LiveStreamDetails.builder()
                     .videoId("video001")
@@ -152,17 +155,19 @@ class DiscordNotifierTest {
 
             notifier.sendLiveStartNotification(liveStream);
 
-            ArgumentCaptor<WebhookEmbed> captor = ArgumentCaptor.forClass(WebhookEmbed.class);
-            verify(webhookClient).send(captor.capture());
-            assertThat(captor.getValue().getImageUrl()).isEqualTo("https://example.com/thumb.jpg");
+            ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+            verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+            JSONObject embed = new JSONObject(requestBody(captor.getValue())).getJSONArray("embeds").getJSONObject(0);
+            assertThat(embed.getJSONObject("image").getString("url")).isEqualTo("https://example.com/thumb.jpg");
         }
 
         @Test
         @DisplayName("正常系：サムネイルURLが無い場合はembedの画像が設定されない")
-        void testMethod03() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
-            ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
-            when(webhookClient.send(any(WebhookEmbed.class))).thenReturn(CompletableFuture.completedFuture(null));
+        void testMethod03() throws Exception {
+            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(WEBHOOK_URL), httpClient);
+            HttpResponse<String> response = mock(HttpResponse.class);
+            when(response.statusCode()).thenReturn(200);
+            when(httpClient.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(response);
 
             LiveStreamDetails liveStream = LiveStreamDetails.builder()
                     .videoId("video001")
@@ -172,14 +177,15 @@ class DiscordNotifierTest {
 
             notifier.sendLiveStartNotification(liveStream);
 
-            ArgumentCaptor<WebhookEmbed> captor = ArgumentCaptor.forClass(WebhookEmbed.class);
-            verify(webhookClient).send(captor.capture());
-            assertThat(captor.getValue().getImageUrl()).isNull();
+            ArgumentCaptor<HttpRequest> captor = ArgumentCaptor.forClass(HttpRequest.class);
+            verify(httpClient).send(captor.capture(), any(HttpResponse.BodyHandler.class));
+            JSONObject embed = new JSONObject(requestBody(captor.getValue())).getJSONArray("embeds").getJSONObject(0);
+            assertThat(embed.has("image")).isFalse();
         }
 
         @Test
         @DisplayName("異常系：Webhook URLが未設定の場合はIllegalStateExceptionが発生する")
-        void testMethod04() {
+        void testMethod04() throws Exception {
             DiscordNotifier notifier = new DiscordNotifier(monitorProperties(""), httpClient);
             LiveStreamDetails liveStream = LiveStreamDetails.builder()
                     .videoId("video001")
@@ -189,31 +195,7 @@ class DiscordNotifierTest {
             assertThatThrownBy(() -> notifier.sendLiveStartNotification(liveStream))
                     .isInstanceOf(IllegalStateException.class);
 
-            verify(webhookClient, never()).send(any(WebhookEmbed.class));
-        }
-    }
-
-    @Nested
-    @DisplayName("closeWebhookClient()")
-    class CloseWebhookClient {
-
-        @Test
-        @DisplayName("正常系：WebhookClientが設定されている場合はcloseが呼ばれる")
-        void testMethod01() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties("https://discord.com/api/webhooks/x/y"), httpClient);
-            ReflectionTestUtils.setField(notifier, "webhookClient", webhookClient);
-
-            notifier.closeWebhookClient();
-
-            verify(webhookClient, times(1)).close();
-        }
-
-        @Test
-        @DisplayName("正常系：WebhookClientが未設定の場合は例外を発生させずに何もしない")
-        void testMethod02() {
-            DiscordNotifier notifier = new DiscordNotifier(monitorProperties(""), httpClient);
-
-            assertThatCode(notifier::closeWebhookClient).doesNotThrowAnyException();
+            verify(httpClient, never()).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
         }
     }
 }

@@ -29,8 +29,9 @@
 
 ### モック化が難しい箇所への対応
 
-- **discord-webhooks の `WebhookClient`**: `@PostConstruct` で生成されフィールドに保持されるため、
-  `ReflectionTestUtils.setField` でモックを直接注入している（`DiscordNotifierTest` 参照）
+- **Discord への送信（`DiscordNotifier`）**: 全体向けも利用者向けも共有の `HttpClient` で POST するので、
+  `HttpClient.send` をモックする。送った `HttpRequest` の本文は `bodyPublisher()` を読んで確かめる
+  （`DiscordNotifierTest` の `requestBody()` 参照）
 - **google-api-services-youtube の `YouTube` 系フルーエントAPI**: `youtube.videos().list(...).setId(...).execute()`
   のような多段チェーンは各段を個別にモックし、`setXxx()` が自分自身を返すようスタブする
   （`YouTubeApiClientTest` 参照）。レスポンスの中身（`Video`, `VideoSnippet` 等）は
