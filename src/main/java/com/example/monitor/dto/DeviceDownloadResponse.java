@@ -11,7 +11,7 @@ package com.example.monitor.dto;
  * @param status      状態
  * @param title       動画のタイトル。取得できなかった場合は動画 ID
  * @param recordingId 既にある録画を渡す場合の録画履歴の主キー。一時取得なら {@code null}
- * @param fileUrl     受け取り先の URL。{@link Status#READY} のときだけ入る
+ * @param fileUrl     受け取り先の URL。{@link Status#READY} と {@link Status#PARTIAL} のときだけ入る
  */
 public record DeviceDownloadResponse(
         String jobId,
@@ -25,9 +25,23 @@ public record DeviceDownloadResponse(
     public enum Status {
         /** {@code yt-dlp} が取得中。 */
         RUNNING,
-        /** 受け取れる。 */
+        /** 受け取れる（最後まで取得できた完成品）。 */
         READY,
+        /**
+         * 途中までしか取得できなかったが、そこまでを再生できる形にした（音声が無い・途中で切れていることがある）。
+         * 受け取れる。サービスへの保存が同じものを録画の {@code PARTIAL} として区別しているのと合わせている。
+         */
+        PARTIAL,
         /** 再生できるファイルを用意できなかった。 */
-        FAILED
+        FAILED;
+
+        /**
+         * 受け取れるファイルがあるか。途中まで（{@link #PARTIAL}）も受け取れる。
+         *
+         * @return {@link #READY} か {@link #PARTIAL} なら {@code true}
+         */
+        public boolean hasFile() {
+            return this == READY || this == PARTIAL;
+        }
     }
 }
