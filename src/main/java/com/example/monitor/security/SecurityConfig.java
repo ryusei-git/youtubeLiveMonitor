@@ -89,8 +89,9 @@ import java.nio.file.Path;
  *   <li><b>ハッシュ方式（{@link TokenBasedRememberMeServices}）にしている。</b>Cookie の署名に
  *       パスワードのハッシュが入るので、パスワードを変えるとその利用者の「ログインしたまま」は全端末で
  *       無効になる。ただし自分で変えた端末だけは、{@code MyAccountController} が新しいハッシュで Cookie を
- *       作り直す（変えた本人のセッションを続けさせているのと同じ理由）。無効化・削除した利用者は {@link AppUserDetailsService} が有効でない・見つからないを
- *       返すので自動ログインできない。どちらも追加の処理が要らず、DB のテーブルも要らない。
+ *       作り直す（変えた本人のセッションを続けさせているのと同じ理由）。無効化・削除した利用者は
+ *       {@link AppUserDetailsService} が有効でない・見つからないを返すので自動ログインできない。
+ *       どちらも追加の処理が要らず、DB のテーブルも要らない。
  *       DB 方式（{@code PersistentTokenBasedRememberMeServices}）にしないのは、ログアウトで
  *       その利用者の<b>全端末</b>のトークンが消えるうえ、パスワード変更・無効化のたびに消す処理を
  *       足す必要があるため。</li>

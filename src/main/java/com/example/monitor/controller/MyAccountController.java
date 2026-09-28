@@ -53,7 +53,7 @@ public class MyAccountController {
      *
      * @param principal ログイン中の利用者
      * @param body      今のパスワードと新しいパスワード
-     * @param request   主体の差し替えを保存するセッションの要求
+     * @param request   主体の差し替えを保存するセッションの要求（「ログインしたまま」の Cookie もここから読む）
      * @param response  同上の応答。「ログインしたまま」の Cookie を作り直したときはそれも載せる
      * @return 204。今のパスワードが違う・新しいパスワードが短いときは 400、
      *         今のパスワードを続けて間違えて一時的に制限しているときは 429（{@code GlobalExceptionHandler}）
