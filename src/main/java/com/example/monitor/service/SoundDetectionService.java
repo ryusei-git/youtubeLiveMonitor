@@ -201,6 +201,11 @@ public class SoundDetectionService {
         List<Recording> pending = soundDetectionRunRepository.findPendingRecordings(
                 KIND, version, SoundDetectionRun.MAX_ATTEMPTS);
         for (Recording recording : pending) {
+            // 終了の途中は H2 が DB を閉じていることが多く（stop() の JavaDoc）、残りの録画の数だけ「写せませんでした」が並ぶので、
+            // 検出と同じくやめる。写せなかった分は次の起動の見回りで写す
+            if (stopping) {
+                return;
+            }
             carryAnswersAhead(recording, version);
         }
         for (int i = 0; i < pending.size(); i++) {

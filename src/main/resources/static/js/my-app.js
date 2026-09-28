@@ -1036,8 +1036,9 @@ function myBindSoundMarks(rec, container) {
     /** @param {"CONFIRMED"|"REJECTED"} verdict 聞いている候補への答え。答えたら次の未確認の候補へ進む */
     const answerAndNext = async (verdict) => {
         const candidate = reviewing;
-        // 送っている間に「やめる」・ドックの切り替えで流れが終わっていたら、次へ進まない
-        if (!candidate || !(await answer(candidate, verdict)) || reviewing !== candidate) return;
+        // 送っている間に「やめる」・ドックの切り替えで流れが終わっていたら、次へ進まない。
+        // id で比べるのは、送っている間にほかの答えの失敗で一覧を読み直すと、聞いている候補が同じ id の別のオブジェクトに置き換わるため
+        if (!candidate || !(await answer(candidate, verdict)) || reviewing?.id !== candidate.id) return;
         const next = nextUnreviewed(candidate.positionMs / 1000);
         if (next) listen(next);
         else endReview("未確認の候補はもうありません");
