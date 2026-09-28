@@ -5,8 +5,10 @@ import com.example.monitor.config.MonitorProperties.SearchProperties;
 import com.example.monitor.entity.VideoCollectionQuota;
 import com.example.monitor.exception.SearchQuotaExceededException;
 import com.example.monitor.repository.VideoCollectionQuotaRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -75,16 +77,37 @@ public class YouTubeSearchBudget {
 
     private final VideoCollectionQuotaRepository repository;
     private final SearchProperties limits;
+    /** 今の時刻の元。テストで太平洋時間の 0 時の前後を固定の時刻にできるよう、差し替えられるようにしている。 */
+    private final Clock clock;
 
     /**
      * 上限の設定を読み込んで作る。
      *
+     * <p>{@code @Autowired} を付けるのは、テスト用のコンストラクタと 2 つあると、Spring がどちらで作るかを決められないため
+     * （付けないと起動時に「既定のコンストラクタが無い」で失敗する）。
+     *
      * @param repository 回数を保存する表
      * @param properties 上限の設定（{@code monitor.youtube.search.*}）
      */
+    @Autowired
     public YouTubeSearchBudget(VideoCollectionQuotaRepository repository, MonitorProperties properties) {
+        this(repository, properties, Clock.systemUTC());
+    }
+
+    /**
+     * 時刻の元を指定して作る（テスト用）。
+     *
+     * <p>回数が戻る太平洋時間の 0 時（日本時間の 16 時か 17 時）の前後を、固定の時刻で確かめるため。
+     * {@code LocalDate.now()} を直接呼ぶと、テストの側も今の時刻から日付を作るしかなく、区切りの前後を確かめられない。
+     *
+     * @param repository 回数を保存する表
+     * @param properties 上限の設定（{@code monitor.youtube.search.*}）
+     * @param clock      今の時刻の元
+     */
+    YouTubeSearchBudget(VideoCollectionQuotaRepository repository, MonitorProperties properties, Clock clock) {
         this.repository = repository;
         this.limits = properties.youtube().search();
+        this.clock = clock;
     }
 
     /**
@@ -241,7 +264,7 @@ public class YouTubeSearchBudget {
     }
 
     private LocalDate today() {
-        return LocalDate.now(QUOTA_ZONE);
+        return LocalDate.ofInstant(clock.instant(), QUOTA_ZONE);
     }
 
     /**
