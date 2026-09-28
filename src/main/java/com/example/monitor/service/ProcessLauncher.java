@@ -74,15 +74,16 @@ public interface ProcessLauncher {
      * 指定した文字列をコマンドラインに含む yt-dlp のプロセスを探す。
      *
      * <p>チャンネルの削除で、そのチャンネルの録画を止めるのに使う（{@link MonitoredChannelService#remove(Long)}）。
-     * アプリが追跡中の録画だけでなく、再起動で追跡を失った録画も止めるため、{@link Process} ではなく
-     * OS から引いた {@link ProcessHandle} を返す。
+     * 端末保存の期限切れの掃除（{@link DeviceDownloadService#purgeExpired()}）でも、再起動前に始めた取得の
+     * yt-dlp を一時フォルダーのパスで探して止めるのに使う。どちらも、アプリが追跡中のプロセスだけでなく、
+     * 再起動で追跡を失ったプロセスも止めるため、{@link Process} ではなく OS から引いた {@link ProcessHandle} を返す。
      *
      * <p>{@link #isRunningWithCommandLineContaining(String)} と同じく、動画 ID を含むだけの {@code grep}・
      * {@code tail} などは対象にしない。こちらは止めるための検索なので、さらに <b>yt-dlp だけ</b>に絞る。
      * {@code ffmpeg} まで含めると、{@link RecordingSalvager} の詰め替えまで止めてしまう。yt-dlp の子の ffmpeg は、
      * 止める側（{@link com.example.monitor.util.ProcessTermination#terminateTreeAndAwait}）が子孫として止める。
      *
-     * @param commandLineFragment 探したい文字列（録画なら動画 ID）
+     * @param commandLineFragment 探したい文字列（録画なら動画 ID、端末保存の掃除なら一時フォルダーの絶対パス）
      * @return 該当するプロセス。無ければ空
      */
     List<ProcessHandle> findYtDlpProcessesWithCommandLineContaining(String commandLineFragment);
