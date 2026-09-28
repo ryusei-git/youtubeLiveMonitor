@@ -19,6 +19,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.header.writers.CrossOriginOpenerPolicyHeaderWriter.CrossOriginOpenerPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -137,7 +138,10 @@ public class SecurityConfig {
     /** 「ログインしたままにする」の期間。ログインした時から数え、使っても延ばさない（クラスの説明を参照）。 */
     private static final int REMEMBER_ME_SECONDS = 30 * 24 * 60 * 60;
 
-    /** 読み込みを許す出どころ。外部リソースを使っていないので自分自身だけに絞る。 */
+    /**
+     * 読み込みを許す出どころ。自分自身を基本にし、外から読むのは YouTube のアイコン・サムネイル（{@code img-src}。
+     * 理由はその行のコメント）と、YouTube・Twitch の埋め込みプレーヤー（{@code frame-src}）だけにする。
+     */
     private static final String CONTENT_SECURITY_POLICY = String.join("; ",
             "default-src 'self'",
             "script-src 'self'",
@@ -148,6 +152,9 @@ public class SecurityConfig {
             // Referrer-Policy: same-origin なので、閲覧中の URL は YouTube へ渡らない
             "img-src 'self' data: https://yt3.ggpht.com https://yt3.googleusercontent.com https://i.ytimg.com",
             "media-src 'self'",
+            // <object>・<embed> は使っていない。プラグインの中身は script-src の外で動くことがあるので、
+            // default-src 'self' に任せず閉じる
+            "object-src 'none'",
             "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv",
             "connect-src 'self'",
             // <base> の差し替えで相対 URL の行き先を奪われるのを防ぐ
@@ -156,6 +163,37 @@ public class SecurityConfig {
             "form-action 'self'",
             // X-Frame-Options と同じ意図（新しいブラウザはこちらを見る）
             "frame-ancestors 'self'");
+
+    /**
+     * 閉じるブラウザーの機能（Permissions-Policy）。画面がどこでも使っていない機能だけを書く。
+     *
+     * <p>使っている機能（録画の再生の小窓 {@code picture-in-picture}、全画面 {@code fullscreen}、
+     * 埋め込みプレーヤーの {@code autoplay}・{@code encrypted-media}、URL のコピー {@code clipboard-write}）は
+     * 書かずにブラウザーの既定に任せる。ここに {@code fullscreen=(self)} のように書くと、許可先に無い
+     * YouTube・Twitch の iframe へは {@code allow} 属性を付けても渡せなくなり、埋め込みの全画面や自動再生が
+     * 黙って効かなくなる。
+     *
+     * <p>機能の名前は主なブラウザーが知っているものだけにする。知らない名前（廃止された {@code interest-cohort} など）は、
+     * Chrome が画面を開くたびにコンソールへ警告を出す。
+     */
+    private static final String PERMISSIONS_POLICY =
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
+
+    /**
+     * 別のサイトが {@code window.open} などでこの画面を開いたときに、開いた側とこの画面の参照を切る
+     * （Cross-Origin-Opener-Policy）。参照が残ると、開いた側がこの画面のフレームの数を数えたり、
+     * 行き先を差し替えたりできる。
+     *
+     * <p>{@code same-origin} ではなく {@code same-origin-allow-popups} にしている。{@code same-origin} は、
+     * この画面の中の YouTube・Twitch の埋め込みプレーヤーが開く小窓（ログインの確認など）からも参照を切り、
+     * プレーヤーの側の動きを壊しうるため。別のサイトから開かれたときに参照を切るのはどちらも同じ。
+     * この画面自身が開く外部へのリンクは、すべて {@code rel="noopener noreferrer"} で最初から参照を渡していない。
+     *
+     * <p>ブラウザーが従うのは HTTPS（{@code tailscale serve}）と localhost だけ。LAN の http で直接開いたときは
+     * 無視され、コンソールに警告が出るだけで動きは変わらない。
+     */
+    private static final CrossOriginOpenerPolicy CROSS_ORIGIN_OPENER_POLICY =
+            CrossOriginOpenerPolicy.SAME_ORIGIN_ALLOW_POPUPS;
 
     /**
      * CSRF トークンの受け渡し方を決める。
@@ -234,10 +272,12 @@ public class SecurityConfig {
                 .referrerPolicy(referrer -> referrer.policy(
                         ReferrerPolicyHeaderWriter.ReferrerPolicy.SAME_ORIGIN))
                 // 万一 HTML への差し込みを許してしまっても、外部スクリプトの読み込みと
-                // インライン script の実行を止める。このアプリは外部リソースを
-                // 一切読んでいないので 'self' だけで足りる
-                // （style だけは style="display:none" を使っているため許可する）
-                .contentSecurityPolicy(csp -> csp.policyDirectives(CONTENT_SECURITY_POLICY)))
+                // インライン script の実行を止める（許す出どころは CONTENT_SECURITY_POLICY を参照）
+                .contentSecurityPolicy(csp -> csp.policyDirectives(CONTENT_SECURITY_POLICY))
+                // 使っていないブラウザーの機能を閉じる（PERMISSIONS_POLICY を参照）
+                .permissionsPolicyHeader(permissions -> permissions.policy(PERMISSIONS_POLICY))
+                // 別のサイトから開かれたときに、開いた側との参照を切る（CROSS_ORIGIN_OPENER_POLICY を参照）
+                .crossOriginOpenerPolicy(opener -> opener.policy(CROSS_ORIGIN_OPENER_POLICY)))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/userLogin.html", "/adminLogin.html", "/login", "/css/**", "/js/**", "/error").permitAll()
                 // ブラウザがどの画面でも取りに行く。ログイン画面へ転送しても意味が無いので、
