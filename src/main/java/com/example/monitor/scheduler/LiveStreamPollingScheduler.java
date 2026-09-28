@@ -432,6 +432,10 @@ public class LiveStreamPollingScheduler {
      * {@code MAX_NOTIFICATION_ATTEMPTS} に達したら諦める（直らない失敗を試行し続けないため）。
      * 詳細が取れず本文を作れなかった場合も失敗として数える。
      *
+     * <p><b>履歴の保存（{@code recordAttempt}）の失敗は捕まえて、通知済み・失敗回数の記録へ進む。</b>
+     * 履歴は原因を調べるための記録で、残せなくても送信の結果は変わらないため。逆にここで抜けると、
+     * 失敗回数が増えずに上限が効かなくなる（Discord の障害時に長い応答本文が列に収まらず、起こりうる経路だった）。
+     *
      * @param channel                  調査対象のチャンネル（巡回開始時に読み込んだもの。書き換えない）
      * @param detection                配信中と判定された検知結果
      * @param details                  配信の詳細（最初に必要になったときに 1 回だけ取得する）
@@ -470,7 +474,15 @@ public class LiveStreamPollingScheduler {
         }
 
         NotificationOutcome outcome = notificationDispatcher.notifyLiveStreamStarted(liveStream.get());
-        notificationHistoryService.recordAttempt(channel, videoId, liveStream.get().getTitle(), outcome);
+        try {
+            notificationHistoryService.recordAttempt(channel, videoId, liveStream.get().getTitle(), outcome);
+        } catch (RuntimeException e) {
+            // 履歴を残せなくても、通知済み・失敗回数の記録へ進む。ここで抜けると、失敗時は失敗回数が増えず
+            // 再送の上限（MAX_NOTIFICATION_ATTEMPTS）が効かなくなり、成功時は通知済みにならず
+            // 次の巡回で同じ配信へもう一度送ってしまう
+            log.warn("通知履歴の保存に失敗しました。通知済み・失敗回数の記録は続けます: name={}, video={}, 送信={}",
+                    channel.getChannelName(), videoId, outcome.successful() ? "成功" : "失敗", e);
+        }
 
         if (outcome.successful()) {
             // 通知済みの記録と同時に失敗回数も 0 に戻る
