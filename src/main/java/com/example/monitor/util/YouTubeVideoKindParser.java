@@ -11,7 +11,9 @@ import java.util.regex.Pattern;
  * 目印は実際の動画ページで確かめたもの（待機所は {@code "isUpcoming":true} と
  * {@code "isLiveContent":true} の両方を持つので、{@code isUpcoming} を先に見る）。
  *
- * <p>削除された・存在しない動画は、種類の目印が無い代わりに「再生できません」の目印を持つので、消えた動画（{@link OnlineVideo#KIND_MISSING}）として返す。判定できない（null）のままにすると、待機所が消されたとき配信予定として残り続けるため。この結果を書くかどうかは呼び出し側が決める。
+ * <p>削除された・存在しない動画は、種類の目印が無い代わりに「再生できません」の目印を持つので、
+ * 消えた動画（{@link OnlineVideo#KIND_MISSING}）として返す。判定できない（null）のままにすると、
+ * 待機所が消されたとき配信予定として残り続けるため。この結果を書くかどうかは呼び出し側が決める。
  */
 public final class YouTubeVideoKindParser {
     /** {@code LiveStreamDetector} と同じ正規表現。今回は共通化しない（Issue #89 の判断）。 */
