@@ -2,6 +2,8 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.TableDataResponse;
 import com.example.monitor.dto.TableSummary;
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.util.CaseInsensitiveMatcher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.ColumnMapRowMapper;
@@ -36,6 +38,20 @@ import java.util.stream.Collectors;
  * 利用者から渡された文字列をそのまま SQL に混ぜることはない。
  * 値については通常どおりプレースホルダで渡す。
  *
+ * <h2>監査ログ</h2>
+ * 行の更新（{@link #updateRow}）は、成功・失敗とも監査ログに残す。任意のテーブルの任意の列を書き換えられる、
+ * 管理者の操作の中で最も強い操作なので、セッションを奪われたとき・操作を誤ったときに、
+ * 誰がいつどの行を変えたかを追えるようにするため。閲覧（{@link #getTableData}）は残さない
+ * （{@code docs/user-portal-design.md} 4.2。閲覧まで残すと不正の痕跡が埋もれる）。
+ *
+ * <p>種別は設定画面の保存と同じ {@link AuditAction#APP_SETTING_CHANGE} にし、対象の種類 {@code DB_ROW}、
+ * 対象の識別子「テーブル名/主キー値」で見分ける。専用の種別を足すと、監査ログ画面の絞り込みの選択肢と
+ * 表示名も直すことになる。一方で管理者の直接操作は件数が少なく、同じ種別の中で対象の種類を見れば足りる。
+ *
+ * <p>残すのは列名だけで、値は残さない。この画面は {@link #EXCLUDED_TABLES} に無い全部の表を対象にするので、
+ * 秘密の列を持つ表を足して除外し忘れると、その値まで編集でき、監査ログに写ってしまう。
+ * 監査ログは追記専用で後から消せない。失敗の理由の扱いは {@link #failureReason} 参照。
+ *
  * <h2>想定する利用範囲</h2>
  * 認証を持たない個人用のローカルツールという前提で作られている。
  * 任意のテーブルを書き換えられるため、外部に公開する場合は必ずアクセス制御を追加すること。
@@ -46,6 +62,9 @@ public class DatabaseTableService {
 
     /** 対象とするスキーマ。H2 の既定スキーマ。 */
     private static final String TARGET_SCHEMA = "PUBLIC";
+
+    /** 監査ログに残す操作対象の種類。設定画面の保存（{@code ENV_FILE}）と見分けるため。 */
+    private static final String AUDIT_TARGET_TYPE = "DB_ROW";
 
     /**
      * 認証情報の露出や証跡の改変を防ぐため、汎用閲覧・編集の対象から除外するテーブル。
@@ -160,6 +179,7 @@ public class DatabaseTableService {
 
     private final DataSource dataSource;
     private final JdbcTemplate jdbcTemplate;
+    private final AuditLogger auditLogger;
 
     /**
      * 選択できるテーブルの一覧を、論理名（日本語）付きで返す。
@@ -281,6 +301,8 @@ public class DatabaseTableService {
      * <p>バイナリの列（{@link #findBinaryColumns}）への更新は無視せず断る。受け取るのは文字列なので、
      * 書き込むと入力した文字の UTF-8 がそのまま BLOB に入り、サムネイルの画像などが壊れる（#207）。
      *
+     * <p>成功・失敗とも監査ログに残す（クラスの JavaDoc「監査ログ」参照）。
+     *
      * @param requestedTableName 更新対象のテーブル名
      * @param primaryKeyValue    更新する行の主キー値（文字列。数値型の主キーには自動変換される）
      * @param requestedChanges   「カラム名 → 新しい値」の対応
@@ -289,6 +311,29 @@ public class DatabaseTableService {
      * @throws IllegalStateException    対象テーブルに主キーがない場合
      */
     public void updateRow(String requestedTableName, String primaryKeyValue, Map<String, Object> requestedChanges) {
+        String targetId = requestedTableName + "/" + primaryKeyValue;
+        List<String> updatedColumns;
+        try {
+            updatedColumns = applyRowUpdate(requestedTableName, primaryKeyValue, requestedChanges);
+        } catch (RuntimeException e) {
+            auditLogger.recordByCurrentUser(AuditAction.APP_SETTING_CHANGE, AuditOutcome.FAILURE,
+                    AUDIT_TARGET_TYPE, targetId, "reason=" + failureReason(e));
+            throw e;
+        }
+        auditLogger.recordByCurrentUser(AuditAction.APP_SETTING_CHANGE, AuditOutcome.SUCCESS,
+                AUDIT_TARGET_TYPE, targetId, "columns=" + String.join(",", updatedColumns));
+    }
+
+    /**
+     * {@link #updateRow} の本体。監査ログの記録と分けるために切り出している。
+     *
+     * @param requestedTableName 更新対象のテーブル名
+     * @param primaryKeyValue    更新する行の主キー値
+     * @param requestedChanges   「カラム名 → 新しい値」の対応
+     * @return 実際に更新したカラム名（DB 上の正式な表記）
+     */
+    private List<String> applyRowUpdate(String requestedTableName, String primaryKeyValue,
+                                        Map<String, Object> requestedChanges) {
         String tableName = resolveExistingTableName(requestedTableName);
         String primaryKeyColumn = findPrimaryKeyColumn(tableName)
                 .orElseThrow(() -> new IllegalStateException("主キーが存在しないため更新できません: " + tableName));
@@ -318,6 +363,25 @@ public class DatabaseTableService {
             throw new IllegalArgumentException(
                     "該当する行が見つかりません: " + primaryKeyColumn + "=" + primaryKeyValue);
         }
+        return List.copyOf(applicableChanges.keySet());
+    }
+
+    /**
+     * 更新の失敗を監査ログに残すときの理由。
+     *
+     * <p>このクラスが自分で投げる例外（{@link IllegalArgumentException}・{@link IllegalStateException}）は、
+     * 列に書き込む値を文言に含めないので、文言をそのまま使う。それ以外（型の変換や列の長さの超過で
+     * JDBC が投げる {@code DataAccessException} など）は、例外の種類名だけにする。H2 の文言には
+     * 入力した値がそのまま入り、値を残さない方針（クラスの JavaDoc「監査ログ」）が崩れるため。
+     *
+     * @param e 更新中に起きた例外
+     * @return 監査ログの {@code detail} に載せる理由
+     */
+    private static String failureReason(RuntimeException e) {
+        if (e instanceof IllegalArgumentException || e instanceof IllegalStateException) {
+            return e.getMessage();
+        }
+        return e.getClass().getSimpleName();
     }
 
     /**

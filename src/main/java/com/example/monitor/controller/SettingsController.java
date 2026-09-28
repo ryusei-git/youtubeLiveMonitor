@@ -4,6 +4,9 @@ import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.dto.DirectoryPickResponse;
 import com.example.monitor.dto.SettingsResponse;
 import com.example.monitor.dto.SettingsUpdateRequest;
+import com.example.monitor.entity.AuditAction;
+import com.example.monitor.entity.AuditOutcome;
+import com.example.monitor.service.AuditLogger;
 import com.example.monitor.service.EnvironmentSettingsService;
 import com.example.monitor.service.NativeDirectoryPickerService;
 import com.example.monitor.util.DiscordWebhookUrl;
@@ -49,9 +52,16 @@ public class SettingsController {
     private static final String KEY_RECORDING_DIRECTORY = "MONITOR_RECORDING_DIRECTORY";
     private static final String KEY_RECORDING_MAX_HEIGHT = "MONITOR_RECORDING_MAX_HEIGHT";
 
+    /**
+     * 監査ログに残す操作対象の種類。DB 管理画面の直接編集（{@code DB_ROW}）と同じ
+     * {@link AuditAction#APP_SETTING_CHANGE} で記録するので、どこを変えたかをこの値で見分ける。
+     */
+    private static final String AUDIT_TARGET_TYPE = "ENV_FILE";
+
     private final MonitorProperties monitorProperties;
     private final EnvironmentSettingsService environmentSettingsService;
     private final NativeDirectoryPickerService nativeDirectoryPickerService;
+    private final AuditLogger auditLogger;
 
     /**
      * 適用中の設定値と、{@code .env} に保存済みで再起動を待っている値を返す。
@@ -103,6 +113,10 @@ public class SettingsController {
      * <p>Webhook の URL は Discord の Webhook の形（{@link DiscordWebhookUrl#isValid}）でなければ断り、何も保存しない。
      * 形の誤った URL を保存して再起動すると、全体向けの通知が一切届かなくなるため（以前は起動そのものに失敗していた）。
      *
+     * <p>成功・失敗とも監査ログ（{@link AuditAction#APP_SETTING_CHANGE}、対象の種類 {@code ENV_FILE}）に残す。
+     * 残すのは変えたキー名だけで、値は残さない（{@link #recordSettingChange} 参照）。
+     * {@code @Valid} の検証で断った要求は、このメソッドに入る前に 400 になるので記録されない。
+     *
      * @param request 変更したい項目
      * @return 本文なしの HTTP 204
      * @throws IllegalArgumentException Webhook の URL が Discord の Webhook の形でない場合（GlobalExceptionHandler が 400 にする）
@@ -110,12 +124,6 @@ public class SettingsController {
     @PutMapping
     public ResponseEntity<Void> updateSettings(@Valid @RequestBody SettingsUpdateRequest request) {
         String webhookUrl = request.discordWebhookUrl() == null ? null : request.discordWebhookUrl().strip();
-        if (webhookUrl != null && !webhookUrl.isEmpty() && !DiscordWebhookUrl.isValid(webhookUrl)) {
-            // 入力をメッセージに入れない。GlobalExceptionHandler がメッセージをログに残すため、
-            // 打ち間違えた本物の URL（＝秘密）がログに出てしまう
-            throw new IllegalArgumentException("Discord の Webhook の URL"
-                    + "（https://discord.com/api/webhooks/ で始まるもの）を入力してください");
-        }
 
         Map<String, String> updates = new LinkedHashMap<>();
         putIfPresent(updates, KEY_YOUTUBE_API_KEY, request.youtubeApiKey());
@@ -130,7 +138,19 @@ public class SettingsController {
             updates.put(KEY_RECORDING_MAX_HEIGHT, String.valueOf(request.recordingMaxHeight()));
         }
 
-        environmentSettingsService.updateEnvFile(updates);
+        try {
+            if (webhookUrl != null && !webhookUrl.isEmpty() && !DiscordWebhookUrl.isValid(webhookUrl)) {
+                // 入力をメッセージに入れない。GlobalExceptionHandler がメッセージをログに残すため、
+                // 打ち間違えた本物の URL（＝秘密）がログに出てしまう
+                throw new IllegalArgumentException("Discord の Webhook の URL"
+                        + "（https://discord.com/api/webhooks/ で始まるもの）を入力してください");
+            }
+            environmentSettingsService.updateEnvFile(updates);
+        } catch (RuntimeException e) {
+            recordSettingChange(AuditOutcome.FAILURE, updates, e.getMessage());
+            throw e;
+        }
+        recordSettingChange(AuditOutcome.SUCCESS, updates, null);
         return ResponseEntity.noContent().build();
     }
 
@@ -151,6 +171,28 @@ public class SettingsController {
         return selected
                 .map(path -> ResponseEntity.ok(new DirectoryPickResponse(path)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /**
+     * 設定の保存を監査ログへ記録する。
+     *
+     * <p><b>値は残さず、キー名だけを残す。</b>API キー・Webhook の URL・Twitch の Client Secret は秘密で、
+     * 監査ログは追記専用で後から消せない（{@link com.example.monitor.entity.AuditLog} 参照）。
+     * 失敗の理由には例外の文言をそのまま使う。{@link EnvironmentSettingsService} と Webhook の URL の形の確認は、
+     * 入力した値を文言に入れない作りにしている（{@code GlobalExceptionHandler} がこの文言をアプリログにも書くため）。
+     *
+     * <p>記録はサービスではなくここで行う（{@code docs/user-portal-design.md} 4.4 は「各サービスから呼ぶ」としている）。
+     * 保存するキーの組み立てと Webhook の URL の形の確認がこのクラスにあり、{@link EnvironmentSettingsService} で
+     * 記録すると、その確認で断った保存が残らないため。
+     *
+     * @param outcome 保存の結果
+     * @param updates 保存しようとした「キー → 値」。値は使わない
+     * @param reason  失敗の理由。成功のときは使わない（{@code null} を渡す）
+     */
+    private void recordSettingChange(AuditOutcome outcome, Map<String, String> updates, String reason) {
+        String keys = updates.isEmpty() ? "なし" : String.join(",", updates.keySet());
+        String detail = outcome == AuditOutcome.SUCCESS ? "keys=" + keys : "keys=" + keys + ", reason=" + reason;
+        auditLogger.recordByCurrentUser(AuditAction.APP_SETTING_CHANGE, outcome, AUDIT_TARGET_TYPE, null, detail);
     }
 
     /**
