@@ -45,6 +45,12 @@ import java.util.function.Supplier;
  * 回数は配信ごとに自然に数え直しになる。
  * 1 人の失敗で他の利用者への送信・全体向けの通知・録画を止めないよう、例外はこのクラスの中で止めて WARN に残す。
  *
+ * <p>配信の詳細が取れず本文を作れなかった回は、Webhook の失敗としては記録しない（失敗の時刻と理由を残さない）。
+ * 取れない原因は YouTube のクォータ切れ・API の障害、検知から取得までの間に配信が終わったことなど、どれもサーバー側の事情で、
+ * 失敗の時刻を付けると通知の設定画面に「Webhook が削除された可能性」と誤った警告が出て、正常な Webhook を作り直させてしまうため。
+ * ただし試行の回数には数える。数えないと、詳細が取れない間は配信が続く限り巡回のたびに取り直し、クォータを使い続けるため
+ * （全体向けも、詳細が取れない回を失敗回数に数えている）。
+ *
  * <h2>Webhook の URL は秘密</h2>
  * URL を知っていれば誰でもその Discord のチャンネルへ書き込めるため、API では登録済みかどうかしか返さず、
  * ログにも監査ログにも出さない。受け付けるのは Discord の Webhook の形だけ（{@link DiscordWebhookUrl}）。
@@ -210,9 +216,20 @@ public class UserNotificationService {
             return;
         }
 
+        Optional<LiveStreamDetails> liveStream = readDetails(details, videoId);
+        if (liveStream.isEmpty()) {
+            // 詳細が取れないのはサーバー側の事情なので、Webhook の失敗としては記録しない（クラスの JavaDoc 参照）
+            DatabaseUpdateVerifier.verify(userNotificationRepository.incrementFailureCount(record.getId()),
+                    "利用者への通知の試行回数の加算（詳細取得の失敗）", record.getId());
+            int attempts = record.getFailureCount() + 1;
+            log.warn("配信の詳細を取得できなかったため、利用者への通知を見送ります（{}/{} 回目{}）: user={}, video={}",
+                    attempts, MAX_ATTEMPTS, attempts >= MAX_ATTEMPTS ? "。この配信への送信は諦めます" : "",
+                    user.getUsername(), videoId);
+            return;
+        }
+
         NotificationOutcome outcome = attempt(() -> discordNotifier.sendLiveStartNotification(
-                user.getDiscordWebhookUrl(),
-                details.get().orElseThrow(() -> new IllegalStateException("配信の詳細を取得できませんでした"))));
+                user.getDiscordWebhookUrl(), liveStream.get()));
 
         if (outcome.successful()) {
             DatabaseUpdateVerifier.verify(
@@ -229,6 +246,28 @@ public class UserNotificationService {
         log.warn("利用者への通知に失敗しました（{}/{} 回目{}）: user={}, video={}, reason={}",
                 failures, MAX_ATTEMPTS, failures >= MAX_ATTEMPTS ? "。この配信への送信は諦めます" : "",
                 user.getUsername(), videoId, outcome.errorMessage());
+    }
+
+    /**
+     * 配信の詳細を取り出す。取り出しで例外が起きたら、取れなかったものとして扱う。
+     *
+     * <p>取り出しは送信処理（{@code attempt}）の外で行う。中で行うと、取れなかったことが送信の失敗と区別できず、
+     * 利用者の Webhook の失敗として記録されてしまうため。
+     * 例外を呼び出し元へ投げずに「取れなかった」に倒すのは、例外のまま抜けると回数を数えないので
+     * 試行の上限が効かず、巡回のたびに取り直し続けるため。
+     *
+     * @param details 配信の詳細
+     * @param videoId 配信の動画 ID（ログ用）
+     * @return 取れた詳細。取れなければ {@link Optional#empty()}
+     */
+    private static Optional<LiveStreamDetails> readDetails(Supplier<Optional<LiveStreamDetails>> details,
+                                                           String videoId) {
+        try {
+            return details.get();
+        } catch (RuntimeException e) {
+            log.warn("配信の詳細の取り出しで例外が発生しました: video={}", videoId, e);
+            return Optional.empty();
+        }
     }
 
     /**

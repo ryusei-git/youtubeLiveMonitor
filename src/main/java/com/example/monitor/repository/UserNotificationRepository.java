@@ -42,7 +42,7 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
     int markNotified(@Param("id") Long id, @Param("notifiedAt") LocalDateTime notifiedAt);
 
     /**
-     * 送れなかったことを記録する。失敗回数を 1 増やし、失敗の時刻と理由を残す。
+     * Webhook へ送って失敗したことを記録する。失敗回数を 1 増やし、失敗の時刻と理由を残す。
      *
      * @param id       記録の主キー
      * @param failedAt 失敗した時刻
@@ -55,6 +55,22 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
             + " n.lastFailedAt = :failedAt, n.lastError = :error WHERE n.id = :id")
     int recordFailure(@Param("id") Long id, @Param("failedAt") LocalDateTime failedAt,
                       @Param("error") String error);
+
+    /**
+     * 送らずに終えた試行を数える。失敗回数だけを 1 増やし、失敗の時刻と理由には触れない。
+     *
+     * <p>配信の詳細が取れず、本文を作れなかったときに呼ぶ。これは利用者の Webhook の不具合ではないので、
+     * {@link #recordFailure} のように失敗の時刻を付けると、通知の設定画面に「Webhook が削除された可能性」と
+     * 誤った警告が出る。一方で回数に数えないと、詳細が取れない間は巡回のたびに詳細を取り直し続ける
+     * （{@code docs/pitfalls.md}「通知の再試行には上限がある」）。
+     *
+     * @param id 記録の主キー
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE UserNotification n SET n.failureCount = n.failureCount + 1 WHERE n.id = :id")
+    int incrementFailureCount(@Param("id") Long id);
 
     /**
      * 利用者の失敗の時刻と理由を消す。Webhook を登録し直したときに呼ぶ。
