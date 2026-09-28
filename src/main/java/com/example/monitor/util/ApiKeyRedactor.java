@@ -3,7 +3,6 @@ package com.example.monitor.util;
 import com.google.api.client.googleapis.json.GoogleJsonError;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 
-import java.io.IOException;
 import java.util.regex.Pattern;
 
 /**
@@ -39,10 +38,14 @@ public final class ApiKeyRedactor {
      * <p>API の失敗で例外の本文（{@code getMessage()}）を使わないのは、そこにキー付きの URL が
      * そのまま入っているため。伏せ字は念のための二重の守り。
      *
+     * <p>引数を {@code IOException} に絞らないのは、Google のクライアントが 2xx の応答の本文を
+     * 解析できないとき、{@code IOException} ではなく実行時例外（{@code IllegalArgumentException}
+     * など）を投げることがあるため。それを捕まえた側も、例外の本体ではなくこの説明をログに書く。
+     *
      * @param e 呼び出しの失敗
      * @return キーを含まない説明
      */
-    public static String describe(IOException e) {
+    public static String describe(Exception e) {
         if (e instanceof GoogleJsonResponseException json) {
             GoogleJsonError details = json.getDetails();
             String reason = details != null && details.getErrors() != null && !details.getErrors().isEmpty()
