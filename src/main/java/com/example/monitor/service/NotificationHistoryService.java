@@ -7,6 +7,7 @@ import com.example.monitor.entity.NotificationHistory.NotificationResultType;
 import com.example.monitor.exception.ChannelNotFoundException;
 import com.example.monitor.repository.MonitoredChannelRepository;
 import com.example.monitor.repository.NotificationHistoryRepository;
+import com.example.monitor.util.TextTruncator;
 import lombok.RequiredArgsConstructor;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
@@ -28,11 +29,27 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class NotificationHistoryService {
 
+    /**
+     * 失敗理由を残す長さ。{@link NotificationHistory#errorMessage} の列の長さ（長さの指定が無いので、
+     * Hibernate の既定の varchar(255)）と揃える。
+     *
+     * <p>全体向けの送信の失敗理由は例外のメッセージそのもので、Discord の応答本文が切られずに入る
+     * （discord-webhooks の {@code HttpException} は「Request returned failure」とステータスコードの後ろに、
+     * 応答本文の全体をつなげる）。Discord の障害時に Cloudflare の HTML（数 KB）が返ると列に収まらず、
+     * INSERT が失敗して、巡回の失敗回数の加算まで届かなくなっていた。
+     * 全文は {@code NotificationDispatcher} が ERROR としてアプリログに残すので、ここでは先頭だけで足りる。
+     * 列を広げないのは、{@code ddl-auto: update} が本番 DB の列の型を ALTER することになるため。
+     */
+    private static final int MAX_ERROR_MESSAGE_LENGTH = 255;
+
     private final NotificationHistoryRepository notificationHistoryRepository;
     private final MonitoredChannelRepository monitoredChannelRepository;
 
     /**
      * 通知を試みた結果を履歴に残す。成功・失敗を問わず必ず 1 件記録する。
+     *
+     * <p>失敗理由は {@code MAX_ERROR_MESSAGE_LENGTH} 文字で切ってから保存する。
+     * 列に収まらないと INSERT ごと失敗し、原因を調べるための失敗の記録そのものが残らないため。
      *
      * @param channel    通知対象のチャンネル
      * @param videoId    通知対象の配信の動画 ID
@@ -45,7 +62,7 @@ public class NotificationHistoryService {
                 .videoId(videoId)
                 .videoTitle(videoTitle)
                 .status(outcome.successful() ? NotificationResultType.SUCCESS : NotificationResultType.FAILED)
-                .errorMessage(outcome.errorMessage())
+                .errorMessage(TextTruncator.truncate(outcome.errorMessage(), MAX_ERROR_MESSAGE_LENGTH))
                 .build();
         notificationHistoryRepository.save(history);
     }
