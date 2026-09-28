@@ -441,7 +441,8 @@ public class LiveStreamPollingScheduler {
      *
      * @param channel             調査対象のチャンネル（巡回開始時に読み込んだもの。書き換えない）
      * @param videoId             今の配信の動画 ID
-     * @param previousLiveVideoId 観測を記録する前に控えた、前回の配信の動画 ID（前回が配信中でなければ null）
+     * @param previousLiveVideoId 観測を記録する前に控えた、前回の配信の動画 ID
+     *                            （前回が配信中でなければ null）
      * @return このサイクルの上限判定に使う失敗回数
      */
     private int failureCountForThisStream(MonitoredChannel channel, String videoId, String previousLiveVideoId) {
