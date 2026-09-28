@@ -684,6 +684,11 @@ button:disabled:hover {
     font-weight: 700;
 }
 
+/* 送信失敗の件数は通知履歴へのリンクにしている。a の既定の色（var(--link)）で注意の赤字が消えないよう、親の色を継ぐ */
+.kpi .kpiSub.alert a {
+    color: inherit;
+}
+
 .chartRow {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
