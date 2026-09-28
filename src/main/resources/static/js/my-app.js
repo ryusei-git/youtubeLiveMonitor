@@ -26,7 +26,8 @@ let myDockWatchedSent = false;
 
 /**
  * 読み込んだ録画の再生回数をもう数えたか。一時停止から戻したときの {@code play} で数え直さないため、
- * 録画を読み込むたびに戻す（{@link myDockWatchedSent} と同じ考え方）。
+ * 録画を読み込むたびに戻す（{@link myDockWatchedSent} と同じ考え方）。失敗した録画の読み込み直しでも戻す
+ * （{@link myDockSavePosition} が、この読み込みで再生したかをこれで見るため。{@link myDockLoad} を参照）。
  */
 let myDockPlayCounted = false;
 
@@ -132,19 +133,28 @@ function myDockRestorePosition(rec) {
  * 録画をドックに読み込む。自動では再生しない（管理者の再生画面と同じく、利用者が再生を押す）。
  * 同じ録画を読み込んでいれば何もしない。ミニプレーヤーから再生画面へ戻ったときに読み込み直すと、
  * 再生が途切れて先頭へ戻るため。
+ * ただし前の読み込みが失敗していたときは、同じ録画でも読み込み直す（開き直せばもう一度試せるように）。
  *
  * @param {Recording} rec 読み込む録画
  */
 function myDockLoad(rec) {
-    if (myDockRecording?.id === rec.id) return;
+    const video = myDockVideo();
+    const same = myDockRecording?.id === rec.id;
+    // 同じ録画でも、前の読み込みが失敗していれば（video.error が残っていれば）読み込み直す。
+    // 通信が戻った後やファイルを戻した後に、再生画面を開き直せばもう一度試せるようにするため
+    if (same && !video.error) return;
     // 別の録画へ切り替えると pause が来ない（emptied だけが来る）ので、前の録画の位置はここで送る
     myDockSavePosition(false);
     myDockRecording = rec;
-    myDockWatchedSent = false;
+    // 視聴済みは、読み込み直しでは送り直さない（失敗する前に再生していれば、もう送ってある）
+    if (!same) myDockWatchedSent = false;
+    // 再生回数を数えたかは、読み込み直しでも戻す。myDockSavePosition はこれで「この読み込みで再生したか」を見ていて、
+    // 戻さないと、読み込み直した直後（位置が 0 に戻り、続きの位置を入れる前）や読み込み直しがまた失敗した後に、
+    // 画面を離れる・閉じるだけで保存してある位置を 0 で上書きするため。失敗した時点の位置は、上の myDockSavePosition が送ってある。
+    // 読み込み直した後にもう一度再生すると 1 回として数える（閉じて開き直したときと同じ）
     myDockPlayCounted = false;
     // 送る間隔はこの読み込みから数える（前の録画で最後に送った時刻を引き継がない）
     myDockPositionSentAt = Date.now();
-    const video = myDockVideo();
     // ファイル名に日本語や記号が入るため、パスとして安全な形に符号化する
     video.src = `/recordings/${encodeURI(rec.filePath)}`;
     // src を入れた後に呼ぶ（前の録画の読み込みで位置を入れないため）
@@ -229,6 +239,16 @@ function myDockInit() {
             .then(() => myDockOnWatched?.(id))
             .catch(() => {})
             .finally(() => { myDockWatchedPending = false; });
+    });
+    // 読み込めないとき（ファイルが無い・ログインが切れた・この端末で再生できない形式・通信が切れた）は、何もしないと
+    // 再生画面は黒いまま、ミニプレーヤーは再生ボタンが反応しないだけになり、理由が分からない。理由を調べてエラー帯に出す。
+    // 再生画面ではエラー帯が動画のすぐ下にある。ミニプレーヤーのときは、今出している画面のエラー帯に出る
+    video.addEventListener("error", async () => {
+        const rec = myDockRecording;
+        if (!rec) return;
+        const message = await describeVideoError(video);
+        // 調べている間に閉じた・別の録画へ切り替えた・読み込み直したときは、前の読み込みの失敗を出さない
+        if (message && myDockRecording === rec) showError(message);
     });
     buttonEl("dockClose").addEventListener("click", myDockClose);
     bindPictureInPictureButton(buttonEl("dockPip"), video);
