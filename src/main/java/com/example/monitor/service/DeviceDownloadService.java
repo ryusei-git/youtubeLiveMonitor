@@ -442,9 +442,15 @@ public class DeviceDownloadService {
             return directory().resolve(videoId + ".mp4");
         }
 
+        /**
+         * 状態を 1 回だけ読んでから詰める。2 回読むと、その間に取得が終わった仕事を「READY なのに
+         * {@code fileUrl} が {@code null}」で返すことがある。一覧の画面は {@code fileUrl} を受け取りのリンクにし、
+         * 取得中が無くなると取り直さないので、壊れたリンクが残ってしまう。
+         */
         private DeviceDownloadResponse toResponse() {
-            String fileUrl = status.hasFile() ? "/api/my/downloads/device/" + id + "/file" : null;
-            return new DeviceDownloadResponse(id, status, title, null, fileUrl);
+            Status current = status;
+            String fileUrl = current.hasFile() ? "/api/my/downloads/device/" + id + "/file" : null;
+            return new DeviceDownloadResponse(id, current, title, null, fileUrl);
         }
     }
 }
