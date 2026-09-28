@@ -103,6 +103,12 @@ Orca の設定に解消手段が見つかれば、ここを更新すること。
 
 ### コマンド
 
+Project を読み書きするもの（`bin/lead-status.sh` の「次の候補」、`bin/create-issue.sh`、下の `gh project` と
+`projectItems` を引く `gh api graphql`）は、gh のトークンに `project` スコープが要る。`repo` だけでは
+`missing required scopes [read:project]` で失敗する。`gh auth status` の `Token scopes` に `'project'` が無ければ
+（`'read:project'` だけでは Project へ書き込めず、`bin/create-issue.sh` の登録が失敗する）、
+その端末で `gh auth refresh -s project` を 1 回実行する（ブラウザでの承認が要る）。
+
 ```bash
 bin/lead-status.sh          # 今の状態（担当中の Issue・未マージの PR・作業ツリー）をまとめて表示
 bin/create-issue.sh <title> <body-file> [親issue番号] [P1|P2]   # Issue 作成〜Project 登録まで
