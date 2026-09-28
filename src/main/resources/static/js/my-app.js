@@ -419,7 +419,7 @@ async function myToggleMark(recording, kind, button) {
     } catch (e) {
         recording[kind] = !next;
         renderRecordingMarkButton(button, kind, !next);
-        if (button.isConnected) showError(errorMessage(e));
+        if (button.isConnected) showError(errorMessage(e), { reveal: true });
     } finally {
         button.disabled = false;
     }
@@ -527,7 +527,7 @@ const myArchiveView = {
                 clearError();
                 summary.textContent = data.totalElements === 0 ? "" : `${data.totalElements}件`;
             } catch (e) {
-                if (current === request && grid.isConnected) showError(errorMessage(e));
+                if (current === request && grid.isConnected) showError(errorMessage(e), { reveal: true });
             }
         };
         const search = bindRecordingSearch({
@@ -971,7 +971,7 @@ function myBindSoundMarks(rec, container) {
             if (container.isConnected) clearError();
             return true;
         } catch (e) {
-            if (container.isConnected) showError(errorMessage(e));
+            if (container.isConnected) showError(errorMessage(e), { reveal: true });
             return false;
         } finally {
             answering.delete(candidate.id);
@@ -1009,7 +1009,7 @@ function myBindSoundMarks(rec, container) {
                 if (container.isConnected) clearError();
             } catch (e) {
                 deleteButton.disabled = false;
-                if (container.isConnected) showError(errorMessage(e));
+                if (container.isConnected) showError(errorMessage(e), { reveal: true });
             }
         });
         return li;
@@ -1087,7 +1087,7 @@ function myBindSoundMarks(rec, container) {
             query(".soundMarkStatus", container).textContent = `${formatDuration(mark.positionMs / 1000)} に印を付けました`;
             if (container.isConnected) clearError();
         } catch (e) {
-            if (container.isConnected) showError(errorMessage(e));
+            if (container.isConnected) showError(errorMessage(e), { reveal: true });
         } finally {
             sending = false;
             refresh();
@@ -1231,7 +1231,7 @@ function myChannelRow(ch, reload) {
             if (recordBtn.isConnected) clearError();
             showToast(next ? "この配信者の録画を始めます" : "この配信者の録画をやめます");
         } catch (e) {
-            if (recordBtn.isConnected) showError(errorMessage(e));
+            if (recordBtn.isConnected) showError(errorMessage(e), { reveal: true });
         } finally {
             recordBtn.disabled = false;
         }
@@ -1250,7 +1250,7 @@ function myChannelRow(ch, reload) {
             if (notifyBtn.isConnected) clearError();
             showToast(next ? "通知をオンにしました" : "通知をオフにしました");
         } catch (e) {
-            if (notifyBtn.isConnected) showError(errorMessage(e));
+            if (notifyBtn.isConnected) showError(errorMessage(e), { reveal: true });
         } finally {
             notifyBtn.disabled = false;
         }
@@ -1274,7 +1274,7 @@ function myChannelRow(ch, reload) {
             showToast(`${ch.channelName} の購読を解除しました`, "danger");
             reload();
         } catch (e) {
-            if (tr.isConnected) showError(errorMessage(e));
+            if (tr.isConnected) showError(errorMessage(e), { reveal: true });
         }
     });
     return tr;
@@ -1394,7 +1394,7 @@ const myChannelsView = {
                 channelName.value = "";
                 load();
             } catch (e) {
-                if (form.isConnected) showError(errorMessage(e));
+                if (form.isConnected) showError(errorMessage(e), { reveal: true });
             } finally {
                 submit.disabled = false;
             }
@@ -1493,7 +1493,7 @@ const myNotificationSettingsView = {
                 // 待つ間に別の画面へ移っていたら、その画面のエラー帯には触らない
                 if (button.isConnected) clearError();
             } catch (e) {
-                if (button.isConnected) showError(errorMessage(e));
+                if (button.isConnected) showError(errorMessage(e), { reveal: true });
             } finally {
                 saveBtn.disabled = false;
                 showState();
@@ -1573,7 +1573,7 @@ const myAccountSettingsView = {
         form.addEventListener("submit", async (event) => {
             event.preventDefault();
             if (next.value !== confirmInput.value) {
-                showError("新しいパスワードが一致しません");
+                showError("新しいパスワードが一致しません", { reveal: true });
                 return;
             }
             button.disabled = true;
@@ -1586,7 +1586,7 @@ const myAccountSettingsView = {
                 }
             } catch (e) {
                 // 今のパスワードの誤りなどの 400 は、サーバーの文言をそのまま出す
-                if (form.isConnected) showError(errorMessage(e));
+                if (form.isConnected) showError(errorMessage(e), { reveal: true });
             } finally {
                 button.disabled = false;
                 current.value = next.value = confirmInput.value = "";
@@ -1749,7 +1749,7 @@ const myDownloadView = {
             } catch (e) {
                 // 配信中の URL・同時に 2 件目（409）・空き容量不足（503）は、サーバーの文言をそのまま出す
                 if (!form.isConnected) return;
-                showError(errorMessage(e));
+                showError(errorMessage(e), { reveal: true });
                 // 409 のとき、別のタブ・端末で始めて取得中の仕事を一覧に出す
                 if (destination === "device") await loadJobs();
             } finally {

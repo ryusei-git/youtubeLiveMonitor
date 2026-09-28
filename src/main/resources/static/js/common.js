@@ -1208,7 +1208,7 @@ function bindPictureInPictureButton(button, video) {
         } catch (e) {
             if (typeof safari.webkitSupportsPresentationMode !== "function") {
                 // 読み込み前に押した等。ブラウザが理由を返すのでそのまま見せる
-                showError(errorMessage(e));
+                showError(errorMessage(e), { reveal: true });
                 return;
             }
             // Safari は確認を通っても断ることがある。英語の理由は見せず、調べられるよう残す
@@ -1455,13 +1455,23 @@ initLogoutControl();
  * <p>ここだけ {@link el} を使わず {@link document.getElementById} を直接呼ぶ。
  * error 要素を置いていない画面からも呼ばれうるため、見つからない場合は例外にせず何もしない。
  *
+ * <p>エラー帯は各画面の先頭にしか無い。下の方のボタン（表の行・カード・一覧の下のページ送り・再生画面の耳キスの欄）で
+ * 失敗すると、帯が画面の外（固定ヘッダーの裏）に出て、スマホでは何も起きなかったように見える。そのため、
+ * 利用者が押した操作（ボタン・フォームの送信・ページ送り）の失敗では reveal を付けて、帯が見えていなければ見える位置まで画面を動かす。
+ * 時間で繰り返す読み直しと、画面を開いたときにだけ行う読み込みの失敗には付けない（読んでいる途中で、画面が勝手に先頭へ飛ぶため）。
+ * 見えていれば動かさない（block: "nearest"）ので、画面の先頭のフォームに付けても害は無い。
+ * 固定ヘッダーの裏に隠れないのは、studio.css の scroll-padding-top が効くため。
+ *
  * @param {string} message 表示するメッセージ
+ * @param {{ reveal?: boolean }} [options] reveal が true なら、帯が画面の外にあるとき、見える位置まで画面を動かす
  */
-function showError(message) {
+function showError(message, { reveal = false } = {}) {
     const box = document.getElementById("error");
     if (!box) return;
     box.textContent = message;
     box.style.display = "block";
+    // 隠れている間は位置が無く動かせないので、display を block にした後で呼ぶ
+    if (reveal) box.scrollIntoView({ block: "nearest" });
 }
 
 /** エラー帯を隠す。 */
@@ -1555,8 +1565,9 @@ function editTitleFilterCell(td, oldValue, save) {
             clearError();
             finish(value);
         } catch (e) {
-            showError(errorMessage(e));
+            // finish はセルのボタンへフォーカスを戻し、ボタンの位置まで画面を動かす。後に呼ぶと、エラー帯へ動かした画面が戻される
             finish(oldValue);
+            showError(errorMessage(e), { reveal: true });
         }
     });
     cancel.addEventListener("click", (ev) => { ev.stopPropagation(); finish(oldValue); });
@@ -2058,7 +2069,7 @@ function embeddedVideoUrl(watchUrl, hostname = location.hostname) {
  */
 function openOnlineVideo(video) {
     const source = embeddedVideoUrl(video.watchUrl);
-    if (!source || !video.playable) { showError("この配信のアーカイブはまだ取得できていません。"); return; }
+    if (!source || !video.playable) { showError("この配信のアーカイブはまだ取得できていません。", { reveal: true }); return; }
     const opener = document.activeElement;
     document.querySelector("#onlinePlayerDialog")?.remove();
     const dialog = document.createElement("dialog");
@@ -2360,7 +2371,7 @@ function bindOnlineVideoSections() {
             return true;
         } catch (error) {
             if (!grid.isConnected) return;
-            if (request === section.request && showAlert) showError(errorMessage(error));
+            if (request === section.request && showAlert) showError(errorMessage(error), { reveal: true });
             return false;
         } finally { if (request === section.request) setBusy(grid, false); }
     }
