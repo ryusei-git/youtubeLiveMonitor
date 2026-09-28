@@ -4,7 +4,9 @@ import com.example.monitor.dto.InvitationCheckResponse;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
+import com.example.monitor.exception.TooManyPasswordAttemptsException;
 import com.example.monitor.repository.AppUserRepository;
+import com.example.monitor.security.LoginAttemptLimiter;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import com.example.monitor.util.PasswordPolicy;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,15 @@ import java.util.Optional;
  *
  * <p><b>今のパスワードを必ず照合する。</b>ログインしたまま離れた端末を他人に触られても、
  * パスワードを変えてアカウントを乗っ取られないようにするため。
+ *
+ * <p><b>照合の回数には上限を掛ける。</b>上限が無いと、盗まれたセッションや remember-me の Cookie を持つ人が
+ * ここで今のパスワードを総当たりし、当たったら変えて本人を締め出せる。照合が合ったかどうかを知っているのは
+ * このクラスだけなので、枠の確保と返却もここで行う（{@link LoginAttemptLimiter}）。制限中の拒否は監査ログに
+ * 書かない（ログインの制限中と同じく、総当たりが続いても行数が際限なく増えないようにするため）。
+ *
+ * <p><b>再設定で token に該当する利用者がいない失敗は監査ログに書かない。</b>理由は
+ * {@link #resetPassword} のコメントのとおり。期限切れや短いパスワードのように利用者が分かる失敗は、
+ * これまでどおり記録する。
  *
  * <p>変更時刻も同時に書き、それより前にログインしたほかのセッションを失効させる
  * （{@link AppUserRepository#isSessionValid}）。
@@ -54,6 +65,15 @@ public class PasswordChangeService {
     private final AuditLogger auditLogger;
 
     /**
+     * 今のパスワードの照合の試行枠。上限はログインと同じ（利用者ごと 5 回・接続元ごと 20 回、15 分）。
+     *
+     * <p><b>ログイン用の Bean を注入せず、別のインスタンスにする。</b>利用者名は長さ（3〜64 文字）しか
+     * 制限していないので、同じ表に利用者 ID を入れると、「123」のような名前でログインに失敗しただけで
+     * 利用者 ID 123 の枠が減ってしまう。また、パスワード変更の失敗でログインの接続元の枠まで減らさないため。
+     */
+    private final LoginAttemptLimiter currentPasswordAttempts = new LoginAttemptLimiter();
+
+    /**
      * パスワードを変える。
      *
      * @param userId          ログイン中の利用者の主キー
@@ -62,12 +82,26 @@ public class PasswordChangeService {
      * @param clientIp        操作元の IP。監査ログに残す
      * @return 変更後の利用者。変更したセッションの主体を差し替えるのに使う
      * @throws IllegalArgumentException 今のパスワードが違う、または新しいパスワードが要件を満たさない場合
+     * @throws TooManyPasswordAttemptsException 今のパスワードの照合に続けて失敗し、一時的に制限している場合
      */
     public AppUser changePassword(Long userId, String currentPassword, String newPassword, String clientIp) {
         AppUser user = appUserRepository.findById(userId)
                 .orElseThrow(() -> new IllegalStateException("ログイン中の利用者が見つかりません: id=" + userId));
+        LoginAttemptLimiter.Attempt attempt = currentPasswordAttempts.begin(Long.toString(userId), clientIp);
+        if (!attempt.allowed()) {
+            log.info("パスワードの変更を一時制限中のため受け付けませんでした: user={}, retryAfterSeconds={}",
+                    user.getUsername(), attempt.retryAfterSeconds());
+            throw new TooManyPasswordAttemptsException(attempt.retryAfterSeconds());
+        }
+        boolean matched = false;
         try {
-            if (currentPassword == null || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+            matched = currentPassword != null && passwordEncoder.matches(currentPassword, user.getPasswordHash());
+        } finally {
+            // 合っていれば連続失敗を 0 に戻す。新しいパスワードが要件を満たさないのは照合の失敗ではない
+            currentPasswordAttempts.finish(attempt, matched);
+        }
+        try {
+            if (!matched) {
                 throw new IllegalArgumentException("今のパスワードが違います");
             }
             PasswordPolicy.validate(newPassword);
@@ -127,9 +161,14 @@ public class PasswordChangeService {
             // token はログに出さない（知っていればパスワードを決め直せる秘密）
             log.info("パスワードの再設定を受け付けませんでした: user={}, reason={}",
                     user == null ? null : user.getUsername(), e.getMessage());
-            auditLogger.record(AuditAction.PASSWORD_RESET, AuditOutcome.FAILURE,
-                    user == null ? null : user.getId(), user == null ? null : user.getUsername(), clientIp,
-                    AUDIT_TARGET_TYPE, user == null ? null : user.getUsername(), e.getMessage());
+            // token に該当する利用者がいない失敗は監査ログに書かない。未ログインで誰でも送れるので、
+            // 書くと監査ログを際限なく増やせる（未ログインの 401 を記録しないのと同じ理由、#49）。
+            // 失敗そのものは GlobalExceptionHandler の WARN に残る
+            if (user != null) {
+                auditLogger.record(AuditAction.PASSWORD_RESET, AuditOutcome.FAILURE,
+                        user.getId(), user.getUsername(), clientIp,
+                        AUDIT_TARGET_TYPE, user.getUsername(), e.getMessage());
+            }
             throw e;
         }
         log.info("パスワードを再設定しました: user={}", user.getUsername());
