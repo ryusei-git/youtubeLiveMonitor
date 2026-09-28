@@ -64,6 +64,8 @@ function myDiscoverCard(item, subscribed) {
     const card = document.createElement("article");
     card.className = "discoverCard";
     card.dataset.channelId = item.channelId;
+    // 判定でカードを消した後に、隣のカードへフォーカスを移すための目印（rememberFocus）
+    card.dataset.focusKey = item.channelId;
     card.innerHTML = `${item.iconUrl ? `<img class="discoverIcon" src="${escapeHtml(item.iconUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="discoverIcon"></span>'}
         <div class="discoverInfo">
           <h3 class="discoverTitle">${externalLink(item.title || item.channelId, item.channelUrl)}</h3>
@@ -130,6 +132,9 @@ const myDiscoverView = {
             if (!(button instanceof HTMLButtonElement) || !(card instanceof HTMLElement)) return;
             const channelId = card.dataset.channelId || "";
             const title = query(".discoverTitle", card).textContent || channelId;
+            // 押したボタンの場所を disabled にする前に覚える。判定でカードを消す・「監視する」を札に置き換えると、
+            // 押したボタンが DOM から外れてフォーカスが body へ落ちるので、隣のカード（無ければ今のタブ）へ戻す
+            const restoreFocus = rememberFocus(list, query(".discoverTabs a[aria-current]", root));
             button.disabled = true;
             try {
                 if (button.dataset.status) {
@@ -138,6 +143,7 @@ const myDiscoverView = {
                     if (!list.isConnected) return;
                     card.remove();
                     showEmptyIfNone();
+                    restoreFocus();
                     /** @type {Record<string, string>} */
                     const done = { VTUBER: " VTuber と判定しました", REJECTED: "「ちがう」にしました", CANDIDATE: "候補に戻しました" };
                     showToast(`${title} を${done[status]}`);
@@ -146,6 +152,7 @@ const myDiscoverView = {
                     if (!list.isConnected) return;
                     card.querySelector(".serviceWatchLamp")?.remove();
                     button.outerHTML = MY_SEARCH_SUBSCRIBED_LAMP;
+                    restoreFocus();
                     (await subscribedLoad).add(channelId);
                     showToast(`${title} をマイチャンネルに登録しました`);
                 }

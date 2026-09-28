@@ -205,7 +205,7 @@ const myTopView = {
         myPauseDockOnVideoDialog(live);
         /**
          * 前回描いた内容の要約。同じなら描き直さない（描き直すとフォーカスしていたカードが DOM から外れ、body へ飛ぶため）。
-         * lastObservedAt は巡回のたびに配信中の動画ごとに書き換わる（OnlineVideoService.observe）が画面には出ないので、比べる値から外す。
+         * 動画の要約は common.js の onlineVideosRenderKey で作る（lastObservedAt を比べる値から外す理由もそこに書いてある）。
          */
         let lastKey = "";
         const load = async () => {
@@ -216,7 +216,7 @@ const myTopView = {
                     apiGet("/api/my/upcoming"),
                 ]);
                 if (!live.isConnected) return;
-                const key = JSON.stringify([page.content.map((/** @type {any} */ v) => ({ ...v, lastObservedAt: null })), streams]);
+                const key = JSON.stringify([onlineVideosRenderKey(page.content), streams]);
                 if (key === lastKey) {
                     clearError();
                     return;
@@ -869,16 +869,20 @@ function myBindSoundMarks(rec, container) {
     const markItem = (mark) => {
         const time = formatDuration(mark.positionMs / 1000);
         const li = document.createElement("li");
+        // 一覧を作り直した後に同じ印へフォーカスを戻すための目印（rememberFocus）
+        li.dataset.focusKey = `mark-${mark.id}`;
         li.innerHTML = `<button type="button">${time}</button>`
             + (mark.mine ? ` <button type="button" aria-label="${time} の印を消す">消す</button>` : "");
         const [jumpButton, deleteButton] = li.querySelectorAll("button");
         jumpButton.addEventListener("click", () => seek(mySoundMarkRange(mark)));
         deleteButton?.addEventListener("click", async () => {
+            const restoreFocus = rememberFocus(list);
             deleteButton.disabled = true;
             try {
                 await apiDelete(`${path}/${mark.id}`);
                 marks = marks.filter((m) => m.id !== mark.id);
                 render();
+                restoreFocus();
                 if (container.isConnected) clearError();
             } catch (e) {
                 deleteButton.disabled = false;
@@ -891,6 +895,8 @@ function myBindSoundMarks(rec, container) {
     const candidateItem = (candidate) => {
         const time = formatDuration(candidate.positionMs / 1000);
         const li = document.createElement("li");
+        // 答えた直後の作り直しで、同じ候補（無くなっていれば隣の項目）へフォーカスを戻すための目印（rememberFocus）
+        li.dataset.focusKey = `candidate-${candidate.id}`;
         // 同じ名前のボタンが並ぶので、読み上げでどの候補か分かるよう、名前に時刻を入れる（印の「消す」と同じ）
         li.innerHTML = `<button type="button">${time}</button> <span class="muted">自動</span> ` + (candidate.verdict === null
             ? `<button type="button" aria-label="${time} の候補は耳キス">耳キス</button> <button type="button" aria-label="${time} の候補はちがう">ちがう</button>`
@@ -914,10 +920,12 @@ function myBindSoundMarks(rec, container) {
             : candidateState === "FAILED" ? "自動の検出に失敗しました"
             : `自動の候補 ${candidates.length} 件（未確認 ${unreviewed} 件）`)
             + (candidates.length ? "。自動の候補は外れが多いので、聞いて答えてください。答えは精度を上げるのに使います。" : "");
+        const restoreFocus = rememberFocus(list);
         list.replaceChildren(...[
             ...marks.map((mark) => ({ positionMs: mark.positionMs, li: markItem(mark) })),
             ...candidates.filter((c) => c.verdict !== "REJECTED").map((c) => ({ positionMs: c.positionMs, li: candidateItem(c) })),
         ].sort((a, b) => a.positionMs - b.positionMs).map((item) => item.li));
+        restoreFocus();
 
         query(".soundReviewText", container).textContent = reviewing
             ? `${formatDuration(reviewing.positionMs / 1000)} の候補は耳キスですか？（未確認 ${unreviewed} 件）`
@@ -1069,6 +1077,8 @@ function myChannelStateLabel(ch) {
  */
 function myChannelRow(ch, reload) {
     const tr = document.createElement("tr");
+    // 解除の後に表を作り直したとき、隣の行へフォーカスを移すための目印（rememberFocus）
+    tr.dataset.focusKey = String(ch.id);
     // アイコンは名前のセルに並べる（配信予定の表と同じ）。名前の並べ替えはセルの文字で比べる（アイコンは文字を持たない）。
     // 配信元は管理画面の表と同じく、プラットフォーム名をチャンネルページへのリンクにする（プラットフォームと
     // リンクで列を分けると表が横に長くなり、よく使う画面の幅でも解除のボタンが横にはみ出すため）。
@@ -1174,7 +1184,7 @@ const myChannelsView = {
               <label><input type="checkbox" id="addRecordEnabled"> 配信を自動で録画する</label>
               <button type="submit">追加</button>
             </form>
-            <h2>購読しているチャンネル</h2>
+            <h2 class="subscribedHeading" tabindex="-1">購読しているチャンネル</h2>
             <p class="muted">
               自動録画をオンにすると、条件に合う配信が自動で保存されます。保存された録画は<a href="/my/archive">アーカイブ</a>から見られます。<br>
               設定はあなた専用です。ただし<strong>同じチャンネルを他の人も録画している場合、
@@ -1222,6 +1232,7 @@ const myChannelsView = {
                 /** @type {MySubscribedChannel[]} */
                 const channels = await apiGet("/api/my/channels");
                 if (current !== request || !table.isConnected) return;
+                const restoreFocus = rememberFocus(tbody, query(".subscribedHeading", root));
                 tbody.replaceChildren(...channels.map((ch) => myChannelRow(ch, load)));
                 // 読み直すたびに行を作り直すので、選ばれている並び順をここで掛け直す
                 applyTableSort(table);
@@ -1230,6 +1241,7 @@ const myChannelsView = {
                 empty.innerHTML = channels.length === 0
                     ? emptyState("まだチャンネルを追加していません", "上の入力欄にチャンネルのURLを貼ると、配信の開始を見張ります")
                     : "";
+                restoreFocus();
             } catch (e) {
                 if (current === request && table.isConnected) showError(errorMessage(e));
             } finally {
