@@ -162,23 +162,50 @@ public class MonitoredChannelService {
      * <p>入力の正規化は {@code StreamPlatform.normalizeChannelInput()} に任せる。
      * ここで分岐を書くと、プラットフォームが増えるたびに膨らむ。
      *
+     * <p><b>新しく作るときだけ、巡回と同じ問い合わせ（{@link StreamPlatform#detectLiveStream(String)}）で
+     * 確かめ、判定できなければ作らない。</b>確かめないと、一般利用者が購読と解除を繰り返すだけで、
+     * 存在しないチャンネルを監視対象に際限なく足せた（解除で消えるのは購読の行だけで、
+     * 購読の上限は今の購読数しか見ないため）。YouTube の {@code /channel/{存在しない ID}/live} は
+     * 404 ではなく 200 を返し、canonical が無いので「判定できなかった」になる（2026-09 に確認）。
+     * ID の形（UC＋22 文字）だけでは見分けられない。巡回と同じ問い合わせを使うのは、ここで判定できない
+     * チャンネルは登録しても毎巡回「判定失敗」になるだけで、クォータも使わないため。
+     * 一時的な通信の失敗でも断るが、検知が壊れている間は登録しても監視できないので、断る側に倒している。
+     *
+     * <p><b>検知の結果は保存しない。</b>ここで配信中の印を書くと、次の巡回が配信開始として扱わず
+     * 通知が飛ばない。既にあるチャンネルは確かめない（巡回が見ているうえ、一時的な失敗で
+     * 既存のチャンネルの購読まで断らないため）。
+     *
+     * <p>新しく作ったときは {@code CHANNEL_REGISTER} を監査ログに残す（detail の末尾に {@code via=subscribe}）。
+     * {@link #register} と同じく、誰が監視対象を増やしたかを管理者が追えるようにするため。
+     * 購読と解除を繰り返して<b>実在する</b>チャンネルを増やすことは、まだ防いでいない（監査ログで追える）。
+     *
      * @param platform     プラットフォーム
      * @param channelInput 利用者の入力（チャンネル ID・ハンドル・ログイン名・URL）
      * @param channelName  新規登録時に使う表示名。空なら解決後の識別子を使う
      * @return 既存または新規の監視対象
-     * @throws IllegalArgumentException 入力に該当するチャンネルが見つからない場合
+     * @throws IllegalArgumentException 入力に該当するチャンネルが見つからない場合、または新しく作るチャンネルの配信状態を判定できなかった場合
      */
     public MonitoredChannel findOrRegister(Platform platform, String channelInput, String channelName) {
-        String resolvedChannelId = streamPlatformRegistry.get(platform).normalizeChannelInput(channelInput);
+        StreamPlatform streamPlatform = streamPlatformRegistry.get(platform);
+        String resolvedChannelId = streamPlatform.normalizeChannelInput(channelInput);
 
         return monitoredChannelRepository.findByYoutubeChannelId(resolvedChannelId)
                 .orElseGet(() -> {
+                    // 巡回と同じ問い合わせで確かめる。結果は保存しない（理由はこのメソッドの JavaDoc）
+                    if (streamPlatform.detectLiveStream(resolvedChannelId).isDetectionFailed()) {
+                        throw new IllegalArgumentException("チャンネルが見つからないか、今は "
+                                + platform.displayName() + " に確かめられませんでした（" + resolvedChannelId
+                                + "）。URL を確かめて、時間をおいてもう一度試してください");
+                    }
                     String name = channelName == null || channelName.isBlank()
                             ? resolvedChannelId : channelName;
                     MonitoredChannel saved = monitoredChannelRepository.save(
                             new MonitoredChannel(platform, resolvedChannelId, name, false, null));
                     log.info("購読により監視対象へ追加しました: platform={}, name={}, channel={}",
                             platform, name, resolvedChannelId);
+                    recordChannelAction(AuditAction.CHANNEL_REGISTER, saved.getId(),
+                            "platform=" + platform + ", channel=" + resolvedChannelId + ", name=" + name
+                                    + ", via=subscribe");
                     return saved;
                 });
     }

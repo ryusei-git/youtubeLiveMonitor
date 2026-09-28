@@ -80,8 +80,8 @@ class YouTubeStreamPlatformTest {
         @Test
         @DisplayName("正常系：チャンネルID形式のURLからIDを取り出す")
         void testMethod02() {
-            assertThat(platform.normalizeChannelInput("https://www.youtube.com/channel/UCxxxxxxxx"))
-                    .isEqualTo("UCxxxxxxxx");
+            assertThat(platform.normalizeChannelInput("https://www.youtube.com/channel/UCSJ4gkVC6NrvII8umztf0Ow"))
+                    .isEqualTo("UCSJ4gkVC6NrvII8umztf0Ow");
         }
 
         @Test

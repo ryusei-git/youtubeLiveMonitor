@@ -43,6 +43,10 @@ public final class YouTubeChannelInputParser {
      * これが無いと、{@code @} を付け忘れた入力（{@code ShiroganeNoel} など）を
      * チャンネル ID と解釈してそのまま保存してしまい、
      * {@code /channel/{入力}/live} が 404 になって監視が永久に機能しなくなる。
+     *
+     * <p><b>{@code /channel/} の URL から取り出した値の確認にも使う。</b>確かめないと、URL の後ろの
+     * 任意の文字列がチャンネル ID として保存され、利用者が購読と解除を繰り返すだけで
+     * 存在しない監視対象を際限なく増やせた。
      */
     private static final Pattern CHANNEL_ID_FORMAT = Pattern.compile("UC[A-Za-z0-9_-]{22}");
 
@@ -62,9 +66,14 @@ public final class YouTubeChannelInputParser {
      * （{@code YouTubeStreamPlatform.normalizeChannelInput}）が本来のチャンネル ID へ
      * 変換するため、DB には常に {@code UC...} 形式だけが入る。
      *
+     * <p>{@code /channel/} の URL は、取り出した値がチャンネル ID の形でなければ断る。
+     * ハンドルとみなして {@code @} を補わないのは、{@code /channel/} の URL は ID を表す書き方で、
+     * {@code @} を落とす事故とは違うため。断る文言に入力の値を入れないのは、例外の文言が
+     * そのままアプリログに書かれるため（利用者の入力をログへ流さない）。
+     *
      * @param rawInput 利用者が入力した文字列
      * @return チャンネル ID、または {@code @} から始まるハンドル
-     * @throws IllegalArgumentException 入力が空の場合
+     * @throws IllegalArgumentException 入力が空の場合、または {@code /channel/} の URL の ID がチャンネル ID の形でない場合
      */
     public static String normalize(String rawInput) {
         if (rawInput == null || rawInput.isBlank()) {
@@ -75,7 +84,14 @@ public final class YouTubeChannelInputParser {
 
         Matcher channelIdMatcher = CHANNEL_ID_IN_URL.matcher(trimmed);
         if (channelIdMatcher.find()) {
-            return channelIdMatcher.group(1);
+            String channelId = channelIdMatcher.group(1);
+            // URL の中の値も形を確かめる。確かめないと /channel/ の後ろの任意の文字列がそのまま
+            // チャンネル ID として保存され、巡回のたびに「判定失敗」になる
+            if (!CHANNEL_ID_FORMAT.matcher(channelId).matches()) {
+                throw new IllegalArgumentException(
+                        "チャンネルの URL（youtube.com/channel/…）の ID は UC で始まる 24 文字です。URL を確かめてください");
+            }
+            return channelId;
         }
 
         Matcher handleMatcher = HANDLE_IN_URL.matcher(trimmed);
