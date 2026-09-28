@@ -539,6 +539,7 @@ HTTPS の要求にはどちらの Cookie にも `Secure` が付くので、tailn
   **この機能はブラウザとサーバーが同じマシン上にある場合だけ使えます。** ダイアログは
   サーバー側の画面に表示されるため、Tailscale 等でリモートから使っている場合は
   ダイアログが見えず操作できません。その場合は入力欄に直接パスを入力してください。
+  誤ってリモートから押した場合も、サーバー側のダイアログは 5 分で自動的に閉じられ、入力欄は変わりません。
   Linux で `zenity`（多くのディストリビューションに標準で入っています）が
   インストールされていない環境でも同様に、入力欄への直接入力で代替できます。
 
@@ -620,7 +621,7 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 | GET | `/api/dashboard` | 監視状況の集計（配信中のチャンネル、通知件数と失敗件数、検知失敗の警告、録画の状態別件数など） |
 | GET | `/api/settings` | 現在有効な設定値（APIキー等は設定有無のみ、値は返さない） |
 | PUT | `/api/settings` | 設定値を`.env`へ保存（反映には再起動が必要。後述） |
-| POST | `/api/settings/directories/pick?initialDirectory=` | OSのフォルダ選択ダイアログを起動し、選ばれたパスを返す（キャンセル時は204） |
+| POST | `/api/settings/directories/pick?initialDirectory=` | OSのフォルダ選択ダイアログを起動し、選ばれたパスを返す（キャンセル・5 分以内に閉じられなかったとき・ダイアログを表示できなかったときは204） |
 | POST | `/api/monitor/check` | 次の巡回を待たずに今すぐ全チャンネルをチェック（実行中、または監視を止めた確認用の起動なら 409。理由は `error` に入る） |
 | GET | `/api/health` | 巡回が回っているか（ログイン不要。`{"status":"UP","secondsSinceLastPoll":42}`、止まっていれば 503） |
 | GET | `/api/platforms` | 対応している配信プラットフォームの一覧（登録画面の選択肢。認証情報の設定有無も返す） |
