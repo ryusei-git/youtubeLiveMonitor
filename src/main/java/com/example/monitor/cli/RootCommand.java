@@ -14,7 +14,7 @@ import picocli.CommandLine.Command;
         name = "monitor",
         mixinStandardHelpOptions = true,
         description = "YouTube Live Monitor の管理コマンド",
-        subcommands = {ChannelCommand.class, SoundCommand.class})
+        subcommands = {ChannelCommand.class, SoundCommand.class, SetPasswordCommand.class})
 public class RootCommand implements Runnable {
 
     /** サブコマンドが指定されなかった場合に使い方を表示する。 */
