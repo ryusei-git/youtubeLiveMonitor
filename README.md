@@ -859,6 +859,27 @@ bin/api.sh PUT /api/admin/tables/CHANNELS/1 '{"LAST_NOTIFIED_VIDEO_ID":null}'
 bin/service.sh status
 ```
 
+### 管理者のパスワードを忘れた
+
+`.env` の `ADMIN_PASSWORD` を書き換えて再起動しても戻りません。`.env` の値を使うのは、管理者が 1 人もいないときの
+初回の作成だけです（画面で変えたパスワードを、再起動で消さないため）。DB管理画面もログイン利用者のテーブルは扱いません。
+
+リポジトリの直下で次を実行し、表示に従って新しいパスワードを入力します（端末なら入力した文字は画面に出ません）。
+サービスが動いたままで実行できます。
+
+```bash
+java -jar build/libs/youtubeLiveMonitor-0.1.0.jar set-password -u admin -p
+```
+
+- `-u` はログイン ID です。間違えると「利用者が見つかりません」と一緒に、管理者のログイン ID の一覧が表示されます。
+- `-p` の後ろにパスワードを書かないでください（シェルの履歴に残るため、書くとエラーになります）。
+- パスワードの要件は画面と同じです。
+- 変えると、その利用者のログイン中の画面と「ログインしたままにする」は、すべての端末で無効になります。
+- 監査ログには「パスワード変更」として残ります（利用者と IP は `-`、詳細は `CLI（set-password）`）。
+- `bin/api.sh` は `.env` の `ADMIN_USERNAME` / `ADMIN_PASSWORD` でログインします。画面かこのコマンドで管理者の
+  パスワードを変えたら、`.env` の `ADMIN_PASSWORD` も同じ値に書き換えてください。書き換えないと、`bin/api.sh` が
+  「ログインに失敗しました」で止まります。アプリの再起動は要りません。
+
 ## 参考リソース
 
 - [Spring Boot 公式ドキュメント](https://spring.io/projects/spring-boot)
