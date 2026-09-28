@@ -1545,13 +1545,73 @@ function clearError() {
     box.style.display = "none";
 }
 
-/** ページ端で押しても何も起きない操作を表示しないための共通処理。
- * @param {number} page
- * @param {number} total
+/**
+ * {@link bindPager} の戻り値。
+ *
+ * @typedef {object} SimplePager
+ * @property {() => number} page 今のページ（0 始まり）。一覧の API の page に渡す
+ * @property {() => void} reset 1 ページ目に戻す。絞り込みの条件を変えたときに呼ぶ（読み直しは呼び出し側でする）
+ * @property {(totalPages: number) => void} update 読み込みに成功した後に、全ページ数を渡して表示とボタンを合わせる
  */
-function updatePagination(page, total) {
-    buttonEl("prevBtn").disabled = page <= 0;
-    buttonEl("nextBtn").disabled = page + 1 >= total;
+
+/**
+ * 「前へ」「次へ」と「n / m」だけの簡易ページ送りを、ID で指定したボタンと表示欄に結びつける。
+ *
+ * <p>通知履歴・監査ログ・DB 管理で同じ処理を 3 か所に書き写していて、端のページでボタンを押せなくする処理が
+ * 監査ログにしか入っていなかった（写した先で足し忘れる）。1 か所にまとめて 3 画面の振る舞いをそろえる。
+ * ページ番号を並べるページ送りは {@link bindRecordingSearch} が別に持つ（録画の検索にしか要らないため）。
+ *
+ * <p>ボタンを押した時点でページ番号とボタンを描き直す。読み込みの成功を待ってから描き直すと、読み込みに
+ * 失敗したときにボタンが前のページの状態のまま残り、「前へ」も押せず元のページに戻れなくなるため。
+ * 最初の読み込みが終わるまでは何ページあるか分からないので、両方のボタンを押せなくしておく。
+ *
+ * @param {object} options
+ * @param {() => unknown} options.load ページを変えたときに一覧を読み直す処理。読み込みに成功したら {@link SimplePager} の update を呼ぶこと
+ * @param {string} [options.prev] 前へのボタン（「前へ」）の ID。省くと prevBtn
+ * @param {string} [options.next] 次へのボタン（「次へ」）の ID。省くと nextBtn
+ * @param {string} [options.info] ページ番号（「n / m」）を出す要素の ID。省くと pageInfo
+ * @returns {SimplePager} 読み込みの前後で呼ぶ操作
+ */
+function bindPager({ load, prev = "prevBtn", next = "nextBtn", info = "pageInfo" }) {
+    let page = 0;
+    let total = 1;
+    const prevButton = buttonEl(prev);
+    const nextButton = buttonEl(next);
+    const infoBox = el(info);
+
+    const render = () => {
+        infoBox.textContent = `${page + 1} / ${total}`;
+        prevButton.disabled = page <= 0;
+        nextButton.disabled = page + 1 >= total;
+    };
+
+    prevButton.disabled = true;
+    nextButton.disabled = true;
+    prevButton.addEventListener("click", () => {
+        if (page <= 0) return;
+        page--;
+        render();
+        load();
+    });
+    nextButton.addEventListener("click", () => {
+        if (page + 1 >= total) return;
+        page++;
+        render();
+        load();
+    });
+
+    return {
+        page: () => page,
+        reset: () => {
+            page = 0;
+            render();
+        },
+        /** @param {number} totalPages */
+        update: (totalPages) => {
+            total = Math.max(1, totalPages);
+            render();
+        },
+    };
 }
 
 

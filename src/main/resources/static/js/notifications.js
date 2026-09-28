@@ -2,9 +2,8 @@
 // 画面固有の状態をグローバルへ漏らさないため、全体を即時実行関数で包む。
 // （各画面のスクリプトは <script> で読み込まれ、既定では同じスコープを共有するため）
 (() => {
-    let currentPage = 0;
     const pageSize = 20;
-    let totalPages = 1;
+    const pager = bindPager({ load: loadHistory });
     /** 読み込みの通し番号。条件を続けて変えたとき、遅れて届いた古い応答で表を上書きしないため */
     let historyRequest = 0;
 
@@ -86,12 +85,11 @@
         try {
             const params = filterParams();
             const hasFilter = params.toString() !== "";
-            params.set("page", String(currentPage));
+            params.set("page", String(pager.page()));
             params.set("size", String(pageSize));
             const data = await apiGet(`/api/notifications?${params}`);
             if (request !== historyRequest) return;
             clearError();
-            totalPages = data.totalPages || 1;
 
             const tbody = query("#historyTable tbody");
             tbody.innerHTML = "";
@@ -119,8 +117,7 @@
                     ? emptyState("条件に合う通知はありません", "条件を変えるか、「条件をクリア」を押してください。")
                     : emptyState("通知はまだありません", "監視中のチャンネルが配信を始めて通知を送ると、ここに記録されます。");
 
-            el("pageInfo").textContent = `${currentPage + 1} / ${totalPages}`;
-            updatePagination(currentPage, totalPages);
+            pager.update(data.totalPages || 1);
         } catch (e) {
             if (request === historyRequest) showError(errorMessage(e));
         }
@@ -128,7 +125,7 @@
 
     el("filterForm").addEventListener("submit", (ev) => {
         ev.preventDefault();
-        currentPage = 0;
+        pager.reset();
         syncUrl();
         loadHistory();
     });
@@ -139,23 +136,9 @@
         inputEl("keywordFilter").value = "";
         inputEl("sinceFilter").value = "";
         inputEl("untilFilter").value = "";
-        currentPage = 0;
+        pager.reset();
         syncUrl();
         loadHistory();
-    });
-
-    el("prevBtn").addEventListener("click", () => {
-        if (currentPage > 0) {
-            currentPage--;
-            loadHistory();
-        }
-    });
-
-    el("nextBtn").addEventListener("click", () => {
-        if (currentPage + 1 < totalPages) {
-            currentPage++;
-            loadHistory();
-        }
     });
 
     /**

@@ -2,9 +2,8 @@
 // 画面固有の状態をグローバルへ漏らさないため、全体を即時実行関数で包む。
 // （各画面のスクリプトは <script> で読み込まれ、既定では同じスコープを共有するため）
 (() => {
-    let currentPage = 0;
     const pageSize = 20;
-    let totalPages = 1;
+    const pager = bindPager({ load: loadAuditLogs });
 
     /** 操作種別（Java の {@code AuditAction}）を表示用の日本語にする。フィルターの選択肢と対応させる。
      * @type {Record<string, string>} */
@@ -46,7 +45,7 @@
 
     async function loadAuditLogs() {
         try {
-            const params = new URLSearchParams({ page: String(currentPage), size: String(pageSize) });
+            const params = new URLSearchParams({ page: String(pager.page()), size: String(pageSize) });
             const since = inputEl("sinceFilter").value;
             const until = inputEl("untilFilter").value;
             const username = inputEl("usernameFilter").value.trim();
@@ -62,7 +61,6 @@
 
             const data = await apiGet(`/api/audit-logs?${params}`);
             clearError();
-            totalPages = data.totalPages || 1;
 
             const tbody = query("#auditTable tbody");
             tbody.innerHTML = "";
@@ -81,8 +79,7 @@
                 tbody.appendChild(tr);
             }
             bindDatetimeCells(tbody);
-            el("pageInfo").textContent = `${currentPage + 1} / ${totalPages}`;
-            updatePagination(currentPage, totalPages);
+            pager.update(data.totalPages || 1);
         } catch (e) {
             showError(errorMessage(e));
         }
@@ -90,7 +87,7 @@
 
     el("filterForm").addEventListener("submit", (ev) => {
         ev.preventDefault();
-        currentPage = 0;
+        pager.reset();
         loadAuditLogs();
     });
 
@@ -101,22 +98,8 @@
         selectEl("actionFilter").value = "";
         selectEl("outcomeFilter").value = "";
         inputEl("requestIdFilter").value = "";
-        currentPage = 0;
+        pager.reset();
         loadAuditLogs();
-    });
-
-    el("prevBtn").addEventListener("click", () => {
-        if (currentPage > 0) {
-            currentPage--;
-            loadAuditLogs();
-        }
-    });
-
-    el("nextBtn").addEventListener("click", () => {
-        if (currentPage + 1 < totalPages) {
-            currentPage++;
-            loadAuditLogs();
-        }
     });
 
     loadAuditLogs();
