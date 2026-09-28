@@ -9,6 +9,7 @@ import com.example.monitor.service.LiveStreamDetector;
 import com.example.monitor.service.YouTubeApiClient;
 import com.example.monitor.util.UrlHostMatcher;
 import com.example.monitor.util.YouTubeChannelInputParser;
+import com.example.monitor.util.YouTubeWatchUrl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,8 @@ import java.util.Optional;
  *   <li>{@link YouTubeChannelInputParser} … URL・ハンドルからチャンネル ID の取り出し</li>
  * </ul>
  *
+ * <p>{@link #fallbackDetails} だけは委譲先が無く、ここで検知結果を詰め替えている（詳細の取得に失敗したときに使う代わりの本文）。
+ *
  * <p>{@code detectLiveStreams}（まとめて問い合わせ）は既定のまま上書きしない。
  * YouTube はチャンネルごとにページを取得する方式で、まとめる手段が無いため。
  */
@@ -35,6 +38,9 @@ public class YouTubeStreamPlatform extends AbstractStreamPlatform {
 
     /** ハンドル（利用者が設定できる名前）を見分けるための接頭辞。 */
     private static final String HANDLE_PREFIX = "@";
+
+    /** タイトルが読めなかったときに入れる題。Discord の埋め込みの題を空にしないため。 */
+    private static final String FALLBACK_TITLE = "（配信タイトルを取得できませんでした）";
 
     private final LiveStreamDetector liveStreamDetector;
     private final YouTubeApiClient youTubeApiClient;
@@ -115,5 +121,35 @@ public class YouTubeStreamPlatform extends AbstractStreamPlatform {
     public Optional<LiveStreamDetails> fetchDetails(String channelId, String videoId) {
         // 視聴 URL は YouTubeApiClient が詰めている（YouTubeWatchUrl を使用）
         return youTubeApiClient.fetchLiveStreamDetails(videoId);
+    }
+
+    /**
+     * API で詳細が取れなかったときの代わりの詳細を、検知結果から組み立てる。
+     *
+     * <p>値の出どころは次のとおり。
+     * <ul>
+     *   <li>タイトル … 配信ページの HTML から読んだもの（{@code docs/pitfalls.md}「配信タイトルは
+     *       {@code /live} ページの HTML から取得できる」）。読めなかったときは {@link #FALLBACK_TITLE}</li>
+     *   <li>サムネイル … 動画 ID だけで決まる URL（API の {@code thumbnails.high} と同じ
+     *       {@code hqdefault.jpg}）</li>
+     *   <li>チャンネル名 … DB の表示名。YouTube 上の正式な名前と違うことがある</li>
+     *   <li>視聴 URL … 検知結果が運ぶもの（{@link LiveStreamDetection#watchUrl()}）</li>
+     * </ul>
+     * 配信状態（{@code broadcastStatus}）・開始時刻・説明文は API でしか取れないので入れない（{@code null} のまま）。
+     *
+     * @param channelName 通知の送り主として出すチャンネル名（DB の表示名）
+     * @param detection   配信中と判定された検知結果
+     * @return 検知結果から組み立てた詳細（常に値がある）
+     */
+    @Override
+    public Optional<LiveStreamDetails> fallbackDetails(String channelName, LiveStreamDetection detection) {
+        String videoId = detection.videoId();
+        return Optional.of(LiveStreamDetails.builder()
+                .videoId(videoId)
+                .title(detection.title() != null ? detection.title() : FALLBACK_TITLE)
+                .channelTitle(channelName)
+                .thumbnailUrl(YouTubeWatchUrl.thumbnailOf(videoId))
+                .watchUrl(detection.watchUrl())
+                .build());
     }
 }

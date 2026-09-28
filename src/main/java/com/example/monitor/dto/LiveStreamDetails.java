@@ -44,6 +44,10 @@ public class LiveStreamDetails {
     /**
      * YouTube API が返す配信状態。{@code "live"}（配信中）、{@code "upcoming"}（予約済み）、
      * {@code "none"}（配信ではない通常の動画）のいずれか。
+     *
+     * <p>{@code LiveStreamPollingScheduler} は {@code "upcoming"} のとき通知を見送る（配信ページでの待機所の
+     * 判定が壊れたときに、もう一段防ぐため）。Twitch の詳細と、API で取れずに検知結果から組み立てた詳細
+     * （{@code StreamPlatform.fallbackDetails}）では {@code null}。
      */
     private final String broadcastStatus;
 

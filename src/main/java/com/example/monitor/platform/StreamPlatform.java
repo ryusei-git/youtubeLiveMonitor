@@ -46,7 +46,8 @@ public interface StreamPlatform {
      * 登録ボタンを押した後の失敗メッセージだけ、という状態を避けるため。</b>
      *
      * <p>既定では {@code true}。YouTube は配信中の判定に認証情報が要らないため既定のままでよい
-     * （API キーはハンドルの解決とチャンネル検索でしか使わない）。
+     * （API キーはハンドルの解決・チャンネル検索・通知本文の詳細の取得に使うが、配信中の判定には要らない。
+     * 詳細が取れなくても {@link #fallbackDetails} で通知は送れる）。
      *
      * @return 使える状態なら {@code true}
      */
@@ -236,4 +237,27 @@ public interface StreamPlatform {
      * @return 取得できた詳細。取得できなかった場合は {@link Optional#empty()}
      */
     Optional<LiveStreamDetails> fetchDetails(String channelId, String videoId);
+
+    /**
+     * {@link #fetchDetails} で詳細が取れなかったときに、検知結果だけで通知本文の詳細を組み立てる。
+     *
+     * <p>詳細の取得に API キーやクォータが要るプラットフォームがある（YouTube の {@code videos.list} は
+     * クォータ 1）。そこでは、キーの失効・クォータ切れ・障害で詳細が取れないと、通知の再試行の上限に達し、
+     * その配信の通知が二度と送られなくなる。<b>検知結果だけで本文を作れるなら、通知が来ないより
+     * それで送る方がよい。</b>
+     *
+     * <p>既定で空を返すのは、Twitch のように、詳細が取れないことが「配信が終わった・別の配信に
+     * 切り替わった」を意味するプラットフォームがあるため。そこで検知結果から本文を作ると、
+     * 終わった配信を通知してしまう。
+     *
+     * <p>視聴 URL には {@code detection.watchUrl()} を使うこと。{@link LiveStreamDetails#watchUrl} を
+     * 入れ忘れると、リンク切れの通知になる。
+     *
+     * @param channelName 通知の送り主として出すチャンネル名（DB の表示名）
+     * @param detection   配信中と判定された検知結果
+     * @return 組み立てた詳細。検知結果からは作らないプラットフォームでは {@link Optional#empty()}
+     */
+    default Optional<LiveStreamDetails> fallbackDetails(String channelName, LiveStreamDetection detection) {
+        return Optional.empty();
+    }
 }
