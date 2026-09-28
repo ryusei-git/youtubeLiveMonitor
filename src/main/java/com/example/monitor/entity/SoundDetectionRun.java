@@ -31,6 +31,11 @@ import java.time.Instant;
  * 始める前に「失敗・回数 +1・実行中に止まった」を書いておけば、落ちても回数が増え、
  * {@link #MAX_ATTEMPTS} 回で見回りの対象から外れる。落ちては起動して同じ録画でまた落ちる、を繰り返さない。
  *
+ * <p>ふつうの停止（{@code bin/service.sh restart}。SIGTERM で正常に終了する）で止めた回は、{@code SoundDetectionService#stop()} が
+ * 印をファイルに残し、次の起動の見回りが {@link #cancel()} で回数を戻す（終了の途中は H2 が DB を閉じていて書けないため、
+ * その場では書かない）。数えたままになるのは、JVM ごと落ちた場合（{@code -XX:+ExitOnOutOfMemoryError}・{@code kill -9}）と、
+ * 終了の間際にちょうど結果を書こうとしていた場合だけ。ビルドのたびの再起動で回数を使い切り、録画が見回りから外れていたため。
+ *
  * <p>録画が消えれば記録の意味も無くなるので、{@link SoundCandidate} と同じく DB 側の
  * {@code ON DELETE CASCADE} で一緒に消す。
  */
@@ -47,12 +52,16 @@ public class SoundDetectionRun {
      * 失敗がこの回数に達したら、見回りの対象から外す。
      *
      * <p>ffmpeg が読めない録画のように何度やっても失敗する録画に、見回りのたびに CPU を使い続けないため。
-     * 一時的な失敗（再起動で止まったなど）は、この回数までは次の見回りで試し直す。
+     * 一時的な失敗は、この回数までは次の見回りで試し直す。回数は最後に完了してから数え、アプリの終了で止めた回は数えない
+     * （{@link #start()}・{@link #cancel()}）。
      */
     public static final int MAX_ATTEMPTS = 3;
 
     /** 検出の前に書いておく理由。検出が終われば結果で上書きされるので、残っていれば途中で止まった。 */
     private static final String INTERRUPTED_MESSAGE = "実行中に止まった";
+
+    /** アプリの終了で止めた回の理由（{@link #cancel()}）。 */
+    private static final String CANCELLED_MESSAGE = "アプリの終了で止めた（回数に数えない）";
 
     /** {@link #message} の長さの上限。 */
     private static final int MESSAGE_LENGTH = 500;
@@ -86,7 +95,7 @@ public class SoundDetectionRun {
     @Column(nullable = false)
     private int candidateCount;
 
-    /** 検出を始めた回数（完了した回も含む）。 */
+    /** 最後に完了してから検出を始めた回数（アプリの終了で止めた回は数えない）。完了の後に始めると 1 から数え直す。 */
     @Column(nullable = false)
     private int attempts;
 
@@ -114,8 +123,16 @@ public class SoundDetectionRun {
         this.detectorVersion = detectorVersion;
     }
 
-    /** 検出を始める。終わる前に止まっても失敗として数えられるよう、先に「失敗・回数 +1」にしておく。 */
+    /**
+     * 検出を始める。終わる前に止まっても失敗として数えられるよう、先に「失敗・回数 +1」にしておく。
+     *
+     * <p>前の回が完了していれば、回数を 0 に戻してから数える。完了した回も数えると、やり直し（{@code force}）を 2 回した録画が、
+     * 次の失敗 1 回で上限（{@link #MAX_ATTEMPTS}）に達して見回りから外れるため。
+     */
     public void start() {
+        if (status == Status.DONE) {
+            attempts = 0;
+        }
         status = Status.FAILED;
         attempts++;
         candidateCount = 0;
@@ -148,6 +165,21 @@ public class SoundDetectionRun {
     }
 
     /**
+     * アプリの終了で止めた回を、回数に数えない形にする。{@link #start()} で増やした回数を戻し、次の見回りでまた試す。
+     *
+     * <p>まだ「実行中に止まった」のまま（{@link #start()} の後、完了・失敗を書いていない）のときだけ変える。
+     * 終了の間際に検出が終わって完了・失敗を書けていれば、その結果を残す。終わった時刻（{@link #finishedAt}）は、
+     * 検出が終わっていないので {@code null} のままにする。
+     */
+    public void cancel() {
+        if (status != Status.FAILED || !INTERRUPTED_MESSAGE.equals(message)) {
+            return;
+        }
+        attempts = Math.max(0, attempts - 1);
+        message = CANCELLED_MESSAGE;
+    }
+
+    /**
      * 検出せずに、見回りの対象から外す（長すぎる録画など）。回数を上限にして、次の見回りで選ばれないようにする。
      *
      * @param reason 外す理由
@@ -165,7 +197,7 @@ public class SoundDetectionRun {
     public enum Status {
         /** 検出が終わり、候補を保存した。 */
         DONE,
-        /** 失敗した、途中で止まった、または検出しないと決めた。理由は {@link SoundDetectionRun#message} にある。 */
+        /** 失敗した、途中で止まった、アプリの終了で止めた、または検出しないと決めた。理由は {@link SoundDetectionRun#message} にある。 */
         FAILED
     }
 }

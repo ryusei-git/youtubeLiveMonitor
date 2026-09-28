@@ -19,19 +19,26 @@ import com.example.monitor.repository.SoundDetectionRunRepository;
 import com.example.monitor.sound.EarKissDetector;
 import com.example.monitor.sound.EarKissModel;
 import com.example.monitor.sound.PcmDecoder;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -98,6 +105,15 @@ public class SoundDetectionService {
      */
     private static final long NEAR_ANSWER_MS = 1000;
 
+    /**
+     * 検出 1 本の時間の上限を決める割合（録画の長さ ÷ この値）。実測は 2 時間の録画で CPU 40 秒（長さの 0.6%）なので、
+     * 録画やビルドと CPU を取り合って遅くなっても、ふつうは届かない（{@link #limitOf}）。
+     */
+    private static final int LIMIT_DIVISOR = 10;
+
+    /** 検出 1 本の時間の上限に足す時間。短い録画でも、ffmpeg の起動や読み込みの待ちで誤って止めないため。 */
+    private static final Duration LIMIT_EXTRA = Duration.ofMinutes(10);
+
     private final RecordingRepository recordingRepository;
     private final RecordingFileService recordingFileService;
     private final SoundCandidateRepository soundCandidateRepository;
@@ -114,13 +130,33 @@ public class SoundDetectionService {
      */
     private final AtomicBoolean running = new AtomicBoolean();
 
+    /** アプリの終了が始まったか（{@link #stop()}）。立った後は新しい検出を始めず、失敗も記録しない。 */
+    private volatile boolean stopping;
+
+    /** いま走っている検出。無ければ {@code null}。終了時の印（{@link #stop()}）と時間の上限（{@link #abortIfOverdue()}）に使う。 */
+    private final AtomicReference<CurrentDetection> current = new AtomicReference<>();
+
+    /**
+     * アプリの終了で止めた検出の印（{@link #stop()}）を置くファイル。作業ディレクトリからの相対で、H2 と同じ {@code data/} の下
+     * （{@link DeviceDownloadService} の一時ファイルと同じ考え方）。確認用の起動（{@code bin/sandbox.sh} は {@code .sandbox/} で動かす）
+     * の印は、本番の印と混ざらない。
+     */
+    @Value("${monitor.sound-detection.stopped-marker:data/sound-detection-stopped}")
+    private String stoppedMarker = "data/sound-detection-stopped";
+
     /**
      * 見回りを仮想スレッドで 1 回始める。検出がまだ走っていれば見送る。
+     *
+     * <p>見送るとき、走っている検出が時間の上限を超えていれば止める（{@link #abortIfOverdue()}）。アプリの終了が始まった後は始めない。
      *
      * <p>{@code @Scheduled} のスレッドは配信の巡回などと共有しているので、数十分かかりうる見回りでは塞がない。
      */
     public void startPending() {
+        if (stopping) {
+            return;
+        }
         if (!running.compareAndSet(false, true)) {
+            abortIfOverdue();
             return;
         }
         Thread.startVirtualThread(() -> {
@@ -139,12 +175,18 @@ public class SoundDetectionService {
      *
      * <p>対象は {@link SoundDetectionRunRepository#findPendingRecordings} のうち、ファイルがあるもの。
      * 既存の録画も、この見回りで順に処理される。録画が始まったら、その回はそこでやめる（残りは次の回）。
+     *
+     * <p>初めに、前回のアプリの終了で止めた検出を回数から外す（{@link #forgiveStoppedRun()}）。外した録画がこの回の対象に入るよう、対象を引く前に行う。
      */
     public void processPending() {
+        forgiveStoppedRun();
         String version = EarKissModel.load().version();
         List<Recording> pending = soundDetectionRunRepository.findPendingRecordings(
                 KIND, version, SoundDetectionRun.MAX_ATTEMPTS);
         for (int i = 0; i < pending.size(); i++) {
+            if (stopping) {
+                return;
+            }
             if (recordingRepository.countByStatus(RecordingStatus.RECORDING) > 0) {
                 log.info("録画中のため、耳キスの検出を次の見回りに回します: 残り {} 本", pending.size() - i);
                 return;
@@ -158,6 +200,9 @@ public class SoundDetectionService {
 
     /**
      * 録画 1 本に検出器を掛け、候補と実行記録を保存する。検出・保存に失敗しても例外は投げず、実行記録とログに残す。
+     *
+     * <p>アプリの終了で止めた回は回数に数えない（{@link #stop()}）。時間の上限（{@link #limitOf}）を超えて止めた回は、
+     * 失敗として数える（固まる録画を見回りのたびに試し続けないため）。
      *
      * <p>長さの分からない録画は、見回りでは対象にしていない（{@link #processPending()}）。
      *
@@ -175,24 +220,36 @@ public class SoundDetectionService {
         }
 
         long started = System.nanoTime();
+        CurrentDetection detection = new CurrentDetection(recording.getId(), version, limitOf(duration));
+        // 実行記録を「開始」にする前に置く。後に置くと、その間に終了したとき stop() が印を残さず、回数に数えられる
+        current.set(detection);
         try {
             // 検出の途中で JVM が落ちても回数が増えるよう、始める前に書く（SoundDetectionRun の JavaDoc）
             updateRun(recording, version, SoundDetectionRun::start);
             List<EarKissDetector.FinalCandidate> finals;
             try (InputStream pcm = PcmDecoder.open(recordingFileService.resolveFilePath(recording), null, null)) {
+                detection.pcm = pcm;
                 finals = new EarKissDetector(model).detect(pcm).finals();
             }
             transactionTemplate.executeWithoutResult(status -> saveCandidates(recording, version, finals));
             log.info("耳キスの候補を付けました: recording={}, duration={}秒, 候補={}件, 処理={}秒", recording.getId(),
                     duration, finals.size(), String.format("%.1f", (System.nanoTime() - started) / 1e9));
         } catch (IOException | RuntimeException e) {
+            if (stopping) {
+                // 終了の途中は H2 が DB を閉じていることが多い（stop() の JavaDoc）。回数は stop() の印から次の見回りが戻す
+                log.info("アプリの終了中のため、耳キスの検出の結果を記録しません: recording={}", recording.getId());
+                return;
+            }
+            String reason = detection.abortReason != null ? detection.abortReason
+                    : e.getMessage() != null ? e.getMessage() : e.getClass().getName();
             log.warn("耳キスの検出に失敗しました: recording={}", recording.getId(), e);
-            String reason = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
             try {
                 updateRun(recording, version, run -> run.fail(reason));
             } catch (RuntimeException saveFailure) {
                 log.warn("耳キスの検出の失敗を記録できませんでした: recording={}", recording.getId(), saveFailure);
             }
+        } finally {
+            current.set(null);
         }
     }
 
@@ -293,6 +350,7 @@ public class SoundDetectionService {
                     "今の版で検出済みです。やり直すときは force=true を付けてください: id=" + recordingId);
         }
         if (!running.compareAndSet(false, true)) {
+            abortIfOverdue();
             throw new SoundDetectionConflictException("耳キスの検出が走っています。終わってから始めてください");
         }
         Thread.startVirtualThread(() -> {
@@ -304,6 +362,130 @@ public class SoundDetectionService {
                 running.set(false);
             }
         });
+    }
+
+    /**
+     * アプリの終了時に、走っている検出があれば「アプリの終了で止めた」印をファイル（{@link #stoppedMarker}）に残す。
+     * 次の起動の見回りが印を読み、その回を回数に数えない形（{@link SoundDetectionRun#cancel()}）に直す（{@link #forgiveStoppedRun()}）。
+     *
+     * <p>回数は検出の前に増やしている（{@link SoundDetectionRun} の JavaDoc）ので、何もしないと、ふつうの停止
+     * （{@code bin/service.sh restart}。ビルドのたびに行う）でも 1 回と数えられ、再起動が続くと録画が見回りの対象から外れる
+     * （{@link SoundDetectionRun#MAX_ATTEMPTS}）。JVM ごと落ちた場合（{@code -XX:+ExitOnOutOfMemoryError}・{@code kill -9}）は
+     * ここを通らないので、今までどおり数える。
+     *
+     * <p>ここでは DB に書かない。H2 は JVM の終了で自分から DB を閉じる（H2 の終了フック。{@code AUTO_SERVER=TRUE} では
+     * {@code DB_CLOSE_ON_EXIT=FALSE} にできない）。その終了フックは Spring の終了処理と別のスレッドで同時に走るので、
+     * この Bean が DB の Bean より先に破棄されても、ここでは DB がもう閉じていることが多い。ファイルなら確実に残せる。
+     *
+     * <p>検出は止めず、終わるのも待たない。JVM が止まれば ffmpeg の出力の読み手がいなくなり、ffmpeg も止まる
+     * （{@link PcmDecoder} の JavaDoc）。
+     */
+    @PreDestroy
+    public void stop() {
+        stopping = true;
+        CurrentDetection detection = current.get();
+        if (detection == null) {
+            return;
+        }
+        Path marker = Path.of(stoppedMarker);
+        try {
+            Files.createDirectories(marker.toAbsolutePath().getParent());
+            Files.writeString(marker, detection.recordingId + " " + detection.version);
+            log.info("アプリの終了で耳キスの検出を止めます。次の見回りでこの回を回数から外します: recording={}",
+                    detection.recordingId);
+        } catch (IOException e) {
+            log.warn("耳キスの検出を止めた印を書けませんでした（この回は回数に数えられます）: recording={}",
+                    detection.recordingId, e);
+        }
+    }
+
+    /**
+     * 前回のアプリの終了で止めた検出の印（{@link #stop()}）を読み、その回を回数に数えない形（{@link SoundDetectionRun#cancel()}）に直す。
+     *
+     * <p>印の中身は「録画の主キー 半角空白 検出器の版」。版も持つのは、版を上げるビルドの後の再起動で、今の版ではなく
+     * 止めたときの版の記録を直すため。録画が消えた・記録が無い・その回がもう終わっていた（{@code cancel()} は何もしない）ときも、
+     * 読めなかったときも、印は消す。残すと、見回りのたびに同じ印を読み直すため。
+     */
+    private void forgiveStoppedRun() {
+        Path marker = Path.of(stoppedMarker);
+        if (!Files.exists(marker)) {
+            return;
+        }
+        try {
+            String[] parts = Files.readString(marker).strip().split(" ", 2);
+            if (parts.length != 2) {
+                throw new IllegalArgumentException("印の形が正しくありません");
+            }
+            Long recordingId = Long.valueOf(parts[0]);
+            String version = parts[1];
+            recordingRepository.findById(recordingId).ifPresent(recording -> transactionTemplate.executeWithoutResult(
+                    status -> soundDetectionRunRepository.findByRecordingAndKindAndDetectorVersion(recording, KIND, version)
+                            .ifPresent(run -> {
+                                run.cancel();
+                                soundDetectionRunRepository.save(run);
+                            })));
+            log.info("前回のアプリの終了で止めた耳キスの検出の印を読みました: recording={}, version={}", recordingId, version);
+        } catch (IOException | RuntimeException e) {
+            log.warn("耳キスの検出を止めた印を読めませんでした。印を消して続けます: {}", marker, e);
+        }
+        try {
+            Files.deleteIfExists(marker);
+        } catch (IOException e) {
+            log.warn("耳キスの検出を止めた印を消せませんでした: {}", marker, e);
+        }
+    }
+
+    /**
+     * 走っている検出が時間の上限を超えていれば、WARN を出して止める。見回りの見送りと、今すぐ検出の 409 のときに呼ぶ。
+     *
+     * <p>ffmpeg が固まる・録画の置き場の読み込みが止まると、検出は戻らず {@code running} が立ったままになり、
+     * 見回りは毎回黙って見送り、今すぐ検出は常に 409 になる。専用のタイマーは持たず、見送るたびに確かめる
+     * （見回りは 10 分ごとに来るので、上限を超えてから遅くとも 10 分ほどで止まる。止まらなければ毎回 WARN が出る）。
+     * 止めた回は失敗として数える（{@link #detect} の catch が {@code abortReason} を理由にする）。
+     *
+     * <p>ffmpeg の出力を閉じるのは別の仮想スレッドで行う。閉じる処理は ffmpeg が終わるまで待つ（{@link PcmDecoder}）ので、
+     * 読み込みが止まった ffmpeg だと戻らず、呼び出し元（配信の巡回と共有する {@code @Scheduled} のスレッド・HTTP のスレッド）を塞ぐため。
+     * 閉じると ffmpeg が止まり、検出は {@link IOException} で終わって {@link #detect} の catch に入る。
+     *
+     * <p>閉じるのは検出 1 本につき 1 回だけにする（WARN は見送るたびに出す）。読み込みが止まったままの ffmpeg は
+     * 強制終了しても終わらないことがあり、見送るたびに閉じ直すと、ffmpeg の終了を待ったまま戻らない仮想スレッドが
+     * 1 本ずつ増え続けるため。閉じ直しても、1 回目で送った強制終了より効くことは無い。
+     */
+    private void abortIfOverdue() {
+        CurrentDetection detection = current.get();
+        if (detection == null) {
+            return;
+        }
+        Duration elapsed = Duration.between(detection.startedAt, Instant.now());
+        if (elapsed.compareTo(detection.limit) <= 0) {
+            return;
+        }
+        log.warn("耳キスの検出が時間の上限を超えたので止めます: recording={}, 経過={}分, 上限={}分",
+                detection.recordingId, elapsed.toMinutes(), detection.limit.toMinutes());
+        detection.abortReason = "時間の上限（" + detection.limit.toMinutes() + " 分）を超えたので止めた";
+        InputStream pcm = detection.pcm;
+        if (pcm == null || !detection.closing.compareAndSet(false, true)) {
+            return;
+        }
+        Thread.startVirtualThread(() -> {
+            try {
+                pcm.close();
+            } catch (IOException e) {
+                log.warn("耳キスの検出を止められませんでした: recording={}", detection.recordingId, e);
+            }
+        });
+    }
+
+    /**
+     * 検出 1 本の時間の上限。録画の長さ ÷ {@link #LIMIT_DIVISOR} ＋ {@link #LIMIT_EXTRA}（2 時間の録画で 22 分、6 時間で 46 分）。
+     * 長さが分からなければ 6 時間として扱う（見回り・今すぐ検出は長さの分かる録画しか渡さないが、念のため）。
+     *
+     * @param durationSeconds 録画の長さ（秒）。分からなければ {@code null}
+     * @return 上限
+     */
+    private static Duration limitOf(Integer durationSeconds) {
+        long seconds = durationSeconds != null ? durationSeconds : MAX_DURATION_SECONDS;
+        return Duration.ofSeconds(seconds).dividedBy(LIMIT_DIVISOR).plus(LIMIT_EXTRA);
     }
 
     /**
@@ -429,5 +611,36 @@ public class SoundDetectionService {
             change.accept(run);
             soundDetectionRunRepository.save(run);
         });
+    }
+
+    /** 走っている検出 1 本。終了時の印（{@link #stop()}）と時間の上限（{@link #abortIfOverdue()}）に使う。 */
+    private static final class CurrentDetection {
+
+        /** 録画の主キー。 */
+        private final Long recordingId;
+
+        /** 検出器の版。 */
+        private final String version;
+
+        /** 始めた時刻。 */
+        private final Instant startedAt = Instant.now();
+
+        /** 時間の上限。 */
+        private final Duration limit;
+
+        /** ffmpeg の出力。開くまでは {@code null}。閉じると ffmpeg が止まる。 */
+        private volatile InputStream pcm;
+
+        /** 時間の上限で止めた理由。止めていなければ {@code null}。止めた回の失敗の理由にする。 */
+        private volatile String abortReason;
+
+        /** 時間の上限で ffmpeg の出力を閉じ始めたか。閉じるのを 1 回にするため（{@link #abortIfOverdue()}）。 */
+        private final AtomicBoolean closing = new AtomicBoolean();
+
+        CurrentDetection(Long recordingId, String version, Duration limit) {
+            this.recordingId = recordingId;
+            this.version = version;
+            this.limit = limit;
+        }
     }
 }
