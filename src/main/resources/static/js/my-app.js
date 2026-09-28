@@ -26,7 +26,8 @@ let myDockWatchedSent = false;
 
 /**
  * 読み込んだ録画の再生回数をもう数えたか。一時停止から戻したときの {@code play} で数え直さないため、
- * 録画を読み込むたびに戻す（{@link myDockWatchedSent} と同じ考え方）。
+ * 録画を読み込むたびに戻す（{@link myDockWatchedSent} と同じ考え方）。失敗した録画の読み込み直しでも戻す
+ * （{@link myDockSavePosition} が、この読み込みで再生したかをこれで見るため。{@link myDockLoad} を参照）。
  */
 let myDockPlayCounted = false;
 
@@ -145,11 +146,13 @@ function myDockLoad(rec) {
     // 別の録画へ切り替えると pause が来ない（emptied だけが来る）ので、前の録画の位置はここで送る
     myDockSavePosition(false);
     myDockRecording = rec;
-    // 読み込み直しでは数え直さない（失敗する前に再生していれば、もう送ってある）
-    if (!same) {
-        myDockWatchedSent = false;
-        myDockPlayCounted = false;
-    }
+    // 視聴済みは、読み込み直しでは送り直さない（失敗する前に再生していれば、もう送ってある）
+    if (!same) myDockWatchedSent = false;
+    // 再生回数を数えたかは、読み込み直しでも戻す。myDockSavePosition はこれで「この読み込みで再生したか」を見ていて、
+    // 戻さないと、読み込み直した直後（位置が 0 に戻り、続きの位置を入れる前）や読み込み直しがまた失敗した後に、
+    // 画面を離れる・閉じるだけで保存してある位置を 0 で上書きするため。失敗した時点の位置は、上の myDockSavePosition が送ってある。
+    // 読み込み直した後にもう一度再生すると 1 回として数える（閉じて開き直したときと同じ）
+    myDockPlayCounted = false;
     // 送る間隔はこの読み込みから数える（前の録画で最後に送った時刻を引き継がない）
     myDockPositionSentAt = Date.now();
     // ファイル名に日本語や記号が入るため、パスとして安全な形に符号化する
