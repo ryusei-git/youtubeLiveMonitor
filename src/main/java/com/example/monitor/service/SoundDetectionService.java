@@ -446,6 +446,10 @@ public class SoundDetectionService {
      * <p>ffmpeg の出力を閉じるのは別の仮想スレッドで行う。閉じる処理は ffmpeg が終わるまで待つ（{@link PcmDecoder}）ので、
      * 読み込みが止まった ffmpeg だと戻らず、呼び出し元（配信の巡回と共有する {@code @Scheduled} のスレッド・HTTP のスレッド）を塞ぐため。
      * 閉じると ffmpeg が止まり、検出は {@link IOException} で終わって {@link #detect} の catch に入る。
+     *
+     * <p>閉じるのは検出 1 本につき 1 回だけにする（WARN は見送るたびに出す）。読み込みが止まったままの ffmpeg は
+     * 強制終了しても終わらないことがあり、見送るたびに閉じ直すと、ffmpeg の終了を待ったまま戻らない仮想スレッドが
+     * 1 本ずつ増え続けるため。閉じ直しても、1 回目で送った強制終了より効くことは無い。
      */
     private void abortIfOverdue() {
         CurrentDetection detection = current.get();
@@ -460,7 +464,7 @@ public class SoundDetectionService {
                 detection.recordingId, elapsed.toMinutes(), detection.limit.toMinutes());
         detection.abortReason = "時間の上限（" + detection.limit.toMinutes() + " 分）を超えたので止めた";
         InputStream pcm = detection.pcm;
-        if (pcm == null) {
+        if (pcm == null || !detection.closing.compareAndSet(false, true)) {
             return;
         }
         Thread.startVirtualThread(() -> {
@@ -629,6 +633,9 @@ public class SoundDetectionService {
 
         /** 時間の上限で止めた理由。止めていなければ {@code null}。止めた回の失敗の理由にする。 */
         private volatile String abortReason;
+
+        /** 時間の上限で ffmpeg の出力を閉じ始めたか。閉じるのを 1 回にするため（{@link #abortIfOverdue()}）。 */
+        private final AtomicBoolean closing = new AtomicBoolean();
 
         CurrentDetection(Long recordingId, String version, Duration limit) {
             this.recordingId = recordingId;

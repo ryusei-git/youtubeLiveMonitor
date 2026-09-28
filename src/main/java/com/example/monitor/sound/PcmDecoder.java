@@ -59,8 +59,8 @@ public final class PcmDecoder {
      *
      * <p>{@code -ss}・{@code -to} は入力の側に付ける（入力の時刻で指定し、開始位置までは読み飛ばす）。
      * 返したストリームは、最後まで読むと ffmpeg の終了コードを確かめ、0 以外なら {@link IOException} を投げる
-     * （文言に ffmpeg の標準エラーの末尾を入れる）
-     * （途中で失敗したのに、そこまでの音声だけで「候補なし」と見誤らないため）。閉じると ffmpeg を止める。
+     * （途中で失敗したのに、そこまでの音声だけで「候補なし」と見誤らないため。文言には ffmpeg の標準エラーの末尾を入れる）。
+     * 閉じると ffmpeg を止める。
      *
      * @param file        録画ファイル
      * @param fromSeconds 開始位置（秒）。{@code null} なら先頭から
