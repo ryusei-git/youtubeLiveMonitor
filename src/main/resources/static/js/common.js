@@ -418,6 +418,9 @@ function toggleChannelIdReveal(td, youtubeChannelId) {
  * 状態を表の `data-sort-column` / `data-sort-direction` に持たせるのは、一覧を読み直して
  * tbody を作り直しても表の要素そのものは残るため（読み直した後に {@link applyTableSort} を
  * 呼べば同じ並びに戻る）。見出しの中身を button で包むのは、Tab と Enter でも押せるようにするため。
+ * ただし見出しの中の補足の ⓘ（`.hint`）は button に入れず、button の後ろに残す。button に入れると、
+ * ⓘ を押しただけで表が並べ替わり、フォーカスできる ⓘ（{@link initHints} が tabIndex を付ける）が
+ * button の中に入って、見出しボタンの読み上げ名に補足の長文まで入るため。
  * 表ごとに初期化で 1 回だけ呼ぶ（呼び直すと button が二重になる）。
  *
  * @param {HTMLTableElement} table 並べ替えを付ける表
@@ -427,6 +430,9 @@ function makeTableSortable(table) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "sortButton";
+        // 補足の ⓘ は button に入れない（理由は JSDoc）。先に th から外しておき、button の後ろに付け直す
+        const hints = [...th.querySelectorAll(":scope > .hint")];
+        for (const hint of hints) hint.remove();
         button.append(...th.childNodes);
         const mark = document.createElement("span");
         mark.className = "sortMark";
@@ -434,6 +440,7 @@ function makeTableSortable(table) {
         mark.setAttribute("aria-hidden", "true");
         button.appendChild(mark);
         th.appendChild(button);
+        if (hints.length > 0) th.append(" ", ...hints);
         button.addEventListener("click", () => {
             const column = String(th.cellIndex);
             const ascending = table.dataset.sortColumn === column && table.dataset.sortDirection === "ascending";
@@ -2002,6 +2009,13 @@ function initStudioShell() {
  * <p>吹き出しは position: fixed で出し、位置はここで CSS 変数に渡す。absolute だと、
  * 表の見出しの ⓘ は横スクロールの枠（`.table-scroll`）に切り取られるため。
  * Esc で閉じられるようにし、閉じた後はフォーカスが外れるまで出さない（WCAG 1.4.13 の「消せる」）。
+ *
+ * <p>ⓘ のクリックは既定の動作を取り消す。label の中の ⓘ を押すと、ブラウザの標準の動きで label の入力欄が操作され
+ * （チェックボックスなら切り替わる。select ならフォーカスが移って吹き出しがすぐ消える）、説明を読むだけのつもりが
+ * 設定を変えてしまうため（channels.html の「自動録画する」、logs.html の「レベル」）。ⓘ を label の外へ出さないのは、
+ * スマホ幅では `.inline` の直下の要素が 1 つずつ縦に積まれ、ⓘ だけが別の行に離れてしまうため。
+ * button の中の ⓘ は取り消しでは防げない（button の click の処理は動く）ので、並べ替えの見出しの ⓘ は
+ * {@link makeTableSortable} が button の外へ出す。
  */
 function initHints() {
     /** @param {Element | null} hint */
@@ -2022,6 +2036,8 @@ function initHints() {
         hint.addEventListener("keydown", (event) => {
             if (event.key === "Escape") hint.classList.add("hintDismissed");
         });
+        // label の中の ⓘ を押しても、label の入力欄を操作させない（理由は JSDoc）。ⓘ 自身には既定の動作が無いので、常に取り消してよい
+        hint.addEventListener("click", (event) => event.preventDefault());
     });
     // 吹き出しは画面に固定なので、スクロールしたら ⓘ の位置に付け直す
     document.addEventListener("scroll", () => place(document.activeElement), { capture: true, passive: true });
