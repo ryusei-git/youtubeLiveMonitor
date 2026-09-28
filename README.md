@@ -417,7 +417,7 @@ java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel list
 | 通知履歴 | `/notifications.html` | 送信結果の一覧（失敗理由も表示） |
 | 録画 | `/recordings.html` | 録画のサムネイル付きギャラリー・検索（タイトル/チャンネル名のキーワード、チャンネル、録画状態）・削除・ディスク使用量（チャンネル別）・削除済みチャンネルの録画の一括削除 |
 | 再生 | `/player.html?id=` | 録画 1 本の再生画面。録画の詳細情報と、同じチャンネルの他の録画も並ぶ |
-| ログ | `/logs.html` | チャンネル別・システムログの閲覧。レベルでの絞り込み（選択肢はそのログに実在する値のみ） |
+| ログ | `/logs.html` | チャンネル別・システムログの閲覧。対象はチャンネル名（配信元）で選ぶ。日付で回った過去のファイル（14 日分）もさかのぼり、新しい順に表示。レベルでの絞り込み（選択肢はそのログに実在する値のみ） |
 | DB管理 | `/tables.html` | テーブルの閲覧・セルのダブルクリックでの直接編集。テーブル名・カラム名は論理名（日本語）で表示し、カーソルを当てると物理名（DB上の実際の名前）を確認できる |
 
 素の HTML・CSS・JavaScript のみで作られており（フレームワーク不使用）、上記の REST API を
@@ -639,8 +639,8 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 | DELETE | `/api/recordings/orphaned/confirmed?token=` | プレビューで確認した削除候補だけをファイル単位で削除（確認後に対象が変わっていれば 400） |
 | GET | `/recordings/**` | 録画ファイル本体の配信（静的リソース、HTTP Range 対応） |
 | GET | `/api/logs/channels` | ログがあるチャンネルの一覧 |
-| GET | `/api/logs/channels/{channelId}?limit=&level=` | チャンネル別ログ（`level` でレベル絞り込み） |
-| GET | `/api/logs/system?limit=&level=` | システムログ（`level` でレベル絞り込み） |
+| GET | `/api/logs/channels/{channelId}?limit=&level=` | チャンネル別ログ（`level` でレベル絞り込み。日付で回った過去のファイルも含めて、新しい方から `limit` 件） |
+| GET | `/api/logs/system?limit=&level=` | システムログ（`level` でレベル絞り込み。日付で回った過去のファイルも含めて、新しい方から `limit` 件） |
 | GET | `/api/admin/tables` | DB のテーブル一覧 |
 | GET | `/api/admin/tables/{name}` | テーブルの内容 |
 | PUT | `/api/admin/tables/{name}/{pk}` | 行の更新 |
