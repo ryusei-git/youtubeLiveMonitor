@@ -107,7 +107,8 @@ const myDiscoverView = {
 
         apiGet("/api/my/discover/status").then((s) => {
             if (!list.isConnected) return;
-            query(".discoverStatus", root).textContent = [`最後の巡回 ${s.lastRunAt ? formatInstant(s.lastRunAt) : "まだ"}`,
+            const lastRun = s.lastRunAt ? `${formatInstant(s.lastRunAt)}（検索 ${s.lastRunSearches} 回）` : "まだ";
+            query(".discoverStatus", root).textContent = [`最後の巡回 ${lastRun}`,
                 `次の巡回 ${s.nextRunAt ? formatInstant(s.nextRunAt) : "止まっています"}`,
                 `今日の発掘の検索 ${s.discoverySearchesUsedToday}/${s.discoveryLimit} 回`].join("・");
         }).catch(() => { /* 状態が出なくても候補は見られる */ });
