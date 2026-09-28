@@ -81,8 +81,11 @@ public class ActiveVideoJobs {
     /**
      * 指定した動画IDが現在予約中かどうかを返す。
      *
-     * <p>{@link RecordingReconciler} が「まだ処理中のものを完成ファイルの有無だけで
-     * 失敗と誤判定しない」ために使う。
+     * <p>録画中かの問い合わせ（{@link StreamRecorder#isRecording(String)}）や、孤立ファイルの確認
+     * （{@link OrphanedPreviewService#preview()}）のように、状態を見るだけの場面で使う。
+     * 確かめた結果を見てファイルや録画履歴を書き換えるなら、この結果ではなく {@link #reserve(String)} を使う
+     * （確かめてから書き換えるまでの間に、同じ動画の録画・ダウンロードが始まりうる。
+     * {@link RecordingReconciler} も予約を取ってから補正する）。
      *
      * @param videoId 確認したい動画ID
      * @return 予約中であれば {@code true}

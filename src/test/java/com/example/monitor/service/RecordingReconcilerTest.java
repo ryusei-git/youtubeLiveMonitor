@@ -90,8 +90,9 @@ class RecordingReconcilerTest {
                     .filePath("UCxxxxxxxx/video001.mp4").build();
             when(recordingRepository.findByStatus(RecordingStatus.RECORDING)).thenReturn(List.of(recording));
             when(recordingRepository.findByStatus(RecordingStatus.FAILED)).thenReturn(List.of());
-            when(activeVideoJobs.isActive("video001")).thenReturn(false);
+            when(activeVideoJobs.reserve("video001")).thenReturn(true);
             when(processLauncher.isRunningWithCommandLineContaining("video001")).thenReturn(false);
+            when(recordingRepository.findById(1L)).thenReturn(Optional.of(recording));
             stubDiskState(recording, playable(12345L));
 
             recordingReconciler.reconcileOrphanedRecordings();
@@ -108,8 +109,9 @@ class RecordingReconcilerTest {
                     .filePath("UCxxxxxxxx/video001.mp4").build();
             when(recordingRepository.findByStatus(RecordingStatus.RECORDING)).thenReturn(List.of(recording));
             when(recordingRepository.findByStatus(RecordingStatus.FAILED)).thenReturn(List.of());
-            when(activeVideoJobs.isActive("video001")).thenReturn(false);
+            when(activeVideoJobs.reserve("video001")).thenReturn(true);
             when(processLauncher.isRunningWithCommandLineContaining("video001")).thenReturn(false);
+            when(recordingRepository.findById(1L)).thenReturn(Optional.of(recording));
             stubDiskState(recording, RecordingSalvager.SalvageOutcome.unavailable());
 
             recordingReconciler.reconcileOrphanedRecordings();
@@ -142,8 +144,10 @@ class RecordingReconcilerTest {
             when(recordingRepository.findByStatus(RecordingStatus.RECORDING))
                     .thenReturn(List.of(completed, failed));
             when(recordingRepository.findByStatus(RecordingStatus.FAILED)).thenReturn(List.of());
-            when(activeVideoJobs.isActive(any())).thenReturn(false);
+            when(activeVideoJobs.reserve(any())).thenReturn(true);
             when(processLauncher.isRunningWithCommandLineContaining(any())).thenReturn(false);
+            when(recordingRepository.findById(1L)).thenReturn(Optional.of(completed));
+            when(recordingRepository.findById(2L)).thenReturn(Optional.of(failed));
             stubDiskState(completed, playable(999L));
             stubDiskState(failed, RecordingSalvager.SalvageOutcome.unavailable());
 
@@ -157,13 +161,13 @@ class RecordingReconcilerTest {
         @DisplayName("正常系：このプロセスが今まさに追跡中の録画は対象から除外する")
         void testMethod05() {
             // 今まさに録画が進行中で、まだ完成ファイルが無いだけの正常なケースを模している。
-            // isRecording() による除外が無いと、これを誤って「失敗」と判定してしまう。
+            // 予約が取れないものを除外しないと、これを誤って「失敗」と判定してしまう。
             Recording stillRecording = Recording.builder()
                     .id(1L).videoId("video001").status(RecordingStatus.RECORDING)
                     .filePath("UCxxxxxxxx/video001.mp4").build();
             when(recordingRepository.findByStatus(RecordingStatus.RECORDING)).thenReturn(List.of(stillRecording));
             when(recordingRepository.findByStatus(RecordingStatus.FAILED)).thenReturn(List.of());
-            when(activeVideoJobs.isActive("video001")).thenReturn(true);
+            when(activeVideoJobs.reserve("video001")).thenReturn(false);
 
             recordingReconciler.reconcileOrphanedRecordings();
 
@@ -183,7 +187,7 @@ class RecordingReconcilerTest {
                     .filePath("UCxxxxxxxx/video001.mp4").build();
             when(recordingRepository.findByStatus(RecordingStatus.RECORDING)).thenReturn(List.of(survivedRestart));
             when(recordingRepository.findByStatus(RecordingStatus.FAILED)).thenReturn(List.of());
-            when(activeVideoJobs.isActive("video001")).thenReturn(false);
+            when(activeVideoJobs.reserve("video001")).thenReturn(true);
             when(processLauncher.isRunningWithCommandLineContaining("video001")).thenReturn(true);
 
             recordingReconciler.reconcileOrphanedRecordings();
@@ -204,6 +208,8 @@ class RecordingReconcilerTest {
             when(recordingRepository.findByStatus(RecordingStatus.RECORDING)).thenReturn(List.of());
             when(recordingRepository.findByStatus(RecordingStatus.FAILED)).thenReturn(List.of(rescuable));
             when(recordingFileService.sizeIfExists(rescuable)).thenReturn(Optional.of(736511716L));
+            when(activeVideoJobs.reserve("video007")).thenReturn(true);
+            when(recordingRepository.findById(7L)).thenReturn(Optional.of(rescuable));
             stubDiskState(rescuable, playable(736511716L));
 
             recordingReconciler.reconcileOrphanedRecordings();
@@ -240,8 +246,9 @@ class RecordingReconcilerTest {
                     .filePath("UCxxxxxxxx/video009.mp4").build();
             when(recordingRepository.findByStatus(RecordingStatus.RECORDING)).thenReturn(List.of(interrupted));
             when(recordingRepository.findByStatus(RecordingStatus.FAILED)).thenReturn(List.of());
-            when(activeVideoJobs.isActive("video009")).thenReturn(false);
+            when(activeVideoJobs.reserve("video009")).thenReturn(true);
             when(processLauncher.isRunningWithCommandLineContaining("video009")).thenReturn(false);
+            when(recordingRepository.findById(9L)).thenReturn(Optional.of(interrupted));
             stubDiskState(interrupted, salvaged(326000000L));
 
             recordingReconciler.reconcileOrphanedRecordings();
@@ -262,6 +269,8 @@ class RecordingReconcilerTest {
             when(recordingRepository.findByStatus(RecordingStatus.FAILED)).thenReturn(List.of(rescuable));
             when(recordingFileService.sizeIfExists(rescuable)).thenReturn(Optional.empty());
             when(recordingFileService.hasAnyFileFor(rescuable)).thenReturn(true);
+            when(activeVideoJobs.reserve("video010")).thenReturn(true);
+            when(recordingRepository.findById(10L)).thenReturn(Optional.of(rescuable));
             stubDiskState(rescuable, salvaged(415000000L));
 
             recordingReconciler.reconcileOrphanedRecordings();
@@ -282,6 +291,8 @@ class RecordingReconcilerTest {
             when(recordingFileService.sizeIfExists(broken)).thenReturn(Optional.empty());
             when(recordingFileService.hasAnyFileFor(broken)).thenReturn(true);
             when(recordingFileService.totalFileSizeFor(broken)).thenReturn(4_200_000_000L);
+            when(activeVideoJobs.reserve("video011")).thenReturn(true);
+            when(recordingRepository.findById(11L)).thenReturn(Optional.of(broken));
             stubDiskState(broken, RecordingSalvager.SalvageOutcome.unavailable());
 
             recordingReconciler.reconcileOrphanedRecordings();
@@ -304,6 +315,8 @@ class RecordingReconcilerTest {
             when(recordingFileService.hasAnyFileFor(pending)).thenReturn(true);
             // 1巡目の失敗時と2巡目の確認時で合計サイズが違う＝音声の断片が後から揃った状況
             when(recordingFileService.totalFileSizeFor(pending)).thenReturn(300_000_000L, 415_000_000L);
+            when(activeVideoJobs.reserve("video012")).thenReturn(true);
+            when(recordingRepository.findById(12L)).thenReturn(Optional.of(pending));
             when(recordingFileService.resolveFilePath(pending))
                     .thenReturn(Path.of("recordings").resolve(pending.getFilePath()));
             when(recordingSalvager.ensurePlayable(Path.of("recordings").resolve(pending.getFilePath())))
