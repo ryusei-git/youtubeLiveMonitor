@@ -5,6 +5,7 @@ import com.example.monitor.dto.DiscoveryStatusResponse;
 import com.example.monitor.entity.DiscoveryCandidate;
 import com.example.monitor.entity.DiscoveryCandidate.Status;
 import com.example.monitor.entity.MonitoredChannel;
+import com.example.monitor.exception.YouTubeApiUnavailableException;
 import com.example.monitor.platform.youtube.YouTubeStreamPlatform;
 import com.example.monitor.repository.DiscoveryCandidateRepository;
 import com.example.monitor.repository.MonitoredChannelRepository;
@@ -368,6 +369,7 @@ public class DiscoveryService {
      * @return 判定した後の候補
      * @throws IllegalArgumentException 状態が不正なとき
      * @throws NoSuchElementException   候補が無い・チャンネルが消えたとき
+     * @throws YouTubeApiUnavailableException YouTube からチャンネルを取得できない・YouTube API の本日の上限に達したとき
      */
     public DiscoveryCandidateResponse decide(String channelId, String status, String username) {
         Status parsed = parse(status);
@@ -401,6 +403,7 @@ public class DiscoveryService {
      * @return 登録した候補
      * @throws IllegalArgumentException 入力が空・ハンドルが見つからないとき
      * @throws NoSuchElementException   チャンネルが見つからないとき
+     * @throws YouTubeApiUnavailableException YouTube からチャンネルを取得できない・YouTube API の本日の上限に達したとき
      */
     public DiscoveryCandidateResponse add(String input) {
         String channelId = youTubePlatform.normalizeChannelInput(input);
@@ -417,13 +420,13 @@ public class DiscoveryService {
         try {
             candidate.setFirstUploadAt(firstUpload(channel));
         } catch (IOException e) {
-            throw new IllegalStateException("YouTube のクォータを使い切っています");
+            throw unavailable(e, channelId);
         }
         if (candidate.getSampleVideoId() != null) {
             try {
                 applySampleTitle(candidate, youtube.videoTitles(List.of(candidate.getSampleVideoId())));
             } catch (IOException e) {
-                throw new IllegalStateException("YouTube から動画を取得できません: " + DiscoveryYouTubeClient.describe(e));
+                throw unavailable(e, channelId);
             }
         }
         if (candidate.getStatus() == Status.REJECTED) {
@@ -455,8 +458,34 @@ public class DiscoveryService {
             return youtube.channels(List.of(channelId)).stream().findFirst()
                     .orElseThrow(() -> new NoSuchElementException("チャンネルが見つかりません: " + channelId));
         } catch (IOException e) {
-            throw new IllegalStateException("YouTube からチャンネルを取得できません: " + DiscoveryYouTubeClient.describe(e));
+            throw unavailable(e, channelId);
         }
+    }
+
+    /**
+     * チャンネルを引く API の失敗を、利用者に返す 503 の例外へ読み替える。
+     *
+     * <p>{@link IllegalStateException}（500 とスタックトレース付きの ERROR）にしないのは、YouTube 側の失敗は
+     * このサービスの異常ではなく、待てば戻るため（{@code YouTubeSearchService} の検索と同じ扱い）。
+     * 検索の回数は使っていないので、上限でも 429 ではなく 503 にする。
+     *
+     * <p>{@code quotaExceeded} なら、巡回（{@code run()}）と同じく {@link YouTubeSearchBudget#markExhausted()} で
+     * 今日の検索も止める。検索も詳細の取得（{@code videos.list}・{@code channels.list}）で同じ枠を使うので、叩いても失敗するだけのため。
+     * 利用者に返す文言には API の理由を入れず、ログにだけ出す。
+     *
+     * @param e         API の失敗
+     * @param channelId 引こうとしたチャンネル ID（ログ用）
+     * @return 投げる例外
+     */
+    private YouTubeApiUnavailableException unavailable(IOException e, String channelId) {
+        if (DiscoveryYouTubeClient.isQuotaExceeded(e)) {
+            budget.markExhausted();
+            log.warn("YouTube のクォータを使い切ったので、今日の検索を止めます: channel={}", channelId);
+            return new YouTubeApiUnavailableException("YouTube API の本日の上限に達しました");
+        }
+        log.warn("YouTube からチャンネルを取得できませんでした: channel={}, reason={}",
+                channelId, DiscoveryYouTubeClient.describe(e));
+        return new YouTubeApiUnavailableException("YouTube からチャンネルを取得できませんでした");
     }
 
     /** 登録者（非公開は残す）と動画の数が上限以下か。 */
