@@ -1673,6 +1673,52 @@ function setBusy(target, busy) {
 }
 
 /**
+ * 一覧を作り直す前に、一覧の中のフォーカスの場所を覚える。作り直した後に返り値の関数を呼ぶと、同じ項目の同じ順番の
+ * 操作（ボタン・リンク）へフォーカスを戻す。その順番の操作が無くなっていれば（押せなくなった・札に置き換えた）、
+ * 同じ項目の最初の操作へ戻す。
+ *
+ * <p>作り直すと、フォーカスしていた要素が DOM から外れて body へ落ちる。キーボードや読み上げの利用者は、自動更新のたび・
+ * 1 件操作するたびに、ページの先頭から Tab でたどり直すことになるため（#279 の続き）。
+ * 項目は data-focus-key（項目ごとに一意の値）で見分ける。同じ項目が無くなっていれば（判定・解除で消した）、同じ位置の項目、
+ * 無ければ 1 つ前の項目の最初の操作へ移す。1 つも残らなければ fallback へ移す。
+ *
+ * <p>作り直す前にフォーカスが一覧の外にあったとき、戻す時点で利用者がほかの場所へ移っていたときは何もしない
+ * （自動更新でページの別の場所からフォーカスを奪い、そこまでスクロールさせないため）。
+ * 戻すときはスクロールさせない（preventScroll）。Chrome はマウスで押したボタンにもフォーカスを置くので、再生のダイアログを
+ * 閉じた後に下へスクロールして読んでいる人のページが、自動更新のたびにそのカードの位置まで引き戻されるため。
+ * ボタンを disabled にしてから作り直す処理では、disabled にする前に呼ぶ（disabled にした時点でフォーカスを body へ落とす
+ * ブラウザがあり、落ちた後に呼んでも覚える場所が無い）。
+ *
+ * @param {HTMLElement} container 一覧の入れ物。作り直しの前後で同じ要素であること（項目は中のどこにあってもよい）
+ * @param {HTMLElement|null} [fallback] 項目が 1 つも残らなかったときの移し先。省くと移さない
+ * @returns {() => void} 作り直した後に呼ぶ関数
+ */
+function rememberFocus(container, fallback = null) {
+    const selector = "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
+    /**
+     * @param {Element|undefined} item 項目
+     * @returns {HTMLElement[]} 項目の中でフォーカスを移せる要素（前から順）
+     */
+    const focusables = (item) => item ? /** @type {HTMLElement[]} */ ([...item.querySelectorAll(selector)]) : [];
+    const active = document.activeElement;
+    const item = active instanceof HTMLElement && container.contains(active) ? active.closest("[data-focus-key]") : null;
+    if (!(active instanceof HTMLElement) || !(item instanceof HTMLElement) || !container.contains(item)) return () => {};
+    const key = item.dataset.focusKey;
+    const index = [...container.querySelectorAll("[data-focus-key]")].indexOf(item);
+    const position = focusables(item).indexOf(active);
+    return () => {
+        // 作り直しで外れたフォーカスは body に落ちている。それ以外なら利用者が自分で移したので動かさない
+        if (document.activeElement && document.activeElement !== document.body) return;
+        const items = [...container.querySelectorAll("[data-focus-key]")];
+        const same = items.find((element) => element instanceof HTMLElement && element.dataset.focusKey === key);
+        const target = same
+            ? focusables(same)[position] ?? focusables(same)[0]
+            : focusables(items[index])[0] ?? focusables(items[index - 1])[0] ?? fallback;
+        target?.focus({ preventScroll: true });
+    };
+}
+
+/**
  * ヘッダに「今いくつ配信中か」を出す。
  *
  * <p>配信中かどうかはこの画面を見に来る最大の理由なので、ダッシュボードを開かなくても
@@ -2012,6 +2058,7 @@ function embeddedVideoUrl(watchUrl, hostname = location.hostname) {
 function openOnlineVideo(video) {
     const source = embeddedVideoUrl(video.watchUrl);
     if (!source || !video.playable) { showError("この配信のアーカイブはまだ取得できていません。"); return; }
+    const opener = document.activeElement;
     document.querySelector("#onlinePlayerDialog")?.remove();
     const dialog = document.createElement("dialog");
     dialog.id = "onlinePlayerDialog";
@@ -2030,7 +2077,16 @@ function openOnlineVideo(video) {
     frame.referrerPolicy = "strict-origin-when-cross-origin";
     query(".onlinePlayerFrame", dialog).append(frame);
     query(".closeOnlinePlayer", dialog).addEventListener("click", () => dialog.close());
-    dialog.addEventListener("close", () => dialog.remove());
+    // 閉じるとブラウザは開く前のボタンへフォーカスを戻す。開いている間に自動更新で一覧が作り直されていると、そのボタンは
+    // DOM に無く body へ落ちるので、同じ動画のカード（data-focus-key）の最初の押せるボタンへ戻す
+    dialog.addEventListener("close", () => {
+        dialog.remove();
+        if (!(opener instanceof HTMLElement) || opener.isConnected) return;
+        const card = [...document.querySelectorAll(".onlineVideoCard")]
+            .find((element) => element instanceof HTMLElement && element.dataset.focusKey === video.id);
+        const button = card?.querySelector("button:not(:disabled)");
+        if (button instanceof HTMLElement) button.focus();
+    });
     dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
     document.body.append(dialog);
     dialog.showModal();
@@ -2044,6 +2100,8 @@ function openOnlineVideo(video) {
 function buildOnlineVideoCard(video) {
     const card = document.createElement("article");
     card.className = "videoCard onlineVideoCard";
+    // 作り直した後に同じ動画のカードへフォーカスを戻すための目印（rememberFocus・openOnlineVideo）
+    card.dataset.focusKey = video.id;
     const upcoming = video.contentKind === "UPCOMING";
     const state = upcoming ? "配信予定" : video.state === "LIVE" ? "配信中" : video.state === "UNKNOWN" ? "配信状態を確認中" : video.playable ? "動画・アーカイブ" : "配信終了・アーカイブ未取得";
     // 待機所の公開日時は枠を作った時刻で、視聴者が知りたいのは開始予定のほうなので差し替える。
@@ -2065,6 +2123,21 @@ function buildOnlineVideoCard(video) {
     return card;
 }
 
+/**
+ * 動画の一覧（/api/videos の content）を、描き直すかどうかを決めるための文字列にする。前回描いた内容と同じなら描き直さない
+ * ために使う（描き直すと、フォーカスしていたカードが DOM から外れて body へ飛び、読み上げも読んでいた場所を失う。#279）。
+ * 利用者のトップ・動画・配信と、管理者のダッシュボード・動画一覧で比べ方をそろえるため、ここに置く。
+ *
+ * <p>lastObservedAt は巡回のたびに配信中の動画ごとに書き換わる（OnlineVideoService.observe）が画面には出ないので、
+ * 比べる値から外す。外さないと、配信中の動画がある間は毎回「変わった」ことになり、1 分ごとに描き直す。
+ *
+ * @param {any[]} videos 動画の一覧
+ * @returns {string} 比べるための文字列
+ */
+function onlineVideosRenderKey(videos) {
+    return JSON.stringify(videos.map((video) => ({ ...video, lastObservedAt: null })));
+}
+
 /** 配信中のカードも投稿動画と同じ再生経路へまとめる。
  * @param {HTMLElement} target
  * @param {any} page
@@ -2072,8 +2145,10 @@ function buildOnlineVideoCard(video) {
  */
 function renderLiveVideoCards(target, page,
         empty = emptyState("配信中の動画はありません", "起動直後・判定失敗時は、次の正常な確認を待って表示します。")) {
+    const restoreFocus = rememberFocus(target);
     target.replaceChildren(...page.content.map(buildOnlineVideoCard));
     if (!page.content.length) target.innerHTML = empty;
+    restoreFocus();
 }
 
 /**
@@ -2116,6 +2191,7 @@ function channelIcon(url) {
  */
 function renderUpcomingStreams(streams, box = el("upcomingStreams"),
         empty = emptyState("配信予定はありません", "監視中のチャンネルが YouTube で待機所を作ると、ここに開始予定の早い順で並びます。")) {
+    const restoreFocus = rememberFocus(box);
     if (!streams || streams.length === 0) {
         box.innerHTML = empty;
         return;
@@ -2123,7 +2199,7 @@ function renderUpcomingStreams(streams, box = el("upcomingStreams"),
     const rows = streams.map(s => {
         const start = splitScheduledStart(s.scheduledStartTime);
         return `
-        <tr>
+        <tr data-focus-key="${escapeHtml(s.watchUrl)}">
             <td>${escapeHtml(start.date)}</td>
             <td>${escapeHtml(start.weekday)}</td>
             <td>${escapeHtml(start.time)}</td>
@@ -2139,6 +2215,7 @@ function renderUpcomingStreams(streams, box = el("upcomingStreams"),
                 <tbody>${rows}</tbody>
             </table>
         </div>`;
+    restoreFocus();
 }
 
 /** 非表示中の定期通信を省き、戻ってきたときだけ最新の保存済み状態を読む。
@@ -2184,7 +2261,8 @@ function formatInstant(value) {
 
 /**
  * 段ごとにページ送りを独立させるため、ページ・総ページ数・リクエスト番号を段ごとに持つ。
- * @typedef {{name: string, page: number, totalPages: number, request: number, empty: string}} VideoSection
+ * renderedKey は前回描いた内容の要約（同じなら描き直さない）。
+ * @typedef {{name: string, page: number, totalPages: number, request: number, empty: string, renderedKey: string}} VideoSection
  */
 
 /**
@@ -2217,9 +2295,9 @@ function formatInstant(value) {
 function bindOnlineVideoSections() {
     /** @type {VideoSection[]} */
     const sections = [
-        {name: "now", page: 0, totalPages: 0, request: 0, empty: "配信中・配信予定の動画はありません"},
-        {name: "streams", page: 0, totalPages: 0, request: 0, empty: "配信済みの動画はありません"},
-        {name: "uploads", page: 0, totalPages: 0, request: 0, empty: "投稿済みの動画はありません"},
+        {name: "now", page: 0, totalPages: 0, request: 0, empty: "配信中・配信予定の動画はありません", renderedKey: ""},
+        {name: "streams", page: 0, totalPages: 0, request: 0, empty: "配信済みの動画はありません", renderedKey: ""},
+        {name: "uploads", page: 0, totalPages: 0, request: 0, empty: "投稿済みの動画はありません", renderedKey: ""},
     ];
     /** @type {Date|null} */
     let lastUpdatedAt = null;
@@ -2252,7 +2330,8 @@ function bindOnlineVideoSections() {
     async function loadSection(section, showAlert = true) {
         const request = ++section.request;
         const grid = el(section.name + "Grid");
-        setBusy(grid, true);
+        // 自動更新（showAlert が false）では薄くしない。中身が変わらないときも 1 分ごとに一覧全体が薄くなって戻るのは目障りなため
+        if (showAlert) setBusy(grid, true);
         const params = new URLSearchParams({section: section.name, page: String(section.page), size: "12",
             keyword: keyword.value.trim()});
         if (channel.value) params.set("channelId", channel.value);
@@ -2264,8 +2343,15 @@ function bindOnlineVideoSections() {
                 return loadSection(section, showAlert);
             }
             section.totalPages = data.totalPages;
+            // 前回描いた内容と同じなら描き直さない（描き直すと、フォーカスしていたカードが DOM から外れて body へ飛び、
+            // 読み上げも読んでいた場所を失うため。利用者のトップと同じ。#279）。件数・ページ送りも同じ値なので触らない
+            const key = JSON.stringify([data.number, data.totalElements, data.totalPages, onlineVideosRenderKey(data.content)]);
+            if (key === section.renderedKey) return true;
+            section.renderedKey = key;
+            const restoreFocus = rememberFocus(grid);
             grid.replaceChildren(...data.content.map(buildOnlineVideoCard));
             if (!data.content.length) grid.innerHTML = emptyState(section.empty, "新着動画の取得後に表示されます。絞り込み条件も確認してください。");
+            restoreFocus();
             el(section.name + "Summary").textContent = `${data.totalElements}件`;
             el(section.name + "Page").textContent = data.totalPages ? `${data.number + 1} / ${data.totalPages}` : "0 / 0";
             buttonEl(section.name + "Prev").disabled = data.first || data.empty;

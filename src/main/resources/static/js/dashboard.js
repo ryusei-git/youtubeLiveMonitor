@@ -577,6 +577,11 @@ formEl("settingsForm").addEventListener("submit", async (ev) => {
 let dashboardRequest = 0;
 /** @type {Date|null} */
 let dashboardLastUpdatedAt = null;
+/**
+ * 配信中のカードと配信予定の表を前回描いた内容の要約。同じなら描き直さない（利用者のトップと同じ。#279）。
+ * 1 分ごとの自動更新で毎回描き直すと、カードや表のリンクにフォーカスしていた人のフォーカスが body へ飛ぶため。
+ */
+let dashboardVideosKey = "";
 
 async function loadDashboard() {
     const request = ++dashboardRequest;
@@ -609,8 +614,12 @@ async function loadDashboard() {
         startedAtCell.innerHTML = datetimeCell(data.serviceStartedAt);
         bindDatetimeCells(startedAtCell);
 
-        renderLiveVideoCards(el("liveVideos"), livePage);
-        renderUpcomingStreams(upcoming);
+        const videosKey = JSON.stringify([onlineVideosRenderKey(livePage.content), upcoming]);
+        if (videosKey !== dashboardVideosKey) {
+            dashboardVideosKey = videosKey;
+            renderLiveVideoCards(el("liveVideos"), livePage);
+            renderUpcomingStreams(upcoming);
+        }
         dashboardLastUpdatedAt = new Date();
         renderRefreshStatus(el("dashboardRefreshStatus"), dashboardLastUpdatedAt, false);
     } catch {
