@@ -23,6 +23,14 @@ public class OnlineVideo {
     public static final String KIND_STREAM = "STREAM";
     /** 通常の投稿動画・ショート。 */
     public static final String KIND_UPLOAD = "UPLOAD";
+    /**
+     * 消えた待機所（削除された・存在しない）。待機所と判定済みの動画で、動画ページが「再生できません」
+     * （{@code playabilityStatus} が {@code ERROR}）を返したもの。
+     * 待機所が削除されると、{@link #KIND_UPCOMING} のまま「配信中・配信予定」の段に残り、収集のたびに動画ページを
+     * 取り直し続けるため区別する。どの段にも出さず、種類の判定し直しもしない
+     * （あとで配信が始まったら、巡回の {@code OnlineVideoService.observe} が {@link #KIND_STREAM} に移す）。
+     */
+    public static final String KIND_MISSING = "MISSING";
 
     @Id @Column(length = 100)
     private String id;
@@ -49,7 +57,7 @@ public class OnlineVideo {
     @Column(columnDefinition = "boolean default false")
     private boolean live;
     /**
-     * 動画の種類（{@link #KIND_UPCOMING} / {@link #KIND_STREAM} / {@link #KIND_UPLOAD}）。
+     * 動画の種類（{@link #KIND_UPCOMING} / {@link #KIND_STREAM} / {@link #KIND_UPLOAD} / {@link #KIND_MISSING}）。
      * null は「まだ判定できていない」で、投稿動画とはみなさない（次の収集で判定し直す）。
      * enum の {@code @Enumerated} にしないのは、H2 のネイティブ ENUM 型で作られると
      * 種類を増やしたときに既存 DB の全更新が失敗するため（docs/pitfalls.md 参照）。
