@@ -110,7 +110,7 @@ const myDiscoverView = {
         const tab = MY_DISCOVER_TABS.find((t) => t.status === params.get("status")) || MY_DISCOVER_TABS[0];
         root.innerHTML = `<h1>新人発掘</h1>
             <p class="pageDescription">定期の巡回で見つかった、登録者が少なく投稿が少ない新しいチャンネル。VTuber かどうかを決めて、気になれば監視できます。</p>
-            <p class="discoverStatus muted"></p>
+            <p class="discoverStatus muted">巡回の状態を読み込み中...</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <form id="discoverAddForm" class="inline">
               <input type="text" name="url" placeholder="チャンネルの URL・@ハンドル・ID" aria-label="候補に足すチャンネルの URL" required>
@@ -120,8 +120,9 @@ const myDiscoverView = {
               ${MY_DISCOVER_TABS.map((t) => `<a href="/my/discover${t === MY_DISCOVER_TABS[0] ? "" : `?status=${t.status}`}"
                   ${t === tab ? 'aria-current="page"' : ""}>${t.label}</a>`).join("")}
             </nav>
-            <div class="discoverList"></div>
+            <div class="discoverList"><p class="muted discoverPlaceholder">読み込み中...</p></div>
             ${mySearchAttribution}`;
+        // 一覧の読み込み中・失敗の表示には discoverPlaceholder を付ける。候補を URL で足したときに消すため（#338）
         const list = query(".discoverList", root);
         const showEmptyIfNone = () => {
             // 取り消しの行（.discoverUndo）は消さずに残し、その後ろに空の表示を足す
@@ -136,18 +137,25 @@ const myDiscoverView = {
             query(".discoverStatus", root).textContent = [`最後の巡回 ${lastRun}`,
                 `次の巡回 ${s.nextRunAt ? formatInstant(s.nextRunAt) : "止まっています"}`,
                 `今日の発掘の検索 ${s.discoverySearchesUsedToday}/${s.discoveryLimit} 回`].join("・");
-        }).catch(() => { /* 状態が出なくても候補は見られる */ });
+        }).catch(() => {
+            // 状態が出なくても候補は見られるので、エラー帯には出さない。空のままだと読み込み中と区別が付かないので、行に書く
+            if (list.isConnected) query(".discoverStatus", root).textContent = "巡回の状態を読み込めませんでした";
+        });
 
         // 札とボタンの出し分けに使う。「監視する」を押したらこの集合にも足し、URL で足した候補にも同じ集合を使う
         const subscribedLoad = mySearchSubscribedChannelIds();
-        setBusy(list, true);
         const loaded = Promise.all([apiGet(`/api/my/discover/candidates?status=${tab.status}`), subscribedLoad]).then(([items, subscribed]) => {
             if (!list.isConnected) return;
             list.replaceChildren(...(/** @type {any[]} */ (items)).map((item) => myDiscoverCard(item, subscribed)));
             showEmptyIfNone();
         }).catch((e) => {
-            if (list.isConnected) showError(errorMessage(e));
-        }).finally(() => setBusy(list, false));
+            if (!list.isConnected) return;
+            showError(errorMessage(e));
+            // 読み込みを待つ間に URL で足した候補があれば、それを残す（読み込み中の表示は足したときに消えている）
+            if (!list.querySelector(".discoverCard")) {
+                list.innerHTML = '<p class="muted discoverPlaceholder">候補を読み込めませんでした。ページを再読み込みすると、もう一度読み込みます。</p>';
+            }
+        });
 
         /**
          * 判定を取り消す。一覧のカードはどれもタブの状態（tab.status）なので、その状態へ戻す。
@@ -252,7 +260,7 @@ const myDiscoverView = {
                     // 既にあった候補と、同じチャンネルの取り消しの行は、取り直した値のカードで置き換える
                     // （「ちがう」にした候補を URL で足し直すとサーバーが候補に戻すので、取り消しの行を残すとカードが 2 枚になる）
                     list.querySelectorAll(`[data-channel-id="${CSS.escape(item.channelId)}"]`).forEach((node) => node.remove());
-                    list.querySelector(".emptyState")?.remove();
+                    list.querySelector(".emptyState, .discoverPlaceholder")?.remove();
                     list.prepend(myDiscoverCard(item, await subscribedLoad));
                 }
                 showToast(item.status === "VTUBER" ? `${item.title} は VTuber と判定済みです（値を取り直しました）`
