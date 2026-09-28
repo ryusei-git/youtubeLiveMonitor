@@ -83,7 +83,8 @@ public interface ProcessLauncher {
      * {@code ffmpeg} まで含めると、{@link RecordingSalvager} の詰め替えまで止めてしまう。yt-dlp の子の ffmpeg は、
      * 止める側（{@link com.example.monitor.util.ProcessTermination#terminateTreeAndAwait}）が子孫として止める。
      *
-     * @param commandLineFragment 探したい文字列（録画なら動画 ID、端末保存の掃除なら一時フォルダーの絶対パス）
+     * @param commandLineFragment 探したい文字列（録画なら出力先の {@code <チャンネルID>/<動画ID>.%(ext)s}、
+     *                            端末保存の掃除なら一時フォルダーの絶対パス）
      * @return 該当するプロセス。無ければ空
      */
     List<ProcessHandle> findYtDlpProcessesWithCommandLineContaining(String commandLineFragment);
