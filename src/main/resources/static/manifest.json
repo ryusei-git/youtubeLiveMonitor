@@ -1,0 +1,16 @@
+{
+  "name": "YouTube Live Monitor",
+  "short_name": "Live Monitor",
+  "description": "配信と録画を、ひとつの場所に。",
+  "id": "/my",
+  "start_url": "/my",
+  "scope": "/",
+  "display": "standalone",
+  "lang": "ja",
+  "theme_color": "#ffffff",
+  "background_color": "#f7f8fa",
+  "icons": [
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
