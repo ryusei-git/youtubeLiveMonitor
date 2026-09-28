@@ -83,8 +83,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * もう一度始まることも無い（自動録画は開始に成功した時点で録画済みの動画 ID を更新して同じ配信を
  * 録り直さず、手動ダウンロードは履歴にある動画を受け付けない）。
  * 後始末の側も予約を取ってから触る。予約中に巡回が同じ動画の録画を試みると
- * {@link StreamRecorder#startRecording} は「既に録画中」と見なして見送るが、今は {@code FAILED} 行の
- * 動画がもう一度始まることは無いので実害は無い。
+ * {@link StreamRecorder#startRecording} は「既に録画中」と見なして起動せずに成功を返し、巡回は
+ * その配信を録画済みとして扱う。今は置き去りの行・{@code FAILED} 行の動画を巡回が録り始めることは
+ * 無い（録画済みの動画 ID が同じなので読み飛ばす）ので実害は無い。
  */
 @Service
 @Profile("!cli")
@@ -224,7 +225,8 @@ public class RecordingReconciler {
      * 見ずに詰め替えると、同じ作業ファイルへ 2 本目の {@code ffmpeg} が書き込み、混ざった出力で
      * 元のファイルや断片を置き換え・削除しうる。
      *
-     * @param listed  一覧を取ったときの行。状態の比較にだけ使う
+     * @param listed  一覧を取ったときの行。主キー・動画 ID と、状態の比較にだけ使う
+     *                （補正には読み直した行を渡す）
      * @param context ログに出す「どういう状態だったか」の説明
      */
     private void reconcileIfIdle(Recording listed, String context) {
