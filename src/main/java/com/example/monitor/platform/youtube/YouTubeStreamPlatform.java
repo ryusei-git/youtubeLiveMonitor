@@ -63,9 +63,12 @@ public class YouTubeStreamPlatform extends AbstractStreamPlatform {
      * {@code /channel/{id}/live} という URL 形式はハンドルでは機能せず 404 になり、
      * そのチャンネルの監視が静かに効かなくなる（実際に発生した）。
      *
+     * <p>チャンネルのページ以外の URL（{@code /c/}・{@code /user/}・動画の URL など）は、
+     * {@link YouTubeChannelInputParser#normalize(String)} が API を呼ぶ前に断る（クォータを使わない）。
+     *
      * @param rawInput 利用者の入力
      * @return {@code UC...} 形式のチャンネル ID
-     * @throws IllegalArgumentException 入力が空、またはハンドルに該当するチャンネルが無い場合
+     * @throws IllegalArgumentException 入力が空、チャンネルのページ以外の URL の場合、またはハンドルに該当するチャンネルが無い場合
      */
     @Override
     public String normalizeChannelInput(String rawInput) {

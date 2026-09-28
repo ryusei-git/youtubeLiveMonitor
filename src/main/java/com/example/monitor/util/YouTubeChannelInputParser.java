@@ -21,6 +21,13 @@ import java.util.regex.Pattern;
  * {@code seldea} のような文字列で登録してしまい、{@code /channel/seldea/live} が 404 になって
  * 全チャンネルの監視が静かに機能しなくなっていた。
  *
+ * <p><b>チャンネルのページ以外の URL は、ハンドルとみなさずに断る。</b>{@code /c/}・{@code /user/} の
+ * 古い形式、動画の URL（{@code watch?v=}・{@code youtu.be}）、他のサイトの URL がこれに当たる。
+ * 以前は {@code @} を落としたハンドルとみなして {@code @https://www.youtube.com/c/Name} のような文字列を作り、
+ * YouTube API に問い合わせていた（クォータを 1 使う）。結果は必ず「ハンドルに該当するチャンネルが見つかりません」に
+ * なり、利用者には直し方が分からなかった。{@code /c/} の名前からチャンネルを引く API は無く、{@code /user/} や
+ * 動画から引くには別の API 呼び出しが要るため、ここでは解決を試みず、チャンネルのページの URL を案内する。
+ *
  * <p>複数の入口（REST API・CLI）から同じ整形が必要になるため、
  * {@code MonitoredChannelService} の private メソッドではなく独立クラスに切り出している。
  */
@@ -34,6 +41,17 @@ public final class YouTubeChannelInputParser {
 
     /** ハンドルの接頭辞。 */
     private static final String HANDLE_PREFIX = "@";
+
+    /**
+     * チャンネルのページ以外の URL を断るときの文言。
+     *
+     * <p><b>入力の値を入れない。</b>例外の文言は {@code GlobalExceptionHandler} がそのまま
+     * アプリログ（WARN）に書くため、利用者が貼った文字列をログへ流さないようにしている。
+     */
+    private static final String UNSUPPORTED_URL_MESSAGE =
+            "この URL からはチャンネルを特定できません。チャンネルのページの URL"
+                    + "（youtube.com/@ハンドル または youtube.com/channel/UC…）か、@ハンドルを入力してください。"
+                    + "動画の URL や、/c/・/user/ で始まる古い形式の URL には対応していません";
 
     /**
      * YouTube のチャンネル ID の形。{@code UC} で始まる 24 文字で、使える文字は
@@ -71,9 +89,13 @@ public final class YouTubeChannelInputParser {
      * {@code @} を落とす事故とは違うため。断る文言に入力の値を入れないのは、例外の文言が
      * そのままアプリログに書かれるため（利用者の入力をログへ流さない）。
      *
+     * <p>{@code /} を含むのに上の 2 つの URL の形に合わない入力は、{@code @} を補わずに断る
+     * （クラスの JavaDoc 参照）。ハンドルにもチャンネル ID にも {@code /} は使えないので、
+     * {@code @} を落としたハンドルと取り違えて断ることはない。
+     *
      * @param rawInput 利用者が入力した文字列
      * @return チャンネル ID、または {@code @} から始まるハンドル
-     * @throws IllegalArgumentException 入力が空の場合、または {@code /channel/} の URL の ID がチャンネル ID の形でない場合
+     * @throws IllegalArgumentException 入力が空の場合、{@code /channel/} の URL の ID がチャンネル ID の形でない場合、またはチャンネルのページ以外の URL の場合
      */
     public static String normalize(String rawInput) {
         if (rawInput == null || rawInput.isBlank()) {
@@ -102,6 +124,12 @@ public final class YouTubeChannelInputParser {
 
         if (trimmed.startsWith(HANDLE_PREFIX) || CHANNEL_ID_FORMAT.matcher(trimmed).matches()) {
             return trimmed;
+        }
+
+        // ハンドルにもチャンネル ID にも「/」は使えない。ここまで来て「/」を含むのは、
+        // 上の 2 つの形に合わない URL（/c/・/user/・動画の URL など）なので、@ を補わずに断る
+        if (trimmed.contains("/")) {
+            throw new IllegalArgumentException(UNSUPPORTED_URL_MESSAGE);
         }
 
         // チャンネル ID の形をしていない＝ハンドルの @ を落として入力されたとみなす
