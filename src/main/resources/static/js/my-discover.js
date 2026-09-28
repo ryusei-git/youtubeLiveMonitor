@@ -153,7 +153,12 @@ const myDiscoverView = {
             showError(errorMessage(e));
             // 読み込みを待つ間に URL で足した候補があれば、それを残す（読み込み中の表示は足したときに消えている）
             if (!list.querySelector(".discoverCard")) {
-                list.innerHTML = '<p class="muted discoverPlaceholder">候補を読み込めませんでした。ページを再読み込みすると、もう一度読み込みます。</p>';
+                // 足した候補を判定した後の取り消しの行（.discoverUndo）も残す。「ちがう」にした候補はここでしか戻せず、
+                // innerHTML で置き換えると取り消しの手段が消え、取り消しのボタンにあったフォーカスも body に落ちる。
+                // それ以外（読み込み中の表示と、判定の後に足された「まだ候補はありません」）は、読めなかったのに無いと読めるので消す
+                list.querySelectorAll(":scope > :not(.discoverUndo)").forEach((node) => node.remove());
+                list.insertAdjacentHTML("beforeend",
+                    '<p class="muted discoverPlaceholder">候補を読み込めませんでした。ページを再読み込みすると、もう一度読み込みます。</p>');
             }
         });
 
