@@ -272,6 +272,15 @@ public class VideoDownloadService {
      * （後始末も予約を取ってから行を読み直す）。{@link RecordingHistoryService#deleteRecording(Long)} は予約を見ないので、
      * 予約を持ったまま呼べる。予約を見るように変えるなら、ここも合わせて直す。
      *
+     * <p><b>OS 上のプロセスは確かめない</b>（後始末の 2 段階の確認のうち、
+     * {@link ProcessLauncher#isRunningWithCommandLineContaining(String)} は使わない）。「端末に保存」
+     * （{@link DeviceDownloadService}）の {@code yt-dlp} も同じ動画 ID をコマンドラインに含むので、確かめると、
+     * 誰かが端末に保存しているだけで断ってしまうため。予約で避けられないのは、再起動前の JVM が失敗の行に始めた
+     * 詰め替えの {@code ffmpeg} が生き残っている間（1 件最大 600 秒）だけ（{@code docs/pitfalls.md}
+     * 「録画中にアプリを再起動すると「録画中」のまま更新されなくなる」）。そのファイルを消しても、失敗の録画なので
+     * 再生できるものは失わない。消せずに残って取り直しがまた失敗しても、その {@code ffmpeg} が終わった後に
+     * もう一度保存すれば通る。
+     *
      * <p>監査ログには、操作した人の操作として {@code RECORDING_DELETE}（消した失敗の履歴）と
      * {@code DOWNLOAD_REQUEST}（取り直し）が並ぶので、何を消して取り直したかを後から追える。
      *
