@@ -1,0 +1,65 @@
+# PR と main への push のたびに、AGENTS.md「終わったら」の確認のうち端末に依存しないもの
+# （ビルド・単体テスト・JavaDoc・JS の型検査・JS のテスト）を Linux で実行する。
+# 以前は PR を作った側の自己申告だけが頼りで、実行したかどうかを PR から確かめられなかった。
+# 確認用インスタンスでの API・CLI の確認は .env と DB が要るので、ここでは行わない（手元で行う）。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同じ PR に続けて push したら、古い実行は結果を待たずに止める
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  java:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # 作業端末と本番に合わせて日本時間で動かす（runner の既定は UTC で、日付の境界をまたぐテストの結果が変わりうる）
+      TZ: Asia/Tokyo
+    steps:
+      - uses: actions/checkout@v7
+      # Gradle のキャッシュは setup-java の機能で足りる。gradle/actions の setup-gradle は v6 から、
+      # 既定のキャッシュ（Enhanced Caching）が Gradle の独自ライセンス（Gradle Technologies Terms of Use）の部品になったので使わない
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      # --warning-mode=fail：Gradle 自体の非推奨の警告も失敗にする（AGENTS.md「警告ゼロ」）
+      - name: ビルド・テスト・JavaDoc
+        run: ./gradlew clean build javadoc --warning-mode=fail
+      # 失敗したテストの詳細を、Actions の画面から落として見られるように残す
+      - name: テスト結果を保存
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: build/reports/tests/test
+          retention-days: 7
+
+  js:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: JS の型検査
+        run: npx -y -p typescript tsc -p src/main/resources/static/jsconfig.json --noEmit
+      # 型検査が落ちてもテストは走らせる（両方の結果を 1 回で見るため）
+      # テストは common.js をリポジトリ直下からの相対パスで読むので、作業ディレクトリは変えない。
+      # ディレクトリ（src/test/js/）を渡すと MODULE_NOT_FOUND で失敗するので、ファイルを列挙して渡す
+      - name: JS のテスト
+        if: ${{ !cancelled() }}
+        run: node --test src/test/js/*.test.cjs
