@@ -118,7 +118,7 @@ const myDiscoverView = {
         // 札とボタンの出し分けに使う。「監視する」を押したらこの集合にも足し、URL で足した候補にも同じ集合を使う
         const subscribedLoad = mySearchSubscribedChannelIds();
         setBusy(list, true);
-        Promise.all([apiGet(`/api/my/discover/candidates?status=${tab.status}`), subscribedLoad]).then(([items, subscribed]) => {
+        const loaded = Promise.all([apiGet(`/api/my/discover/candidates?status=${tab.status}`), subscribedLoad]).then(([items, subscribed]) => {
             if (!list.isConnected) return;
             list.replaceChildren(...(/** @type {any[]} */ (items)).map((item) => myDiscoverCard(item, subscribed)));
             showEmptyIfNone();
@@ -189,5 +189,8 @@ const myDiscoverView = {
                 submit.disabled = false;
             }
         });
+
+        // 候補を描き終えたら解決する。「戻る」で戻ったとき、ルーターがこの後でスクロール位置を戻す
+        return loaded;
     },
 };
