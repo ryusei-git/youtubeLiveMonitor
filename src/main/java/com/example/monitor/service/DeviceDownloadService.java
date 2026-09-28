@@ -57,8 +57,9 @@ import java.util.stream.Stream;
  * 再起動で消えてよい（Issue の決定）。消えた仕事のフォルダーは、{@link #purgeExpired()} が
  * フォルダーの更新日時から期限を判断して消す。再起動しても {@code yt-dlp} は出力をファイルへ書いているので
  * 動き続けるため（{@code docs/pitfalls.md}「外部プロセスの出力を JVM へのパイプにすると…」）、
- * 消す前にそのフォルダーへ書いているプロセスを止める。探すときは仕事 ID（UUID）を含むパスで照合するので、
+ * 消す前にそのフォルダーへ書いている yt-dlp を止める。探すときは仕事 ID（UUID）を含むパスで照合するので、
  * 動画 ID で探したときのように別の録画を巻き込むことはない（同「録画中かの判定は…誤検知する」）。
+ * 探すのは実行ファイルが yt-dlp のプロセスだけ（{@link ProcessLauncher#findYtDlpProcessesWithCommandLineContaining(String)}）。
  *
  * <h2>ディスク使用量の表示には含めない</h2>
  * 使用量の表示（{@code RecordingFileService}）は {@code recordings/} の実ファイルを走査している。
@@ -242,13 +243,12 @@ public class DeviceDownloadService {
         for (Path dir : orphans) {
             try {
                 if (Files.getLastModifiedTime(dir).toInstant().isBefore(deadline)) {
-                    // yt-dlp に限る。パスを含むだけで選ぶと、そのフォルダーを見ているシェルまで止める（確認中に実際に起きた）。
+                    // 実行ファイルが yt-dlp のものに限る（ProcessLauncher#findYtDlpProcessesWithCommandLineContaining）。
+                    // パスを含むだけで選ぶと、そのフォルダーを見ているシェルまで止める（確認中に実際に起きた）。
+                    // 文字列 "yt-dlp" を含むかで絞っても、logs/yt-dlp/ のログを一緒に開いているシェルやエディタは当たる。
                     // 結合中の ffmpeg は yt-dlp の子孫として一緒に止まる
                     String path = dir.toAbsolutePath().toString();
-                    ProcessHandle.allProcesses()
-                            .filter(h -> h.info().commandLine()
-                                    .map(c -> c.contains("yt-dlp") && c.contains(path)).orElse(false))
-                            .forEach(this::terminate);
+                    processLauncher.findYtDlpProcessesWithCommandLineContaining(path).forEach(this::terminate);
                     delete(dir);
                 }
             } catch (IOException e) {
