@@ -81,7 +81,10 @@ public class SetPasswordCommand implements Callable<Integer> {
             description = "パスワードを決め直す利用者のログインID")
     private String username;
 
-    @Option(names = {"-p", "--password"}, required = true, interactive = true,
+    // arity = "0" は省けない。interactive の暗黙の arity のままだと、picocli 4.7.6 は -p の後ろに離して書いた値は
+    // 拒むが、「--password=値」「-p=値」と = でつないだ値は受け取り、入力を求めずにその値でパスワードを変えてしまう
+    // （レビューで確かめた）。明示すると、どちらも「値を付けずに指定する」の引数エラーになる。
+    @Option(names = {"-p", "--password"}, required = true, interactive = true, arity = "0",
             prompt = "新しいパスワード: ",
             description = "新しいパスワード。値は書かず、実行後に入力する（端末なら画面に出ない）")
     private char[] password;
