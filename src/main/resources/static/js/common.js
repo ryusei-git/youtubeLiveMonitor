@@ -23,6 +23,8 @@
  * @property {string} channelName チャンネルの表示名。未登録なら "(未登録チャンネル)"
  * @property {string|null} channelUrl チャンネルページの URL。未登録、またはログイン名未取得の Twitch なら null
  * @property {string} videoId 配信の動画ID
+ * @property {string|null} videoUrl 配信の視聴ページの URL。YouTube の録画だけ入る。Twitch の録画と
+ *   未登録チャンネルの録画は null（動画 ID から URL を推測しない）
  * @property {string} videoTitle 録画開始時点の配信タイトル
  * @property {string|null} genre タイトルの最初の【】の中身。無ければ null
  * @property {string} filePath 録画ディレクトリからの相対パス
@@ -487,6 +489,10 @@ function applyTableSort(table) {
 /**
  * 動画IDを YouTube の視聴ページへのリンクにする。
  * IDをコピーしてURLを手で組み立てる手間をなくすため、一覧のどこでも同じ形で使えるようにしている。
+ *
+ * YouTube の動画 ID 専用。Twitch の配信 ID を渡しても YouTube の URL を作ってしまう（ID の形からは配信元を見分けられない）。
+ * 新しく使わず、サーバーが組み立てた URL を externalLink に渡すこと（録画は Recording の videoUrl）。
+ * 残っている呼び出しは通知履歴だけで、そちらもサーバーから URL を返す形に直したら、この関数を消す。
  *
  * @param {string|null} videoId 動画ID。未設定なら "-" を返す
  * @returns {string} セルへ差し込む HTML
