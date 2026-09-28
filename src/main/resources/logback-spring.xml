@@ -15,13 +15,23 @@
         しきい値を INFO にしているのは、DEBUG まで流すと 14 チャンネル分の
         正常時のログで埋まり、肝心の警告が埋もれるため。チャンネル単位の詳細は
         CHANNEL_LOG 側に DEBUG まで残るので情報は失われない。
+
+        相関 ID（RequestContext が MDC の requestId に載せる。画面・API のリクエストの処理中だけある）は、
+        本文の先頭に "[相関ID] " として出す。監査ログ（audit_logs.request_id）で見つけた ID でこのログを
+        引けるようにするため（出していなかった間は、監査ログの相関 ID が何の役にも立たなかった）。
+        ・レベルとロガーの間ではなく本文の先頭に置くのは、ChannelLogReader.LOG_LINE_PATTERN を変えずに
+          済ませるため。パターンは「日時 [レベル] ロガー - 本文」の並びだけを見て本文の中身を問わないので、
+          14 日分残る古い書式の行も新しい行も同じように読め、ログ画面の「内容」にも ID がそのまま出る。
+        ・%X{requestId} に既定値を付けて全行に印を出す書き方にせず、%replace で「ID があるときだけ付ける」のは、
+          巡回など大半の行はリクエストの外で ID を持たず、全行に空の印が並ぶとチャンネル別ログが読みにくくなるため。
+        3 つの appender（CONSOLE・CHANNEL_LOG・SERVICE_FILE）の pattern は同じ文字列にすること。
     -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
             <level>INFO</level>
         </filter>
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %replace(%X{requestId}){'^(.+)$', '[$1] '}%msg%n</pattern>
         </encoder>
     </appender>
 
@@ -52,7 +62,7 @@
                     <cleanHistoryOnStart>true</cleanHistoryOnStart>
                 </rollingPolicy>
                 <encoder>
-                    <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %msg%n</pattern>
+                    <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %replace(%X{requestId}){'^(.+)$', '[$1] '}%msg%n</pattern>
                 </encoder>
             </appender>
         </sift>
@@ -104,7 +114,7 @@
                 <cleanHistoryOnStart>true</cleanHistoryOnStart>
             </rollingPolicy>
             <encoder>
-                <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %msg%n</pattern>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %replace(%X{requestId}){'^(.+)$', '[$1] '}%msg%n</pattern>
             </encoder>
         </appender>
         <root>

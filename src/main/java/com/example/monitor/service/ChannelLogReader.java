@@ -29,9 +29,14 @@ import java.util.stream.Stream;
  * {@code logs/channels/{チャンネルID}.log} へ自動的に書き分けられている。
  * このクラスはそうして出来上がったファイルを読むだけで、書き込みには関与しない。
  *
- * <p>解析に使うパターンは {@code logback-spring.xml} の出力形式
- * （{@code %d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - %msg%n}）と対応している。
+ * <p>解析に使うパターンは {@code logback-spring.xml} の出力形式の先頭
+ * （{@code %d{yyyy-MM-dd HH:mm:ss} [%level] %logger{36} - }）と対応していて、その後ろはすべて本文として扱う。
  * <b>片方だけを変更すると解析できなくなる</b>ので、変更時は必ず両方を合わせること。
+ *
+ * <p>リクエストの処理中に出た行は、本文の先頭に {@code [相関ID] } が付く（{@code logback-spring.xml} の
+ * {@code %replace(%X{requestId}){'^(.+)$', '[$1] '}}）。パターンは本文の中身を問わないので、
+ * これも本文（{@code LogEntry.message}）の一部としてそのまま返す。相関 ID を別の項目に切り出していないのは、
+ * 相関 ID を出す前に書かれた行（ローテーション済みのファイルに 14 日分残る）と同じ正規表現で読めるようにするため。
  */
 @Service
 @Slf4j
@@ -43,7 +48,10 @@ public class ChannelLogReader {
     /** ログファイルの拡張子。 */
     private static final String LOG_FILE_EXTENSION = ".log";
 
-    /** logback-spring.xml の出力形式に対応した、1 行を 4 項目に分解する正規表現。 */
+    /**
+     * logback-spring.xml の出力形式に対応した、1 行を 4 項目に分解する正規表現。
+     * 相関 ID（{@code [相関ID] }）は 4 項目目の本文に含まれる。
+     */
     private static final Pattern LOG_LINE_PATTERN =
             Pattern.compile("^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}) \\[(\\w+)] (\\S+) - (.*)$");
 
