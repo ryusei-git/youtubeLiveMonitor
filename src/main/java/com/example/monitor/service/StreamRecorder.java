@@ -60,6 +60,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * （止めないと {@code RECORDING} が残り続け、その動画 ID は {@link ActiveVideoJobs} に押さえられたまま録り直せない）。
  * 再起動後に残った yt-dlp（追跡する仮想スレッドが無いもの）は対象外。実際に固まった例が出てから作る。
  *
+ * <p><b>録画中に空き容量が {@link DiskSpaceUtils#reserveBytes(long)}（録画を始めるしきい値の 1/4）を割ったら、
+ * {@link #awaitExit} が録画プロセスを止めて既存の救済・記録へ流す。</b>0 まで減ると録画が壊れるだけでなく、
+ * 同じファイルシステムにある H2 の書き込みが失敗して監視・通知まで止まるので、下限で止める方が損が小さい。
+ * 各録画の {@link #awaitExit} が 1 分ごとに独立に見るので、そのとき録画中の録画はすべて 1 分ほどで止まる
+ * （1 本だけ止めても残りがすぐに下限を割るため、どれから止めるかの優先順位は作らない）。
+ * yt-dlp が結合の最中でも区別せずに止める（見逃しても結合が空きを使い切るのは防げない。止めても元の断片は残るので、
+ * 後始末で直せる）。止めた録画は、固まって止めた録画と同じく録り直さない。
+ *
+ * <p><b>プロセスが終わったことを確かめられたら、止めた理由を問わず {@code {動画ID}.temp.mp4} を消す</b>
+ * （自然に終わった・固まって止めた・空き容量で止めた、のすべて。録り直しの後も同じ）。yt-dlp は結合に失敗すると
+ * この書きかけを消さずに終わり、空きを 0 まで使い切った大きさのまま空きを塞ぎ続けるため
+ * （{@link #deleteMergeLeftover} 参照）。
+ *
  * <h2>出力形式を mp4 に固定する理由</h2>
  * {@code --merge-output-format mp4} を指定し、映像・音声のコンテナを常に mp4 に揃えている。
  * 指定しないと yt-dlp が自動選択したコーデックの組み合わせによって最終ファイルが mp4 になるか
@@ -137,6 +150,7 @@ public class StreamRecorder {
      * 録画を始めるのに必要な空き容量（GB）。これを下回っていれば録画を始めない。
      * 録画・H2（{@code data/}）・ログが同じファイルシステムにあり、満杯になると録画が壊れるだけでなく
      * H2 の書き込みが失敗して監視・通知まで止まるため。
+     * 録画中はこの 1/4 を下限にし、割ったら録画を止める（{@link DiskSpaceUtils#reserveBytes(long)}）。
      *
      * <p><b>{@link MonitorProperties.RecordingProperties} に入れていない。</b>record にフィールドを
      * 足すと正準コンストラクタが変わり、それを直接呼んでいるテスト 10 ファイルがコンパイルエラーになるため。
@@ -174,10 +188,10 @@ public class StreamRecorder {
     /**
      * 録画プロセスの待機の結果。
      *
-     * @param exitCode {@code yt-dlp} の終了コード。待機が中断された場合は {@code null}
-     * @param stalled  出力が止まっていたためこちらから止めた場合 {@code true}
+     * @param exitCode    {@code yt-dlp} の終了コード。待機が中断された場合は {@code null}
+     * @param stoppedByUs 出力が止まっていた、または空き容量が下限を割ったため、こちらから止めた場合 {@code true}
      */
-    private record ExitResult(Integer exitCode, boolean stalled) {
+    private record ExitResult(Integer exitCode, boolean stoppedByUs) {
     }
 
     /**
@@ -387,6 +401,11 @@ public class StreamRecorder {
      * 途中で {@code FAILED} にしたり予約を外したりすると、録り直し中の配信を
      * 次の巡回が二重に録画したり、{@link RecordingReconciler} が置き去りと誤判定したりするため。
      * 待機が中断された（アプリ停止など）場合は録り直さない。
+     * 空きが足りずに詰め替えを見送ったとき（{@link SalvageStatus#INSUFFICIENT_SPACE}）も録り直さない
+     * （データは残っており、空きができた後の後始末で直せる。録り直すとさらに書き込む）。
+     *
+     * <p><b>待機のたびに、プロセスが終わっていれば結合の書きかけ（{@code .temp.mp4}）を消してから詰め替える。</b>
+     * 残すと録画と同じくらいの大きさの空きを塞ぎ、詰め替えも空きが足りずに始められない（{@link #deleteMergeLeftover} 参照）。
      *
      * <p><b>プロセスが終わった時点で録画履歴の行が無ければ、録り直しも記録もしない。</b>行が無いのは、
      * チャンネルの削除で連鎖削除され、録画プロセスも止められたとき（{@link MonitoredChannelService#remove(Long)}）。
@@ -417,6 +436,10 @@ public class StreamRecorder {
 
         try {
             ExitResult exit = awaitExit(process, channel, videoId, outputFile.getParent());
+            if (exit.exitCode() != null) {
+                // プロセスが終わった後に残る .temp.mp4 は結合の書きかけ。詰め替えの前に空きを返す
+                deleteMergeLeftover(outputFile.getParent(), videoId);
+            }
             if (!recordingHistoryService.exists(recordingId)) {
                 log.info("録画履歴が削除されているため（チャンネルの削除）、録画の結果を記録しません: channel={}, video={}, exitCode={}",
                         channel.getChannelName(), videoId, exit.exitCode());
@@ -426,9 +449,11 @@ public class StreamRecorder {
             SalvageOutcome salvage = recordingSalvager.ensurePlayable(outputFile);
             boolean resumedMidway = false;
 
-            // 固まって止めたときは録り直さない。配信が終わっていれば「今の時点から」は失敗するか、
-            // 終わった配信のアーカイブ全体を落とし始める。配信中でも同じ固まり方を繰り返しうる
-            if (!salvage.isPlayable() && fallbackCommand != null && !exit.stalled()
+            // こちらから止めたとき（固まった・空き容量の下限を割った）は録り直さない。配信が終わっていれば
+            // 「今の時点から」は失敗するか、終わった配信のアーカイブ全体を落とし始める。配信中でも同じ止まり方を繰り返しうる。
+            // 空きが足りずに詰め替えを見送ったときも録り直さない（データは残っており、録り直すとさらに書き込む）
+            if (!salvage.isPlayable() && fallbackCommand != null && !exit.stoppedByUs()
+                    && salvage.status() != SalvageStatus.INSUFFICIENT_SPACE
                     && !Thread.currentThread().isInterrupted()) {
                 log.warn("最初からの録画に失敗したため、今の時点から録画し直します: channel={}, video={}, exitCode={}",
                         channel.getChannelName(), videoId, exit.exitCode());
@@ -436,6 +461,10 @@ public class StreamRecorder {
                     Process retry = processLauncher.launch(fallbackCommand, YtDlpLogFile.of(videoId));
                     resumedMidway = true;
                     exit = awaitExit(retry, channel, videoId, outputFile.getParent());
+                    if (exit.exitCode() != null) {
+                        // プロセスが終わった後に残る .temp.mp4 は結合の書きかけ。詰め替えの前に空きを返す
+                        deleteMergeLeftover(outputFile.getParent(), videoId);
+                    }
                     salvage = recordingSalvager.ensurePlayable(outputFile);
                 } catch (IOException e) {
                     log.error("録り直しの録画プロセスの起動に失敗しました: channel={}, video={}",
@@ -462,12 +491,16 @@ public class StreamRecorder {
     }
 
     /**
-     * 録画プロセスの終了を待つ。出力が {@link #stallMinutes} 分止まっていたら、子孫ごと止める。
+     * 録画プロセスの終了を待つ。出力が {@link #stallMinutes} 分止まっていたら、または空き容量が下限を割ったら、子孫ごと止める。
      *
      * <p>出力はファイルへ向けているため（クラスの JavaDoc「プロセスの生存期間」参照）、ここでは読まない。
      * 1 分ごとに {@link RecordingActivity#lastModified(Path, String)} を見る。待機を始めた時刻を下限にするのは、
      * 起動直後でまだ何も書かれていないときと、録り直しで待ち直したときに、古い時刻で誤って止めないため。
      * 更新時刻を読めなかったときは止めない（「判定できなかった」を「固まった」と扱わない）。
+     *
+     * <p><b>空き容量（{@link #usableBytesIfBelowReserve}）は固まりの判定より先に見る。</b>固まりの判定は
+     * 更新時刻を読めないときや止まっていないときに {@code continue} で次の 1 分へ飛ぶので、後に置くと
+     * そのたびに空き容量を見なくなる。止める理由はクラスの JavaDoc を参照。
      *
      * @param process         起動済みの録画プロセス
      * @param channel         録画対象のチャンネル（ログ・通知用）
@@ -479,6 +512,26 @@ public class StreamRecorder {
         Instant watchStart = Instant.now();
         try {
             while (!process.waitFor(1, TimeUnit.MINUTES)) {
+                Long usableBytes = usableBytesIfBelowReserve(outputDirectory);
+                if (usableBytes != null) {
+                    long reserveBytes = DiskSpaceUtils.reserveBytes(minFreeGb);
+                    log.warn("空き容量が下限を下回ったため、録画プロセスを止めます: channel={}, video={}, 空き={}MB, 下限={}MB",
+                            channel.getChannelName(), videoId, usableBytes / (1024L * 1024), reserveBytes / (1024L * 1024));
+                    if (ProcessTermination.terminateTreeAndAwait(process.toHandle(), Duration.ofSeconds(30))) {
+                        Thread.currentThread().interrupt();
+                        return new ExitResult(null, true);
+                    }
+                    try {
+                        discordNotifier.sendAdminAlert("空き容量が " + usableBytes / (1024L * 1024 * 1024) + "GB（下限 "
+                                + reserveBytes / (1024L * 1024 * 1024) + "GB）を下回ったため、録画を止めました: "
+                                + channel.getChannelName() + "（" + videoId + "）。止めるまでの分は、空きができた後の後始末で"
+                                + "再生できる形に直します（詰め替えには録画と同じ大きさの空きが要ります）。");
+                    } catch (RuntimeException e) {
+                        // 通知の失敗で録画の記録を妨げない
+                        log.warn("空き容量で録画プロセスを止めたことを管理者へ通知できませんでした", e);
+                    }
+                    return new ExitResult(process.waitFor(), true);
+                }
                 Instant lastActivity;
                 try {
                     Instant modified = RecordingActivity.lastModified(outputDirectory, videoId);
@@ -516,6 +569,52 @@ public class StreamRecorder {
     }
 
     /**
+     * 空き容量が録画中の下限（{@link DiskSpaceUtils#reserveBytes(long)}）を割っていれば、そのときの空きを返す。
+     *
+     * <p>空き容量を読めなかったときは割っていないと扱う（「判定できなかった」を「満杯」と扱わない。
+     * {@link #startRecording} と同じ）。
+     *
+     * @param outputDirectory 録画フォルダ
+     * @return 下限を割っていれば空き容量（バイト）。割っていない・確認しない（{@link #minFreeGb} が 0）・読めなかった場合は {@code null}
+     */
+    private Long usableBytesIfBelowReserve(Path outputDirectory) {
+        long reserveBytes = DiskSpaceUtils.reserveBytes(minFreeGb);
+        if (reserveBytes <= 0) {
+            return null;
+        }
+        DiskSpaceUtils.Capacity disk = DiskSpaceUtils.read(outputDirectory);
+        if (disk.error() != null || disk.usableBytes() == null || disk.usableBytes() >= reserveBytes) {
+            return null;
+        }
+        return disk.usableBytes();
+    }
+
+    /**
+     * yt-dlp が結合・修正の途中で書いていた {@code {動画ID}.temp.mp4} を消す。
+     *
+     * <p>yt-dlp は結合（Twitch では修正）に失敗すると、この書きかけ（再生できない）を消さずに終わる。
+     * 空き容量が足りずに失敗した場合は空きを 0 まで使い切った大きさで残り、空きを塞ぎ続けて H2 の書き込みも
+     * 救済（{@link RecordingSalvager}）も止めたままにする。こちらから止めた場合も同じく残る。
+     * yt-dlp は結合が成功すると {@code .temp.mp4} を {@code .mp4} へ置き換え、結合の ffmpeg の終わりを待ってから
+     * 終わるので、プロセスが終わった後に残っているものは必ず書きかけ。
+     * <b>プロセスが終わったことを確かめた後（{@code ExitResult.exitCode()} が {@code null} でないとき）にだけ呼ぶ。</b>
+     *
+     * @param outputDirectory 録画フォルダ
+     * @param videoId         録画対象の動画 ID
+     */
+    private void deleteMergeLeftover(Path outputDirectory, String videoId) {
+        Path leftover = outputDirectory.resolve(videoId + ".temp.mp4");
+        try {
+            if (Files.deleteIfExists(leftover)) {
+                log.warn("yt-dlp の結合途中のファイルが残っていたため消しました（結合に失敗したか、途中で止めたため）: video={}, file={}",
+                        videoId, leftover);
+            }
+        } catch (IOException e) {
+            log.warn("結合途中のファイルを消せませんでした: video={}, file={}", videoId, leftover, e);
+        }
+    }
+
+    /**
      * 録画の成否を確定させて履歴に記録する。
      *
      * <p><b>判断材料は完成ファイルの有無だけで、{@code yt-dlp} の終了コードは使わない。</b>
@@ -538,9 +637,15 @@ public class StreamRecorder {
     private void recordOutcome(Long recordingId, MonitoredChannel channel, String videoId,
                                SalvageOutcome salvage, boolean resumedMidway, Integer exitCode) {
         if (!salvage.isPlayable()) {
-            log.warn("再生できる録画ファイルを用意できなかったため失敗として記録します: "
-                            + "channel={}, video={}, exitCode={}",
-                    channel.getChannelName(), videoId, exitCode);
+            if (salvage.status() == SalvageStatus.INSUFFICIENT_SPACE) {
+                log.warn("空き容量が足りず再生できる形にできなかったため、いったん失敗として記録します。"
+                                + "空きができた後の後始末で直します: channel={}, video={}, exitCode={}",
+                        channel.getChannelName(), videoId, exitCode);
+            } else {
+                log.warn("再生できる録画ファイルを用意できなかったため失敗として記録します: "
+                                + "channel={}, video={}, exitCode={}",
+                        channel.getChannelName(), videoId, exitCode);
+            }
             recordingHistoryService.markFailed(recordingId);
             alertRecordingFailed(channel, videoId, exitCode);
             return;

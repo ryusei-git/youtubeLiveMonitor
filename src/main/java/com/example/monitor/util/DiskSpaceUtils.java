@@ -50,6 +50,23 @@ public final class DiskSpaceUtils {
                 && disk.usableBytes() < minFreeGb * 1024L * 1024 * 1024;
     }
     /**
+     * 録画中と詰め替えのときに割らせない空き容量の下限（バイト）を返す。録画を始めるしきい値の 1/4。
+     *
+     * <p>始めるしきい値（{@code monitor.recording.min-free-gb}）を割っても、始まっている録画は書き続けるので
+     * 空きはさらに減る。0 まで減ると録画が壊れるだけでなく、同じファイルシステムにある H2 とログの書き込みが
+     * 失敗して監視・通知まで止まる。そこで手前にもう 1 本線を引き、録画はそこで止め（{@code StreamRecorder}）、
+     * 詰め替えはそこを割るなら始めない（{@code RecordingSalvager}）。
+     *
+     * <p>別の設定にしないのは、下限を始めるしきい値より大きくされたときに「始めた録画がすぐ止まる」という
+     * 食い違いを起こさないため（1/4 なら常にしきい値より小さい）。
+     *
+     * @param minFreeGb 録画を始めるしきい値（GB）。0 以下なら確認しない
+     * @return 下限（バイト）。{@code minFreeGb} が 0 以下なら 0（確認しない）
+     */
+    public static long reserveBytes(long minFreeGb) {
+        return minFreeGb <= 0 ? 0 : minFreeGb * 1024L * 1024 * 1024 / 4;
+    }
+    /**
      * ボリュームの容量。
      *
      * <p>録画ファイルの合計とは別の指標として表示する。
