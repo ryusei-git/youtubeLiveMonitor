@@ -453,13 +453,16 @@ URL での外部リンク化。動画 ID の形から URL を推測しない）
 **チャンネルを削除すると、そのチャンネルで録画中の yt-dlp も子孫ごと止まる（#444）。**
 以前は止めておらず、録画履歴の行が消えて画面から見えないまま録り続けた（2026-09-26、削除したチャンネルの
 `--live-from-start` が約 1 時間で 6.9GB を書いた）。`MonitoredChannelService.remove()` が削除の前に
-`RECORDING` の動画 ID を集め、削除後に `ProcessLauncher.findYtDlpProcessesWithCommandLineContaining()` で
+`RECORDING` の録画の保存先を集め、削除後に `ProcessLauncher.findYtDlpProcessesWithCommandLineContaining()` で
 yt-dlp だけを探して `ProcessTermination.terminateTreeAndAwait()` で止める（仮想スレッドで止め、
 Web は応答を待たせない。`remove()` は止め終わりを `CompletableFuture` で返し、CLI の `channel remove` は
 止め終わるまで最大 2 分待つ。CLI はすぐ `System.exit` するので、待たないと止める処理ごと打ち切られる。
 短命のプロセスから `remove()` を呼ぶ経路を足すなら、同じように待つこと）。
 止めた録画のファイルは消さないので、上の孤立ファイルの削除で片付ける。
 追跡中の録画スレッドは、行が無いことを見て記録も録り直しもしない（`StreamRecorder.awaitCompletion`）。
+探す文字列は動画 ID ではなく出力先（`<チャンネルID>/<動画ID>.%(ext)s`）にする。動画 ID で探すと、同じ動画を
+「端末に保存」している利用者の yt-dlp（出力先は `data/device-downloads/<仕事ID>/`）まで止める
+（管理画面からの録画の停止 `StreamRecorder.stopRecording()` と同じ探し方）。
 
 ### エンティティを API に直接返さない
 
