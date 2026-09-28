@@ -32,20 +32,34 @@
 </nav>
 <main class="shell" id="mainContent">
   <h1>通知履歴 <span class="hint" title="送信に失敗した試行も含めて表示しています。">ⓘ</span></h1>
-  <p class="pageDescription">配信開始の通知と、送信結果を確認できます。</p>
+  <p class="pageDescription">配信開始の通知と送信結果を、チャンネル・結果・配信タイトル・期間で絞り込んで確認できます。</p>
   <p id="error" role="alert" class="error" style="display:none;"></p>
 
   <form id="filterForm" class="inline">
-    <select id="channelFilter"><option value="">全チャンネル</option></select>
+    <label>チャンネル
+      <select id="channelFilter"><option value="">全チャンネル</option></select>
+    </label>
+    <label>結果
+      <select id="statusFilter">
+        <option value="">すべての結果</option>
+        <option value="SUCCESS">成功</option>
+        <option value="FAILED">失敗</option>
+      </select>
+    </label>
+    <label>配信タイトル <input type="search" id="keywordFilter" placeholder="タイトルの一部" maxlength="200"></label>
+    <label>期間（開始） <input type="datetime-local" id="sinceFilter"></label>
+    <label>期間（終了） <input type="datetime-local" id="untilFilter"></label>
     <button type="submit">絞り込み</button>
+    <button type="button" id="resetBtn">条件をクリア</button>
   </form>
 
-  <div class="table-scroll">
+  <div class="table-scroll" id="historyTableWrap">
     <table id="historyTable">
       <thead><tr><th>通知時刻</th><th>チャンネル</th><th>配信タイトル</th><th>動画</th><th>結果</th><th>エラー内容</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
+  <div id="historyEmpty" hidden></div>
 
   <div class="inline">
     <button id="prevBtn">前へ</button>

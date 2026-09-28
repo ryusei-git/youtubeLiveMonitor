@@ -574,6 +574,51 @@ formEl("settingsForm").addEventListener("submit", async (ev) => {
     }
 });
 
+/**
+ * 日時を「YYYY-MM-DDTHH:mm」にする。datetime-local の入力欄と、通知履歴 API の since・until が受け付ける形。
+ *
+ * <p>toISOString() は UTC になるため使わない。通知時刻（notifiedAt）はサーバーの時計の時刻で記録され、
+ * 管理画面はブラウザとサーバーが同じ時間帯にある前提でその時刻をそのまま表示・検索している。
+ *
+ * @param {Date} date 変換する日時（ブラウザの時間帯で読む）
+ * @returns {string} 秒を切り捨てた日時の文字列
+ */
+function toLocalDateTimeParam(date) {
+    /** @param {number} n */
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * 「24時間の通知」の KPI に添える送信失敗の件数を描く。
+ *
+ * <p>1 件以上なら、通知履歴を「失敗・直近 24 時間」で絞り込んだ画面へのリンクにする。
+ * 以前は赤字の文字だけで、失敗した通知を探すには通知履歴を 20 件ずつ送って目で探すしかなかった。
+ * リンクは作り直さずに href と文字だけを書き換える。1 分ごとの自動更新で要素を作り直すと、
+ * キーボードでリンクに合わせたフォーカスが body に落ちるため。
+ *
+ * @param {number} failureCount 直近 24 時間の送信失敗の件数（/api/dashboard の notificationFailuresLast24h）
+ */
+function renderNotificationFailures(failureCount) {
+    const failures = el("notificationFailures");
+    // 0件なら平常なので目立たせない。1件でもあれば赤字にして気づけるようにする
+    failures.className = failureCount > 0 ? "kpiSub alert" : "kpiSub";
+    if (failureCount <= 0) {
+        failures.textContent = "送信失敗なし";
+        return;
+    }
+    let link = failures.querySelector("a");
+    if (!link) {
+        link = document.createElement("a");
+        failures.replaceChildren(link);
+    }
+    // サーバーの集計（DashboardService の直近 24 時間）と同じ範囲を、ブラウザの時計で作る。
+    // 分未満は切り捨てるので、集計より最大 1 分ぶん古い通知まで含むことがある
+    const since = toLocalDateTimeParam(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    link.href = `/notifications.html?${new URLSearchParams({ status: "FAILED", since })}`;
+    link.textContent = `うち送信失敗 ${failureCount}件`;
+}
+
 let dashboardRequest = 0;
 /** @type {Date|null} */
 let dashboardLastUpdatedAt = null;
@@ -599,11 +644,7 @@ async function loadDashboard() {
         el("liveNowCount").textContent = data.liveNowCount;
         setLiveIndicator(data.liveNowCount);
         el("notificationsLast24h").textContent = data.notificationsLast24h;
-        const failures = el("notificationFailures");
-        const failureCount = data.notificationFailuresLast24h;
-        failures.textContent = failureCount > 0 ? `うち送信失敗 ${failureCount}件` : "送信失敗なし";
-        // 0件なら平常なので目立たせない。1件でもあれば赤字にして気づけるようにする
-        failures.className = failureCount > 0 ? "kpiSub alert" : "kpiSub";
+        renderNotificationFailures(data.notificationFailuresLast24h);
 
         renderChannelStatusChart(data.totalChannels, data.liveNowCount);
         renderRecordingStatusChart(data.recordingStatus);
