@@ -8,6 +8,7 @@ import com.example.monitor.config.MonitorProperties.YouTubeProperties;
 import com.example.monitor.dto.DirectoryPickResponse;
 import com.example.monitor.dto.SettingsResponse;
 import com.example.monitor.dto.SettingsUpdateRequest;
+import com.example.monitor.service.AuditLogger;
 import com.example.monitor.service.EnvironmentSettingsService;
 import com.example.monitor.service.NativeDirectoryPickerService;
 import org.junit.jupiter.api.DisplayName;
@@ -39,6 +40,9 @@ class SettingsControllerTest {
     @Mock
     private NativeDirectoryPickerService nativeDirectoryPickerService;
 
+    @Mock
+    private AuditLogger auditLogger;
+
     private SettingsController newController(String apiKey, String webhookUrl, int maxHeight) {
         return newController(apiKey, webhookUrl, maxHeight, "", "");
     }
@@ -61,7 +65,7 @@ class SettingsControllerTest {
                 new DiscordProperties(webhookUrl),
                 new RecordingProperties("recordings", maxHeight),
                 new MonitorProperties.AdminProperties("admin", ""));
-        return new SettingsController(properties, environmentSettingsService, nativeDirectoryPickerService);
+        return new SettingsController(properties, environmentSettingsService, nativeDirectoryPickerService, auditLogger);
     }
 
     @Nested
