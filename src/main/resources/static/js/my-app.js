@@ -1459,17 +1459,53 @@ const myAccountSettingsView = {
     },
 };
 
-/** 端末に保存の仕事の見に行きを止める関数。見に行っていない間は null。 */
+/**
+ * 端末に保存の仕事 1 件（GET /api/my/downloads/device の要素）。画面で使う項目だけを書く。
+ *
+ * @typedef {object} MyDeviceDownloadJob
+ * @property {string} jobId 仕事の ID
+ * @property {"RUNNING"|"READY"|"PARTIAL"|"FAILED"} status 状態
+ * @property {string|null} title 動画のタイトル。受け付けた直後で動画の情報をまだ取れていなければ null
+ * @property {string|null} fileUrl 受け取り先の URL。READY と PARTIAL のときだけ入る
+ */
+
+/**
+ * 端末に保存の仕事 1 件を一覧の行にする。取得中・受け取れる・失敗の文言は、受け付けた仕事だけを見に行っていた頃の表示と同じ。
+ * 途中まで（PARTIAL）の「もう一度『ダウンロードを始める』を押すと取り直します」は、一覧の行が入力欄の URL と
+ * 結び付かない（画面を開き直すと入力欄は空になる）ので省いている。
+ *
+ * @param {MyDeviceDownloadJob} job 仕事
+ * @returns {string} li 要素の HTML
+ */
+function myDeviceDownloadJobHtml(job) {
+    const title = escapeHtml(job.title ?? "動画の情報を確認中");
+    const href = escapeHtml(job.fileUrl ?? "");
+    if (job.status === "READY") {
+        return `<li>${title}：受け取れます。<a href="${href}">端末に保存</a></li>`;
+    }
+    if (job.status === "PARTIAL") {
+        return `<li>${title}：途中までしか取得できませんでした（音声が無い、または途中で切れていることがあります）。<a href="${href}">それでも端末に保存</a></li>`;
+    }
+    if (job.status === "FAILED") {
+        return `<li>${title}：失敗しました</li>`;
+    }
+    return `<li>${title}：取得中…</li>`;
+}
+
+/** 端末に保存の一覧を見に行くのを止める関数。見に行っていない間は null。 */
 /** @type {(() => void)|null} */
 let myDownloadStopPolling = null;
 
 /**
  * 動画ダウンロード（#452。API は #450・#451）。URL を入れて、保存先をサービスか自分の端末から選ぶ。
  *
- * 端末に保存はサーバーが一時的に取得してから渡すため、受け付けた後は 5 秒ごとに仕事の状態を見に行く。
- * 取得は数分かかることがあり、終わったと知らせる手段がほかに無いため。画面を離れたら見に行くのをやめる
- * （離れた画面の表示を書き換えても見えず、通信だけが残る）。終わった・失敗した・見に行けなかったときもやめる
- * （仕事の状態はメモリにしか無く、サーバーが再起動すると 404 が続くため）。
+ * 端末に保存はサーバーが一時的に取得してから渡すため、画面の下に自分の仕事の一覧（GET /api/my/downloads/device）を出し、
+ * 取得中の仕事がある間だけ 5 秒ごとに取り直す。受け付けたときの仕事 ID だけを覚えて見に行く作りだと、画面を移る・
+ * 読み込み直すと仕事を見失い、終わったファイルを受け取れず、取得中に次を頼むと 409 になるだけだった。
+ * 画面を離れたら見に行くのをやめる（離れた画面の表示を書き換えても見えず、通信だけが残る）。戻ってくると一覧から取り直す。
+ * 一覧を読めなかったときもやめる（エラーのまま 5 秒ごとに問い合わせ続けないため）。
+ * 一覧は aria-live="polite" にして、取得が終わったことを読み上げさせる（前は role="status" の欄に「受け取れます」を
+ * 書いて読み上げていた。一覧は中身が変わったときだけ描き直すので、5 秒ごとに読み上げが繰り返されることはない）。
  * @type {MyView}
  */
 const myDownloadView = {
@@ -1488,40 +1524,54 @@ const myDownloadView = {
               </fieldset>
               <p><button type="submit">ダウンロードを始める</button></p>
             </form>
-            <p id="downloadStatus" role="status"></p>`;
+            <p id="downloadStatus" role="status"></p>
+            <h2>端末に保存の取得</h2>
+            <p class="muted">この画面を離れても取得は続きます。終わったらここから受け取ってください（24 時間を過ぎると消えます。サービスを再起動したときも一覧から消えます）。</p>
+            <div id="deviceJobs" aria-live="polite"><p class="muted">読み込み中...</p></div>`;
         const form = formEl("downloadForm");
         const url = inputEl("downloadUrl");
         const status = el("downloadStatus");
         const button = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
+        const jobList = el("deviceJobs");
+        /** 最後に描いた一覧の HTML。同じなら描き直さない（描き直すと、一覧のリンクに当てたフォーカスが 5 秒ごとに外れる） */
+        let shownHtml = "";
 
-        /** @param {string} jobId */
-        const poll = (jobId) => {
-            const load = async () => {
-                try {
-                    const job = await apiGet(`/api/my/downloads/device/${encodeURIComponent(jobId)}`);
-                    if (!status.isConnected) return;
-                    if (job.status === "READY") {
-                        myDownloadStopPolling?.();
-                        status.innerHTML = `受け取れます。<a href="/api/my/downloads/device/${escapeHtml(encodeURIComponent(jobId))}/file">端末に保存</a>`;
-                    } else if (job.status === "PARTIAL") {
-                        myDownloadStopPolling?.();
-                        status.innerHTML = `途中までしか取得できませんでした（音声が無い、または途中で切れていることがあります）。<a href="/api/my/downloads/device/${escapeHtml(encodeURIComponent(jobId))}/file">それでも端末に保存</a>　もう一度「ダウンロードを始める」を押すと取り直します。`;
-                    } else if (job.status === "FAILED") {
-                        myDownloadStopPolling?.();
-                        status.textContent = "失敗しました";
-                    } else {
-                        status.textContent = "取得中…";
-                    }
-                } catch (e) {
-                    myDownloadStopPolling?.();
-                    if (status.isConnected) showError(errorMessage(e));
-                }
-            };
-            const timer = window.setInterval(load, 5_000);
+        // 取得中の仕事がある間だけ、5 秒ごとに一覧を取り直す。既に見に行っていれば何もしない
+        const startPolling = () => {
+            if (myDownloadStopPolling) return;
+            const timer = window.setInterval(loadJobs, 5_000);
             myDownloadStopPolling = () => {
                 window.clearInterval(timer);
                 myDownloadStopPolling = null;
             };
+        };
+
+        const loadJobs = async () => {
+            try {
+                /** @type {MyDeviceDownloadJob[]} */
+                const jobs = await apiGet("/api/my/downloads/device");
+                // 待つ間に別の画面へ移っていたら、その画面には触らない
+                if (!jobList.isConnected) return;
+                const html = jobs.length === 0
+                    ? '<p class="muted">取得中・受け取り待ちの動画はありません。</p>'
+                    : `<ul>${jobs.map(myDeviceDownloadJobHtml).join("")}</ul>`;
+                if (html !== shownHtml) {
+                    jobList.innerHTML = html;
+                    shownHtml = html;
+                }
+                if (jobs.some((job) => job.status === "RUNNING")) {
+                    startPolling();
+                } else {
+                    myDownloadStopPolling?.();
+                }
+            } catch (e) {
+                // 移った先の画面の見に行き・エラー帯には触らない
+                if (!jobList.isConnected) return;
+                myDownloadStopPolling?.();
+                jobList.innerHTML = '<p class="muted">読み込めませんでした。</p>';
+                shownHtml = "";
+                showError(errorMessage(e));
+            }
         };
 
         form.addEventListener("submit", async (event) => {
@@ -1540,22 +1590,24 @@ const myDownloadView = {
                 const job = await apiPost("/api/my/downloads/device", { url: url.value });
                 if (!form.isConnected) return;
                 clearError();
-                // 前の仕事を見に行っていたら、新しい仕事に切り替える（サーバーが受け付けたのは新しい方だけ）
-                myDownloadStopPolling?.();
                 if (job.status === "READY" && job.fileUrl) {
                     // 既にサービスにある録画。取り直さずに、その録画のファイルをそのまま保存させる
                     status.innerHTML = `この動画はサービスに保存済みです。受け取れます。<a href="${escapeHtml(job.fileUrl)}" download>端末に保存</a>`;
                     return;
                 }
-                status.textContent = "取得中…";
-                poll(job.jobId);
+                status.textContent = "受け付けました。取得の様子は下の「端末に保存の取得」に出ます。";
+                await loadJobs();
             } catch (e) {
                 // 配信中の URL・同時に 2 件目（409）・空き容量不足（503）は、サーバーの文言をそのまま出す
-                if (form.isConnected) showError(errorMessage(e));
+                if (!form.isConnected) return;
+                showError(errorMessage(e));
+                // 409 のとき、別のタブ・端末で始めて取得中の仕事を一覧に出す
+                if (destination === "device") await loadJobs();
             } finally {
                 button.disabled = false;
             }
         });
+        loadJobs();
     },
     leave() {
         myDownloadStopPolling?.();

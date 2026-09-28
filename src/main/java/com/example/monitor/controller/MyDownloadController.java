@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * ログイン中の利用者が URL を渡して動画を保存する API。
@@ -35,7 +36,8 @@ import java.nio.charset.StandardCharsets;
  *
  * <h2>端末に保存</h2>
  * サービスの録画には入れず、サーバーが一時的に取得して、取得した本人だけに渡す（{@link DeviceDownloadService}）。
- * 受け付け・状態・ファイルの 3 つの口に分けているのは、取得に数分〜数十分かかり、画面が状態を見に来る必要があるため。
+ * 受け付け・一覧・状態・ファイルの 4 つの口に分けているのは、取得に数分〜数十分かかり、画面が状態を見に来る必要があるため。
+ * 一覧があるのは、画面を移る・読み込み直すと、画面が覚えていた仕事 ID が消えるため。
  * ファイルは Spring の資源の配信（{@link Resource} を返す）に任せ、自前のストリーミングは書かない
  * （{@code docs/pitfalls.md}「録画ファイルの配信は自前のストリーミング処理を書かない」。Range にも対応する）。
  * {@code /recordings/**} のような静的配信にしないのは、本人以外に 404 を返す確認を挟むため。
@@ -79,6 +81,20 @@ public class MyDownloadController {
     @PostMapping("/device")
     public ResponseEntity<DeviceDownloadResponse> startDeviceDownload(@Valid @RequestBody DownloadRequest request) {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(deviceDownloadService.start(request.url()));
+    }
+
+    /**
+     * ログイン中の利用者の一時取得を、新しい順に返す。他人の仕事は含めない。
+     *
+     * <p>画面は受け付けたときの仕事 ID を、画面を移る・読み込み直すと失う。そのたびにここから
+     * 取得中・受け取れる仕事を取り直せるようにしている（無いと、終わったファイルを受け取れず、
+     * 取得中は次を頼むと 409 になるだけだった）。
+     *
+     * @return 自分の仕事の状態。無ければ空の配列
+     */
+    @GetMapping("/device")
+    public List<DeviceDownloadResponse> deviceDownloads() {
+        return deviceDownloadService.list();
     }
 
     /**
