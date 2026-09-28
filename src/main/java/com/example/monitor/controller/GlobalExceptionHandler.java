@@ -6,6 +6,7 @@ import com.example.monitor.exception.DeviceDownloadInProgressException;
 import com.example.monitor.exception.DeviceDownloadNotFoundException;
 import com.example.monitor.exception.InsufficientDiskSpaceException;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
+import com.example.monitor.exception.MonitoringDisabledException;
 import com.example.monitor.exception.MonitoringInProgressException;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
@@ -109,6 +110,17 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(MonitoringInProgressException.class)
     public ResponseEntity<Map<String, String>> handleMonitoringInProgress(MonitoringInProgressException e) {
+        return clientError(HttpStatus.CONFLICT, e);
+    }
+
+    /**
+     * 監視を止めた起動で手動チェックを要求した場合を 409 Conflict として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(MonitoringDisabledException.class)
+    public ResponseEntity<Map<String, String>> handleMonitoringDisabled(MonitoringDisabledException e) {
         return clientError(HttpStatus.CONFLICT, e);
     }
 

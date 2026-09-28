@@ -621,7 +621,7 @@ cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 | GET | `/api/settings` | 現在有効な設定値（APIキー等は設定有無のみ、値は返さない） |
 | PUT | `/api/settings` | 設定値を`.env`へ保存（反映には再起動が必要。後述） |
 | POST | `/api/settings/directories/pick?initialDirectory=` | OSのフォルダ選択ダイアログを起動し、選ばれたパスを返す（キャンセル時は204） |
-| POST | `/api/monitor/check` | 次の巡回を待たずに今すぐ全チャンネルをチェック（実行中なら 409） |
+| POST | `/api/monitor/check` | 次の巡回を待たずに今すぐ全チャンネルをチェック（実行中、または監視を止めた確認用の起動なら 409。理由は `error` に入る） |
 | GET | `/api/health` | 巡回が回っているか（ログイン不要。`{"status":"UP","secondsSinceLastPoll":42}`、止まっていれば 503） |
 | GET | `/api/platforms` | 対応している配信プラットフォームの一覧（登録画面の選択肢。認証情報の設定有無も返す） |
 | GET | `/api/channels` | 監視対象の一覧 |
