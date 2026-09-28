@@ -10,6 +10,7 @@ import com.example.monitor.exception.MonitoringInProgressException;
 import com.example.monitor.exception.RecordingInProgressException;
 import com.example.monitor.exception.RecordingNotFoundException;
 import com.example.monitor.exception.SearchQuotaExceededException;
+import com.example.monitor.exception.ServiceDownloadInProgressException;
 import com.example.monitor.exception.SoundDetectionConflictException;
 import com.example.monitor.exception.SoundDetectionNotFoundException;
 import com.example.monitor.exception.SoundMarkNotFoundException;
@@ -209,6 +210,17 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(DeviceDownloadInProgressException.class)
     public ResponseEntity<Map<String, String>> handleDeviceDownloadInProgress(DeviceDownloadInProgressException e) {
+        return clientError(HttpStatus.CONFLICT, e);
+    }
+
+    /**
+     * 一般利用者が「サービスに保存」を重ねて始めようとした場合を 409 Conflict として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(ServiceDownloadInProgressException.class)
+    public ResponseEntity<Map<String, String>> handleServiceDownloadInProgress(ServiceDownloadInProgressException e) {
         return clientError(HttpStatus.CONFLICT, e);
     }
 

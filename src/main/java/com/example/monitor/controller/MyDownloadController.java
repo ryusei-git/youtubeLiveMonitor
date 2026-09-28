@@ -33,6 +33,7 @@ import java.util.List;
  * {@code /api/downloads/**} は ADMIN のみなので、認証だけを求める {@code /api/my/} の下に口を分けている。
  * 配信中・待機所の拒否、取り直さない判定、空き容量の判定、監査ログ（操作者はログイン中の本人）は
  * すべて {@link VideoDownloadService#startDownload(String)} 側にあり、管理者と利用者で食い違わない。
+ * 一般利用者（ADMIN 以外）の同時 1 件の上限も同じ側にある。上限は役割で決めるので、管理者がこの口を使ってもかからない。
  *
  * <h2>端末に保存</h2>
  * サービスの録画には入れず、サーバーが一時的に取得して、取得した本人だけに渡す（{@link DeviceDownloadService}）。
@@ -63,6 +64,8 @@ public class MyDownloadController {
      * @throws IllegalArgumentException 対応していない URL、または動画の情報を取得できない場合（400）
      * @throws com.example.monitor.exception.VideoAlreadyDownloadedException
      *         既に同じ動画の録画履歴がある場合（409）
+     * @throws com.example.monitor.exception.ServiceDownloadInProgressException
+     *         一般利用者が既に 1 件保存中の場合（409）
      */
     @PostMapping
     public ResponseEntity<DownloadResponse> startDownload(@Valid @RequestBody DownloadRequest request) {
