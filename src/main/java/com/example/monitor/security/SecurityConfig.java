@@ -3,6 +3,7 @@ package com.example.monitor.security;
 import com.example.monitor.util.LoginReturnPath;
 
 import com.example.monitor.repository.AppUserRepository;
+import com.example.monitor.service.AuditLogger;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -87,7 +88,8 @@ import java.nio.file.Path;
  * <ul>
  *   <li><b>ハッシュ方式（{@link TokenBasedRememberMeServices}）にしている。</b>Cookie の署名に
  *       パスワードのハッシュが入るので、パスワードを変えるとその利用者の「ログインしたまま」は全端末で
- *       無効になる。無効化・削除した利用者は {@link AppUserDetailsService} が有効でない・見つからないを
+ *       無効になる。ただし自分で変えた端末だけは、{@code MyAccountController} が新しいハッシュで Cookie を
+ *       作り直す（変えた本人のセッションを続けさせているのと同じ理由）。無効化・削除した利用者は {@link AppUserDetailsService} が有効でない・見つからないを
  *       返すので自動ログインできない。どちらも追加の処理が要らず、DB のテーブルも要らない。
  *       DB 方式（{@code PersistentTokenBasedRememberMeServices}）にしないのは、ログアウトで
  *       その利用者の<b>全端末</b>のトークンが消えるうえ、パスワード変更・無効化のたびに消す処理を
@@ -100,9 +102,14 @@ import java.nio.file.Path;
  *       反映のたびに全員の「ログインしたまま」が無効になるため。</li>
  *   <li><b>チェックボックスは利用者用・管理者用の両方のログイン画面に置く。</b>利用者用の画面からログインしても
  *       管理者の権限は付いてくるので、片方だけにしても守りにならない。既定はオフ。</li>
- *   <li><b>Cookie の Secure は既定のまま</b>（要求が HTTPS のときだけ付く）。今は http で使っており、
- *       {@code tailscale serve} の https（{@code forward-headers-strategy: native} で HTTPS と判定される）に
- *       しても、そのまま Secure が付く。</li>
+ *   <li><b>Cookie の Secure はセッションの Cookie（{@code server.servlet.session.cookie.secure}、既定 true）にそろえる。</b>
+ *       true なら常に付け、false（本番の {@code .env}。http の 8080 で使っている）なら要求が HTTPS のときだけ付く
+ *       （{@code tailscale serve} の https は {@code forward-headers-strategy: native} で HTTPS と判定される）。
+ *       以前は常に後者だったため、{@code SESSION_COOKIE_SECURE} を書かずに {@code SERVER_ADDRESS=0.0.0.0} で
+ *       http から開くと、{@code JSESSIONID} はブラウザに捨てられるのにこの Cookie だけが残り、平文の HTTP のまま
+ *       自動ログインで使えてしまっていた。</li>
+ *   <li><b>自動ログインも監査ログ（{@code LOGIN_SUCCESS}。補足で見分ける）と最終ログイン時刻に残す
+ *       （{@link AppRememberMeServices}）。</b>#441 で見送っていた。</li>
  * </ul>
  *
  * <h2>{@code @Profile("!cli")} を付けている理由</h2>
@@ -176,10 +183,8 @@ public class SecurityConfig {
      * @param loginAttemptLimiter               ログイン試行の回数制限（パスワード照合より前で打ち切る）
      * @param authenticationHandler             未ログイン・権限不足・CSRF 不一致を、API には JSON で返す処理
      * @param auditLogoutHandler                ログアウトを監査ログへ記録する処理
-     * @param appUserDetailsService             「ログインしたままにする」の Cookie から利用者を読み直す先
-     *                                          （無効化・削除された利用者はここで弾かれる）
-     * @param rememberMeKeyFile                 「ログインしたままにする」の Cookie に署名する鍵のファイル
-     *                                          （再起動しても鍵を変えないため。クラスの説明を参照）
+     * @param rememberMeServices                「ログインしたままにする」の Cookie の発行・自動ログイン
+     *                                          （{@link #rememberMeServices} で組み立てたもの）
      * @return 構築したフィルターチェーン
      * @throws Exception Spring Security の設定 API がチェック例外を宣言しているため
      */
@@ -191,14 +196,8 @@ public class SecurityConfig {
                                             LoginAttemptLimiter loginAttemptLimiter,
                                             RequestAuthenticationHandler authenticationHandler,
                                             AuditLogoutHandler auditLogoutHandler,
-                                            AppUserDetailsService appUserDetailsService,
-                                            @Value("${monitor.security.remember-me-key-file}") Path rememberMeKeyFile)
+                                            AppRememberMeServices rememberMeServices)
             throws Exception {
-        String rememberMeKey = RememberMeKeyFile.loadOrCreate(rememberMeKeyFile);
-        TokenBasedRememberMeServices rememberMeServices = new TokenBasedRememberMeServices(
-                rememberMeKey, appUserDetailsService, RememberMeTokenAlgorithm.SHA256);
-        rememberMeServices.setMatchingAlgorithm(RememberMeTokenAlgorithm.SHA256);
-        rememberMeServices.setTokenValiditySeconds(REMEMBER_ME_SECONDS);
         HttpSessionRequestCache requestCache = new HttpSessionRequestCache();
         // ログイン後に戻る先として正しい画面（GET）だけを保存する。保存は後の要求で上書きされるため、
         // ログイン画面を開いたブラウザが取りに行く /favicon.ico まで保存すると、開こうとしていた画面ではなく
@@ -293,13 +292,47 @@ public class SecurityConfig {
                 .failureHandler(failureHandler)
                 .permitAll())
             // パラメーター名・Cookie 名は既定の remember-me（ログイン画面のチェックボックスの name）
-            .rememberMe(remember -> remember.rememberMeServices(rememberMeServices).key(rememberMeKey))
+            .rememberMe(remember -> remember.rememberMeServices(rememberMeServices).key(rememberMeServices.getKey()))
             .logout(logout -> logout
                 .logoutUrl("/api/auth/logout")
                 .addLogoutHandler(auditLogoutHandler)
                 .logoutSuccessUrl("/userLogin.html?logout")
                 .permitAll());
         return http.build();
+    }
+
+    /**
+     * 「ログインしたままにする」の Cookie の発行・自動ログインを組み立てる。
+     *
+     * <p>{@code filterChain} の中で作らず Bean にしているのは、自分でパスワードを変えた端末の Cookie を
+     * {@code MyAccountController} が作り直すときに、同じ鍵・期限・{@code Secure} の設定を持つものを使うため。
+     *
+     * <p>{@code Secure} はセッションの Cookie にそろえる（クラスの説明を参照）。{@code false} のときに
+     * {@code setUseSecureCookie(false)} を呼ばないのは、呼ぶと {@code tailscale serve} の HTTPS
+     * （{@code X-Forwarded-Proto: https}）でも {@code Secure} が付かなくなるため。呼ばなければ既定
+     * （要求が HTTPS のときだけ付く）のままで、セッションの Cookie と同じ振る舞いになる。
+     *
+     * @param appUserDetailsService Cookie から利用者を読み直す先（無効化・削除された利用者はここで弾かれる）
+     * @param appUserRepository     自動ログインで最終ログイン時刻を更新する先
+     * @param auditLogger           自動ログインを監査ログへ記録する先
+     * @param rememberMeKeyFile     Cookie に署名する鍵のファイル（再起動しても鍵を変えないため。クラスの説明を参照）
+     * @param sessionCookieSecure   セッションの Cookie に常に {@code Secure} を付けるか（{@code server.servlet.session.cookie.secure}）
+     * @return 組み立てた remember-me の処理
+     */
+    @Bean
+    public AppRememberMeServices rememberMeServices(AppUserDetailsService appUserDetailsService,
+                                                    AppUserRepository appUserRepository,
+                                                    AuditLogger auditLogger,
+                                                    @Value("${monitor.security.remember-me-key-file}") Path rememberMeKeyFile,
+                                                    @Value("${server.servlet.session.cookie.secure:true}") boolean sessionCookieSecure) {
+        AppRememberMeServices services = new AppRememberMeServices(RememberMeKeyFile.loadOrCreate(rememberMeKeyFile),
+                appUserDetailsService, appUserRepository, auditLogger);
+        services.setMatchingAlgorithm(RememberMeTokenAlgorithm.SHA256);
+        services.setTokenValiditySeconds(REMEMBER_ME_SECONDS);
+        if (sessionCookieSecure) {
+            services.setUseSecureCookie(true);
+        }
+        return services;
     }
 
     /**

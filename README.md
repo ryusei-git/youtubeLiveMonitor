@@ -442,11 +442,12 @@ java -jar build/libs/youtubeLiveMonitor-0.1.0.jar channel list
 ログインが続きます。30 分操作しなくても、アプリを再起動しても、ブラウザを閉じても切れません
 （使っても 30 日は延びません。過ぎたらログインし直してください）。
 
-- パスワードを変えると、その利用者の「ログインしたまま」は全端末で無効になります。利用者を無効化・削除したときも同じです。
+- パスワードを変えると、その利用者の「ログインしたまま」は全端末で無効になります。ただし自分のアカウントの画面で変えたときは、変えた端末で「ログインしたまま」にしていれば、その端末の分だけ新しいパスワードで作り直し、そこから 30 日続きます。利用者を無効化・削除したときは全端末で無効になります。
 - ログアウトすると、その端末の「ログインしたまま」は解除されます（ほかの端末は続きます）。
 - Cookie の署名の鍵は `data/remember-me.key`（本人だけが読める 600）にあり、初回の起動で作られます。
   場所は `MONITOR_REMEMBER_ME_KEY_FILE` で変えられます。
 - 全員をログインし直させたいときは、`data/remember-me.key` を消して再起動します（鍵が作り直されます）。
+- 「ログインしたまま」で自動的にログインし直したときも、監査ログに「ログイン成功」（補足「「ログインしたままにする」の Cookie による自動ログイン」）が残り、利用者一覧の「最終ログイン」も更新されます。
 
 ### 外から使う（tailscale serve）
 
@@ -496,10 +497,10 @@ echo "SESSION_COOKIE_SECURE=false" >> .env
 bin/service.sh restart
 ```
 
-2 行目は、セッションの Cookie（`JSESSIONID`）に既定で付く `Secure` を外す設定です。
+2 行目は、セッションの Cookie（`JSESSIONID`）と「ログインしたまま」の Cookie（`remember-me`）に既定で付く `Secure` を外す設定です。
 `Secure` の Cookie はブラウザが HTTPS でしか送らないため、`http://192.168.x.x:8080` では
 ログインしても Cookie が捨てられ、ログイン画面に戻されます。外しても、`tailscale serve` を通った
-HTTPS の要求には Tomcat が自動で `Secure` を付けるので、tailnet 経由の Cookie は守られたままです。
+HTTPS の要求にはどちらの Cookie にも `Secure` が付くので、tailnet 経由の Cookie は守られたままです。
 
 `bin/api.sh`・`bin/preview.sh`・`bin/health-watch.sh`・`bin/service.sh status` は
 `localhost` / `127.0.0.1` へつなぐので、どちらの設定でもそのまま動きます
