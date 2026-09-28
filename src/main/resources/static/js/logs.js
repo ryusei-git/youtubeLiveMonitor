@@ -1,12 +1,54 @@
 // @ts-check
+/**
+ * 監視対象のチャンネル ID から、選択肢に出す名前（「チャンネル名（配信元）」）を引く対応表を作る。
+ *
+ * ログのファイル名はチャンネル ID（YouTube の UC… や Twitch の数字の ID）なので、そのまま並べると
+ * どのチャンネルか見分けられない。名前が取れなくてもログは見られるよう、失敗しても例外にせず null を返す。
+ * 空の対応表を返さないのは、監視中のチャンネルまで全部「監視対象外」と表示されてしまうため。
+ *
+ * @returns {Promise<Map<string, string> | null>} チャンネル ID → 表示名。取得に失敗したら null
+ */
+async function loadChannelLabels() {
+    try {
+        /** @type {{youtubeChannelId: string, channelName: string, platformLabel: string}[]} */
+        const channels = await apiGet("/api/channels");
+        /** @type {Map<string, string>} */
+        const labels = new Map();
+        for (const ch of channels) {
+            labels.set(ch.youtubeChannelId, `${ch.channelName}（${ch.platformLabel}）`);
+        }
+        return labels;
+    } catch {
+        // 名前が引けなくても、ID のままで選べるようにする
+        return null;
+    }
+}
+
+/**
+ * ログがある対象を、チャンネル名の順で選択肢に並べる。
+ *
+ * 監視していないチャンネルのログ（監視対象でない動画の手動ダウンロードで作られる）は名前を引けないので、
+ * ID に「（監視対象外）」を添えて出す。名前の一覧そのものが取れなかったときは ID だけを出す。
+ */
 async function loadChannelOptions() {
     try {
-        const channels = await apiGet("/api/logs/channels");
+        const labelsPromise = loadChannelLabels();
+        /** @type {string[]} */
+        const channelIds = await apiGet("/api/logs/channels");
+        const labels = await labelsPromise;
+
+        const options = channelIds.map((id) => ({
+            id,
+            label: labels === null ? id : (labels.get(id) ?? `${id}（監視対象外）`),
+        }));
+        options.sort((a, b) => a.label.localeCompare(b.label, "ja"));
+
         const select = selectEl("channelSelect");
-        for (const id of channels) {
+        for (const { id, label } of options) {
             const opt = document.createElement("option");
             opt.value = id;
-            opt.textContent = id;
+            opt.textContent = label;
+            opt.title = `チャンネルID: ${id}`;
             select.appendChild(opt);
         }
     } catch (e) {
