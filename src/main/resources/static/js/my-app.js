@@ -132,19 +132,26 @@ function myDockRestorePosition(rec) {
  * 録画をドックに読み込む。自動では再生しない（管理者の再生画面と同じく、利用者が再生を押す）。
  * 同じ録画を読み込んでいれば何もしない。ミニプレーヤーから再生画面へ戻ったときに読み込み直すと、
  * 再生が途切れて先頭へ戻るため。
+ * ただし前の読み込みが失敗していたときは、同じ録画でも読み込み直す（開き直せばもう一度試せるように）。
  *
  * @param {Recording} rec 読み込む録画
  */
 function myDockLoad(rec) {
-    if (myDockRecording?.id === rec.id) return;
+    const video = myDockVideo();
+    const same = myDockRecording?.id === rec.id;
+    // 同じ録画でも、前の読み込みが失敗していれば（video.error が残っていれば）読み込み直す。
+    // 通信が戻った後やファイルを戻した後に、再生画面を開き直せばもう一度試せるようにするため
+    if (same && !video.error) return;
     // 別の録画へ切り替えると pause が来ない（emptied だけが来る）ので、前の録画の位置はここで送る
     myDockSavePosition(false);
     myDockRecording = rec;
-    myDockWatchedSent = false;
-    myDockPlayCounted = false;
+    // 読み込み直しでは数え直さない（失敗する前に再生していれば、もう送ってある）
+    if (!same) {
+        myDockWatchedSent = false;
+        myDockPlayCounted = false;
+    }
     // 送る間隔はこの読み込みから数える（前の録画で最後に送った時刻を引き継がない）
     myDockPositionSentAt = Date.now();
-    const video = myDockVideo();
     // ファイル名に日本語や記号が入るため、パスとして安全な形に符号化する
     video.src = `/recordings/${encodeURI(rec.filePath)}`;
     // src を入れた後に呼ぶ（前の録画の読み込みで位置を入れないため）
@@ -229,6 +236,16 @@ function myDockInit() {
             .then(() => myDockOnWatched?.(id))
             .catch(() => {})
             .finally(() => { myDockWatchedPending = false; });
+    });
+    // 読み込めないとき（ファイルが無い・ログインが切れた・この端末で再生できない形式・通信が切れた）は、何もしないと
+    // 再生画面は黒いまま、ミニプレーヤーは再生ボタンが反応しないだけになり、理由が分からない。理由を調べてエラー帯に出す。
+    // 再生画面ではエラー帯が動画のすぐ下にある。ミニプレーヤーのときは、今出している画面のエラー帯に出る
+    video.addEventListener("error", async () => {
+        const rec = myDockRecording;
+        if (!rec) return;
+        const message = await describeVideoError(video);
+        // 調べている間に閉じた・別の録画へ切り替えた・読み込み直したときは、前の読み込みの失敗を出さない
+        if (message && myDockRecording === rec) showError(message);
     });
     buttonEl("dockClose").addEventListener("click", myDockClose);
     bindPictureInPictureButton(buttonEl("dockPip"), video);
