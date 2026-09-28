@@ -146,6 +146,14 @@ CLI モードは Web サーバーを起動しない（`WebApplicationType.NONE`�
 Web でしか使わないコントローラーが `!cli` の Bean に依存する場合は、
 コントローラー側にも `@Profile("!cli")` を付けること。
 
+今は `application-cli.yml` の遅延初期化（#192）でコントローラーは CLI では作られないので、CLI が壊れるのは
+コマンドから辿れる Bean が `!cli` の Bean に依存したとき。これは `YouTubeLiveMonitorApplicationTest` が確かめる。
+本番の CLI と同じ条件（Web サーバーなし・`cli` プロファイル・`application-cli.yml` の遅延初期化）で Spring を起動して
+`channel list` を実行し、`@Command(subcommands = ...)` をたどってすべてのコマンドの Bean を作らせるので、
+どのコマンドが作れなくなっても `./gradlew build` が落ちる（picocli は実行するコマンドしか作らないので、
+`channel list` を試すだけではほかのコマンドの誤りは分からない）。`src/test/resources` に `application-cli.yml` を
+置かないこと（本番の `application-cli.yml` が読まれなくなり、本番と条件がずれる）。
+
 ### `build/libs` の jar を直接動かすと、稼働中の `./gradlew build` でプロセスが壊れる（実際に発生した）
 
 実行中の JVM は jar から**必要になった時点でクラスを読み込む**。稼働中に jar を差し替えると、
