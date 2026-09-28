@@ -23,6 +23,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -30,6 +31,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -53,9 +55,12 @@ public class DiscoveryService {
     /** 巡回の時刻の基準。1 日 3 回を日本時間で決めているため。 */
     public static final String ZONE = "Asia/Tokyo";
 
-    /** 初回の検索でどこまで遡るか。起動直後でも直近の新人を拾えるように。 */
+    /**
+     * 初回の検索と、打ち切りが続いた語の検索でどこまで遡るか。起動直後でも直近の新人を拾えるように。
+     * これより前には広げない。検索は新しい順の 50 件しか取らないので、広げても古い分は結局取れず、回数の割に得が無いため。
+     */
     private static final Duration FIRST_LOOKBACK = Duration.ofHours(72);
-    /** 前回の実行と重ねる幅。検索結果の反映の遅れで取りこぼさないように。 */
+    /** その語を前回検索できた巡回と重ねる幅。検索結果の反映の遅れで取りこぼさないように。 */
     private static final Duration OVERLAP = Duration.ofHours(1);
     /** 説明を持つ長さ。 */
     private static final int DESCRIPTION_LENGTH = 500;
@@ -78,8 +83,18 @@ public class DiscoveryService {
     private final String cron;
 
     private final AtomicBoolean running = new AtomicBoolean();
-    /** 前回の巡回の開始時刻。ponytail: メモリだけ。再起動すると初回扱い（72 時間前から）になるが、既知のチャンネルは落とすので回数の無駄は無い。 */
-    private volatile Instant lastRunAt;
+    /**
+     * 検索語ごとの、最後に検索できた巡回の開始時刻。次の回はその語をこの時刻の {@code OVERLAP} 前より後だけ探す。
+     *
+     * <p>巡回 1 回ぶんの時刻を 1 つだけ持つと、検索の上限・クォータ切れ・API の失敗で飛ばした語の時間帯を、
+     * 次の回が探さなくなる（管理者の「今すぐ」で枠を使うと、その日の最後の定期の回が 1 語も検索できないまま
+     * 時刻だけ進んでいた）。そのため語ごとに持ち、実際に検索できたときだけ進める。
+     * ponytail: メモリだけ。再起動するとすべての語が初回扱い（{@code FIRST_LOOKBACK} 前から）になるが、
+     * 既知のチャンネルは落とすので回数の無駄は無い。
+     */
+    private final Map<String, Instant> lastSearchedAt = new ConcurrentHashMap<>();
+    /** 前回の巡回（状態の表示だけに使う。検索する期間は {@code lastSearchedAt} で決める）。起動後に一度も終わっていなければ {@code null}。 */
+    private volatile LastRun lastRun;
 
     /**
      * 1 回の巡回の結果。
@@ -88,6 +103,14 @@ public class DiscoveryService {
      * @param saved    新しく候補にした数
      */
     public record RunResult(int searches, int saved) {}
+
+    /**
+     * 前回の巡回の開始時刻と、その回で使った検索の回数。1 つの値にまとめて持ち、表示で時刻と回数が食い違わないようにする。
+     *
+     * @param startedAt 開始時刻
+     * @param searches  使った検索の回数（0 なら、今日の上限で 1 語も検索できなかった）
+     */
+    private record LastRun(Instant startedAt, int searches) {}
 
     /**
      * 設定を読み込んで作る。設定の意味は {@code application.yml} の {@code monitor.discovery}。
@@ -133,11 +156,16 @@ public class DiscoveryService {
     }
 
     /**
-     * 検索語を順に 1 回ずつ検索し、候補を貯める。
+     * 検索語を 1 回ずつ検索し、候補を貯める。
      *
      * <p>検索の前に必ず {@link YouTubeSearchBudget#tryAcquireForDiscovery()} を通す。上限ならその回は打ち切る。
      * {@code quotaExceeded} なら {@link YouTubeSearchBudget#markExhausted()} で今日の検索を止める。
      * ほかの失敗はその語だけ飛ばす（1 語の失敗で残りの語を無駄にしない）。
+     *
+     * <p>検索する期間は語ごとに決め、検索できた語だけ時刻を進める。打ち切った・失敗した語は、次の回に前回の続きから探す。
+     * 語は最後に検索できた時刻の古い順（まだ一度も検索していない語が先）に回す。順番を固定すると、
+     * 語の数 × 1 日の回数が発掘の枠を超えたとき、毎回同じ語ばかり打ち切られるため。
+     * 例外で抜けた回は {@code lastRun} に記録しない（ERROR のログに残る）。
      *
      * @return 結果。別の巡回が動いていれば空
      */
@@ -145,34 +173,62 @@ public class DiscoveryService {
         if (!running.compareAndSet(false, true)) return Optional.empty();
         try {
             Instant started = Instant.now();
-            Instant previous = lastRunAt;
-            Instant after = previous == null ? started.minus(FIRST_LOOKBACK) : previous.minus(OVERLAP);
-            lastRunAt = started;
             int searches = 0;
             int saved = 0;
-            for (String term : terms) {
+            for (String term : termsOldestFirst()) {
                 if (!budget.tryAcquireForDiscovery()) {
-                    log.info("発掘の検索が今日の上限に達したので、この回を打ち切ります");
+                    log.info("発掘の検索が今日の上限に達したので、この回を打ち切ります（残りの語は次の回に続きから探します）");
                     break;
                 }
                 searches++;
+                Instant after = publishedAfter(term, started);
                 try {
                     saved += discover(term, after);
+                    lastSearchedAt.put(term, started);
                 } catch (IOException e) {
                     if (DiscoveryYouTubeClient.isQuotaExceeded(e)) {
                         budget.markExhausted();
                         log.warn("YouTube のクォータを使い切ったので、今日の検索を止めます: term={}", term);
                         break;
                     }
-                    log.warn("発掘の検索に失敗しました（次の語へ進みます）: term={}, reason={}",
-                            term, DiscoveryYouTubeClient.describe(e));
+                    log.warn("発掘の検索に失敗しました（次の語へ進みます。この語は次の回も同じ時刻から探します）: term={}, publishedAfter={}, reason={}",
+                            term, after, DiscoveryYouTubeClient.describe(e));
                 }
             }
-            log.info("発掘の巡回を終えました: 検索={}回, 新しい候補={}件, publishedAfter={}", searches, saved, after);
+            lastRun = new LastRun(started, searches);
+            log.info("発掘の巡回を終えました: 検索={}回, 新しい候補={}件", searches, saved);
             return Optional.of(new RunResult(searches, saved));
         } finally {
             running.set(false);
         }
+    }
+
+    /**
+     * 検索語を、最後に検索できた時刻の古い順に並べる。一度も検索していない語を先にし、同じ時刻なら設定の順のまま
+     * （{@link List#sort} は安定な並べ替え）。
+     *
+     * @return 並べた検索語（設定の {@code terms} は変えない）
+     */
+    private List<String> termsOldestFirst() {
+        List<String> ordered = new ArrayList<>(terms);
+        ordered.sort(Comparator.comparing(lastSearchedAt::get, Comparator.nullsFirst(Comparator.naturalOrder())));
+        return ordered;
+    }
+
+    /**
+     * その語で探す期間の始まりを決める。前回検索できた時刻の {@code OVERLAP} 前から。
+     * 一度も検索していない語と、打ち切りが続いて {@code FIRST_LOOKBACK} より古くなった語は、{@code FIRST_LOOKBACK} 前から。
+     *
+     * @param term    検索語
+     * @param started この回の開始時刻
+     * @return この時刻より後に公開された動画を探す
+     */
+    private Instant publishedAfter(String term, Instant started) {
+        Instant earliest = started.minus(FIRST_LOOKBACK);
+        Instant previous = lastSearchedAt.get(term);
+        if (previous == null) return earliest;
+        Instant after = previous.minus(OVERLAP);
+        return after.isBefore(earliest) ? earliest : after;
     }
 
     /**
@@ -212,8 +268,8 @@ public class DiscoveryService {
             saved++;
         }
         // 0 件のとき、どの段で落ちたかをログから読めるようにする
-        log.info("発掘: term={}, 動画={}件, 知らないチャンネル={}件, 登録者・動画数の条件内={}件, 語が一致して候補にした={}件",
-                term, hits.size(), byChannel.size(), small, saved);
+        log.info("発掘: term={}, publishedAfter={}, 動画={}件, 知らないチャンネル={}件, 登録者・動画数の条件内={}件, 語が一致して候補にした={}件",
+                term, after, hits.size(), byChannel.size(), small, saved);
         return saved;
     }
 
@@ -340,7 +396,7 @@ public class DiscoveryService {
     /**
      * 巡回の状態を返す。
      *
-     * @return 前回・次回の時刻と今日の検索の回数
+     * @return 前回の時刻と検索の回数・次回の時刻・今日の検索の回数
      */
     public DiscoveryStatusResponse status() {
         Instant next = null;
@@ -348,7 +404,9 @@ public class DiscoveryService {
             ZonedDateTime at = CronExpression.parse(cron).next(ZonedDateTime.now(ZoneId.of(ZONE)));
             next = at == null ? null : at.toInstant();
         }
-        return new DiscoveryStatusResponse(iso(lastRunAt), iso(next), budget.discoveryUsedToday(), budget.discoveryLimit());
+        LastRun last = lastRun;
+        return new DiscoveryStatusResponse(last == null ? null : iso(last.startedAt()),
+                last == null ? null : last.searches(), iso(next), budget.discoveryUsedToday(), budget.discoveryLimit());
     }
 
     private Channel fetchChannel(String channelId) {
