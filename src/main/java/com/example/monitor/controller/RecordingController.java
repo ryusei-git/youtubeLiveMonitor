@@ -9,6 +9,7 @@ import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.entity.RecordingMark;
 import com.example.monitor.service.RecordingHistoryService;
 import com.example.monitor.service.StreamRecorder;
+import com.example.monitor.util.PageRequestUtils;
 import com.example.monitor.util.RecordingSearchParams;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -83,13 +84,12 @@ public class RecordingController {
             @RequestParam(defaultValue = "20") int size,
             Authentication authentication) {
 
-        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
-            throw new IllegalArgumentException("page は 0 以上、size は 1〜" + MAX_PAGE_SIZE + " で指定してください");
-        }
         if (from != null && to != null && from.isAfter(to)) {
             throw new IllegalArgumentException("期間の開始は終了以前にしてください");
         }
-        PageRequest pageRequest = PageRequest.of(page, size, RecordingSearchParams.toSort(sort));
+        // オフセット（page × size）の溢れも含めて、DB に問い合わせる前に 400 にする（利用者用の MyRecordingController と同じ）
+        PageRequest pageRequest = PageRequestUtils.bounded(page, size, MAX_PAGE_SIZE)
+                .withSort(RecordingSearchParams.toSort(sort));
         Boolean watchedFilter = RecordingSearchParams.toWatchedFilter(watched);
         String username = authentication.getName();
 
