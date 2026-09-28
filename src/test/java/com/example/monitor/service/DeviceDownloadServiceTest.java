@@ -613,7 +613,8 @@ class DeviceDownloadServiceTest {
         @Test
         @DisplayName("正常系：100 文字を超えるタイトルは符号位置で 100 文字に切り、絵文字を割らない")
         void testMethod02() throws Exception {
-            String emoji = "😀";
+            // U+1F600。UTF-16 では 2 単位（サロゲートペア）なので、単位で切ると半分に割れる
+            String emoji = "\uD83D\uDE00";
 
             assertThat(DeviceDownloadService.downloadName(emoji.repeat(101), VIDEO_ID))
                     .isEqualTo(emoji.repeat(100) + ".mp4");
