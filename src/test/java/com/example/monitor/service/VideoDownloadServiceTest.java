@@ -11,6 +11,7 @@ import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
+import com.example.monitor.notification.DiscordNotifier;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
@@ -36,10 +37,12 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
@@ -96,6 +99,22 @@ class VideoDownloadServiceTest {
         lenient().when(recordingHistoryService.recordStart(any(), any(), any(), any()))
                 .thenReturn(Recording.builder().id(1L).build());
         lenient().when(recordingSalvager.ensurePlayable(any())).thenReturn(SalvageOutcome.unavailable());
+        // 行が無いと完了待ちは記録を飛ばす（チャンネル削除時の扱い）。通常は行がある
+        lenient().when(recordingHistoryService.exists(any())).thenReturn(true);
+    }
+
+    /**
+     * 起動直後に終わるプロセスを模す。完了待ちは {@code waitFor(1, 分)} を繰り返すため、
+     * スタブしないと既定の {@code false} で空回りし続ける。テストより先に終わることもあるので lenient にする。
+     */
+    private Process exitedProcess() {
+        Process process = mock(Process.class);
+        try {
+            lenient().when(process.waitFor(anyLong(), any(TimeUnit.class))).thenReturn(true);
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
+        return process;
     }
 
     private VideoDownloadService newService(Path recordingDirectory) {
@@ -108,7 +127,7 @@ class VideoDownloadServiceTest {
         return new VideoDownloadService(properties, streamPlatformRegistry, videoSourceProbe,
                 processLauncher, recordingHistoryService, recordingSalvager, recordingFileService,
                 recordingRepository, monitoredChannelRepository, appUserRepository, auditLogger,
-                new ActiveVideoJobs());
+                new ActiveVideoJobs(), mock(DiscordNotifier.class));
     }
 
     /**
@@ -132,7 +151,7 @@ class VideoDownloadServiceTest {
         return new VideoDownloadService(properties, streamPlatformRegistry, videoSourceProbe,
                 processLauncher, recordingHistoryService, recordingSalvager, recordingFileService,
                 recordingRepository, monitoredChannelRepository, appUserRepository, auditLogger,
-                activeVideoJobs);
+                activeVideoJobs, mock(DiscordNotifier.class));
     }
 
     /**
@@ -181,7 +200,7 @@ class VideoDownloadServiceTest {
             MonitoredChannel channel = new MonitoredChannel("UCSMOQeBJ2RAnuFungnQOxLg", "Blender");
             when(monitoredChannelRepository.findByYoutubeChannelId("UCSMOQeBJ2RAnuFungnQOxLg"))
                     .thenReturn(Optional.of(channel));
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
 
             DownloadResponse response = newService(tempDir).startDownload(YOUTUBE_URL);
@@ -202,7 +221,7 @@ class VideoDownloadServiceTest {
             givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
             when(monitoredChannelRepository.findByYoutubeChannelId("UCSMOQeBJ2RAnuFungnQOxLg"))
                     .thenReturn(Optional.empty());
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
 
             DownloadResponse response = newService(tempDir).startDownload(YOUTUBE_URL);
@@ -219,7 +238,7 @@ class VideoDownloadServiceTest {
         void testMethod03(@TempDir Path tempDir) throws IOException {
             // Twitch の VOD のように channel_id もログイン名も解決できない場合
             givenYouTubeVideo(null);
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
 
             DownloadResponse response = newService(tempDir).startDownload(YOUTUBE_URL);
@@ -235,7 +254,7 @@ class VideoDownloadServiceTest {
         void testMethod04(@TempDir Path tempDir) throws IOException {
             givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
 
             newService(tempDir).startDownload(YOUTUBE_URL);
@@ -258,7 +277,7 @@ class VideoDownloadServiceTest {
         void testMethod05(@TempDir Path tempDir) throws IOException {
             givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
 
             newService(tempDir).startDownload(YOUTUBE_URL);
@@ -273,7 +292,7 @@ class VideoDownloadServiceTest {
             VideoSource source = new VideoSource("youtube", "aqz-KE-bpKQ", null, null, "not_live", null);
             when(videoSourceProbe.probe(YOUTUBE_URL)).thenReturn(Optional.of(source));
             when(streamPlatform.resolveChannelId(source)).thenReturn(Optional.empty());
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
 
             DownloadResponse response = newService(tempDir).startDownload(YOUTUBE_URL);
@@ -408,7 +427,7 @@ class VideoDownloadServiceTest {
             // 予約機構が弾くのが正しい層なので、ここでは拒否しない
             givenYouTubeVideoWithLiveStatus("was_live");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
 
             assertThat(newService(tempDir).startDownload(YOUTUBE_URL)).isNotNull();
@@ -421,7 +440,7 @@ class VideoDownloadServiceTest {
         void testMethod17(@TempDir Path tempDir) throws IOException {
             givenYouTubeVideoWithLiveStatus("post_live");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
 
             assertThat(newService(tempDir).startDownload(YOUTUBE_URL)).isNotNull();
@@ -435,7 +454,7 @@ class VideoDownloadServiceTest {
             // 起動済みのプロセスを放置すると、次の再試行で同じ出力先に別プロセスが起動する
             givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
             when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
-            Process process = mock(Process.class);
+            Process process = exitedProcess();
             when(processLauncher.launch(any(), any())).thenReturn(process);
             when(recordingHistoryService.recordStart(any(), any(), any(), any()))
                     .thenThrow(new IllegalStateException("DB障害"));
@@ -463,7 +482,7 @@ class VideoDownloadServiceTest {
             when(recordingSalvager.ensurePlayable(outputFile))
                     .thenReturn(new SalvageOutcome(SalvageStatus.ALREADY_PLAYABLE, 12345L));
 
-            service.awaitCompletion(mock(Process.class), 1L, "video001", outputFile, null);
+            service.awaitCompletion(exitedProcess(), 1L, "video001", outputFile, null, "(未登録)");
 
             verify(recordingHistoryService).markCompleted(1L, 12345L);
         }
@@ -476,7 +495,7 @@ class VideoDownloadServiceTest {
             when(recordingSalvager.ensurePlayable(outputFile))
                     .thenReturn(new SalvageOutcome(SalvageStatus.SALVAGED, 500L));
 
-            service.awaitCompletion(mock(Process.class), 1L, "video001", outputFile, null);
+            service.awaitCompletion(exitedProcess(), 1L, "video001", outputFile, null, "(未登録)");
 
             verify(recordingHistoryService).markPartial(1L, 500L);
         }
@@ -488,7 +507,7 @@ class VideoDownloadServiceTest {
             Path outputFile = tempDir.resolve("downloads/video001.mp4");
             when(recordingSalvager.ensurePlayable(outputFile)).thenReturn(SalvageOutcome.unavailable());
 
-            service.awaitCompletion(mock(Process.class), 1L, "video001", outputFile, null);
+            service.awaitCompletion(exitedProcess(), 1L, "video001", outputFile, null, "(未登録)");
 
             verify(recordingHistoryService).markFailed(1L);
         }
@@ -503,7 +522,7 @@ class VideoDownloadServiceTest {
             when(recordingSalvager.ensurePlayable(outputFile))
                     .thenReturn(new SalvageOutcome(SalvageStatus.ALREADY_PLAYABLE, 1L));
 
-            service.awaitCompletion(mock(Process.class), 1L, "video001", outputFile, null);
+            service.awaitCompletion(exitedProcess(), 1L, "video001", outputFile, null, "(未登録)");
 
             assertThat(service.isDownloading("video001")).isFalse();
         }
