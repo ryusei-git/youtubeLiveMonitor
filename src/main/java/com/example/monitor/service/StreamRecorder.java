@@ -9,8 +9,9 @@ import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.FileNameUtils;
 import com.example.monitor.util.ProcessTermination;
-import com.example.monitor.util.RecordingActivity;
 import com.example.monitor.util.RequestContext;
+import com.example.monitor.util.YtDlpExitWatch;
+import com.example.monitor.util.YtDlpExitWatch.ExitResult;
 import com.example.monitor.util.YtDlpFormatSelector;
 import com.example.monitor.util.YtDlpJsRuntime;
 import com.example.monitor.util.YtDlpLogFile;
@@ -24,7 +25,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -67,6 +67,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>出力が止まったまま終わらない yt-dlp は {@link #awaitExit} が子孫ごと止め、既存の救済・記録へ流す
  * （止めないと {@code RECORDING} が残り続け、その動画 ID は {@link ActiveVideoJobs} に押さえられたまま録り直せない）。
  * 再起動後に残った yt-dlp（追跡する仮想スレッドが無いもの）は対象外。実際に固まった例が出てから作る。
+ * 見回りと {@code .temp.mp4} の片付けの本体は {@link YtDlpExitWatch} にあり、URL 指定のダウンロード
+ * （{@link VideoDownloadService}）と共有している（#426 では録画側にしか入らず、固まったダウンロードが
+ * {@code RECORDING} のまま残ったため）。
  *
  * <p>管理画面から止めた録画（{@link #stopRecording(Long)}）も同じく子孫ごと止め、録り直さずに救済・記録へ流す。
  * こちらは再起動後に残った yt-dlp も OS から探して止める（記録は {@link RecordingReconciler} が補正する）。
@@ -82,7 +85,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p><b>プロセスが終わったことを確かめられたら、止めた理由を問わず {@code {動画ID}.temp.mp4} を消す</b>
  * （自然に終わった・固まって止めた・空き容量で止めた、のすべて。録り直しの後も同じ）。yt-dlp は結合に失敗すると
  * この書きかけを消さずに終わり、空きを 0 まで使い切った大きさのまま空きを塞ぎ続けるため
- * （{@link #deleteMergeLeftover} 参照）。
+ * （{@link YtDlpExitWatch#deleteMergeLeftover} 参照）。
  *
  * <h2>出力形式を mp4 に固定する理由</h2>
  * {@code --merge-output-format mp4} を指定し、映像・音声のコンテナを常に mp4 に揃えている。
@@ -241,6 +244,7 @@ public class StreamRecorder {
      * 損が大きいのは誤って止める方なので、遅めに倒している。
      *
      * <p>{@link MonitorProperties.RecordingProperties} に入れない理由は {@link #minFreeGb} と同じ。
+     * URL 指定のダウンロード（{@link VideoDownloadService}）も同じ設定キーを読み、同じ {@link YtDlpExitWatch} で見回る。
      */
     @Value("${monitor.recording.stall-minutes:30}")
     private long stallMinutes = 30;
@@ -253,15 +257,6 @@ public class StreamRecorder {
      */
     @Value("${monitor.recording.js-runtime:}")
     private String jsRuntime = "";
-
-    /**
-     * 録画プロセスの待機の結果。
-     *
-     * @param exitCode    {@code yt-dlp} の終了コード。待機が中断された場合は {@code null}
-     * @param stoppedByUs 出力が止まっていた、または空き容量が下限を割ったため、こちらから止めた場合 {@code true}
-     */
-    private record ExitResult(Integer exitCode, boolean stoppedByUs) {
-    }
 
     /** 管理画面からの停止（{@link #stopRecording(Long)}）を受け付けた結果。 */
     public enum StopOutcome {
@@ -624,7 +619,7 @@ public class StreamRecorder {
      * （データは残っており、空きができた後の後始末で直せる。録り直すとさらに書き込む）。
      *
      * <p><b>待機のたびに、プロセスが終わっていれば結合の書きかけ（{@code .temp.mp4}）を消してから詰め替える。</b>
-     * 残すと録画と同じくらいの大きさの空きを塞ぎ、詰め替えも空きが足りずに始められない（{@link #deleteMergeLeftover} 参照）。
+     * 残すと録画と同じくらいの大きさの空きを塞ぎ、詰め替えも空きが足りずに始められない（{@link YtDlpExitWatch#deleteMergeLeftover} 参照）。
      *
      * <p><b>プロセスが終わった時点で録画履歴の行が無ければ、録り直しも記録もしない。</b>行が無いのは、
      * チャンネルの削除で連鎖削除され、録画プロセスも止められたとき（{@link MonitoredChannelService#remove(Long)}）。
@@ -660,7 +655,7 @@ public class StreamRecorder {
             ExitResult exit = awaitExit(process, channel, videoId, outputFile.getParent());
             if (exit.exitCode() != null) {
                 // プロセスが終わった後に残る .temp.mp4 は結合の書きかけ。詰め替えの前に空きを返す
-                deleteMergeLeftover(outputFile.getParent(), videoId);
+                YtDlpExitWatch.deleteMergeLeftover(outputFile.getParent(), videoId);
             }
             if (!recordingHistoryService.exists(recordingId)) {
                 log.info("録画履歴が削除されているため（チャンネルの削除）、録画の結果を記録しません: channel={}, video={}, exitCode={}",
@@ -729,7 +724,7 @@ public class StreamRecorder {
                 }
                 if (exit.exitCode() != null) {
                     // プロセスが終わった後に残る .temp.mp4 は結合の書きかけ。詰め替えの前に空きを返す
-                    deleteMergeLeftover(outputFile.getParent(), videoId);
+                    YtDlpExitWatch.deleteMergeLeftover(outputFile.getParent(), videoId);
                 }
                 if (!recordingHistoryService.exists(recordingId)) {
                     log.info("録画履歴が削除されているため（チャンネルの削除）、録画の結果を記録しません: channel={}, video={}, exitCode={}",
@@ -787,16 +782,10 @@ public class StreamRecorder {
     }
 
     /**
-     * 録画プロセスの終了を待つ。出力が {@link #stallMinutes} 分止まっていたら、または空き容量が下限を割ったら、子孫ごと止める。
+     * 録画プロセスの終了を、出力と空き容量の見回りつきで待つ。
      *
-     * <p>出力はファイルへ向けているため（クラスの JavaDoc「プロセスの生存期間」参照）、ここでは読まない。
-     * 1 分ごとに {@link RecordingActivity#lastModified(Path, String)} を見る。待機を始めた時刻を下限にするのは、
-     * 起動直後でまだ何も書かれていないときと、録り直しで待ち直したときに、古い時刻で誤って止めないため。
-     * 更新時刻を読めなかったときは止めない（「判定できなかった」を「固まった」と扱わない）。
-     *
-     * <p><b>空き容量（{@link #usableBytesIfBelowReserve}）は固まりの判定より先に見る。</b>固まりの判定は
-     * 更新時刻を読めないときや止まっていないときに {@code continue} で次の 1 分へ飛ぶので、後に置くと
-     * そのたびに空き容量を見なくなる。止める理由はクラスの JavaDoc を参照。
+     * <p>見回りの中身（出力が {@link #stallMinutes} 分止まっていたら、または空き容量が下限を割ったら、子孫ごと止める）と
+     * その理由は {@link YtDlpExitWatch#awaitExit} を参照。URL 指定のダウンロード（{@link VideoDownloadService}）と共有している。
      *
      * @param process         起動済みの録画プロセス
      * @param channel         録画対象のチャンネル（ログ・通知用）
@@ -805,109 +794,8 @@ public class StreamRecorder {
      * @return 終了コード（待機が中断された場合は {@code null}。割り込み状態は立て直す）と、こちらから止めたか
      */
     private ExitResult awaitExit(Process process, MonitoredChannel channel, String videoId, Path outputDirectory) {
-        Instant watchStart = Instant.now();
-        try {
-            while (!process.waitFor(1, TimeUnit.MINUTES)) {
-                Long usableBytes = usableBytesIfBelowReserve(outputDirectory);
-                if (usableBytes != null) {
-                    long reserveBytes = DiskSpaceUtils.reserveBytes(minFreeGb);
-                    log.warn("空き容量が下限を下回ったため、録画プロセスを止めます: channel={}, video={}, 空き={}MB, 下限={}MB",
-                            channel.getChannelName(), videoId, usableBytes / (1024L * 1024), reserveBytes / (1024L * 1024));
-                    if (ProcessTermination.terminateTreeAndAwait(process.toHandle(), Duration.ofSeconds(30))) {
-                        Thread.currentThread().interrupt();
-                        return new ExitResult(null, true);
-                    }
-                    try {
-                        discordNotifier.sendAdminAlert("空き容量が " + usableBytes / (1024L * 1024 * 1024) + "GB（下限 "
-                                + reserveBytes / (1024L * 1024 * 1024) + "GB）を下回ったため、録画を止めました: "
-                                + channel.getChannelName() + "（" + videoId + "）。止めるまでの分は、空きができた後の後始末で"
-                                + "再生できる形に直します（詰め替えには録画と同じ大きさの空きが要ります）。");
-                    } catch (RuntimeException e) {
-                        // 通知の失敗で録画の記録を妨げない
-                        log.warn("空き容量で録画プロセスを止めたことを管理者へ通知できませんでした", e);
-                    }
-                    return new ExitResult(process.waitFor(), true);
-                }
-                Instant lastActivity;
-                try {
-                    Instant modified = RecordingActivity.lastModified(outputDirectory, videoId);
-                    lastActivity = modified.isAfter(watchStart) ? modified : watchStart;
-                } catch (IOException e) {
-                    log.warn("録画の出力の更新時刻を読めなかったため、固まっているかの判定を見送ります: video={}", videoId, e);
-                    continue;
-                }
-                if (Duration.between(lastActivity, Instant.now()).toMinutes() < stallMinutes) {
-                    continue;
-                }
-
-                log.warn("録画の出力が {}分間止まっているため、録画プロセスを止めます: channel={}, video={}, 最終更新={}",
-                        stallMinutes, channel.getChannelName(), videoId, lastActivity);
-                if (ProcessTermination.terminateTreeAndAwait(process.toHandle(), Duration.ofSeconds(30))) {
-                    Thread.currentThread().interrupt();
-                    return new ExitResult(null, true);
-                }
-                try {
-                    discordNotifier.sendAdminAlert("録画の出力が " + stallMinutes + " 分間止まっていたため、録画プロセスを止めました: "
-                            + channel.getChannelName() + "（" + videoId + "）");
-                } catch (RuntimeException e) {
-                    // 通知の失敗で録画の記録を妨げない
-                    log.warn("録画プロセスを止めたことを管理者へ通知できませんでした", e);
-                }
-                return new ExitResult(process.waitFor(), true);
-            }
-            return new ExitResult(process.exitValue(), false);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            // 中断された場合も、既にファイルが出来ていれば成功として扱う（呼び出し側で判定する）
-            log.warn("録画の完了待ちが中断されました: video={}", videoId);
-            return new ExitResult(null, false);
-        }
-    }
-
-    /**
-     * 空き容量が録画中の下限（{@link DiskSpaceUtils#reserveBytes(long)}）を割っていれば、そのときの空きを返す。
-     *
-     * <p>空き容量を読めなかったときは割っていないと扱う（「判定できなかった」を「満杯」と扱わない。
-     * {@link #startRecording} と同じ）。
-     *
-     * @param outputDirectory 録画フォルダ
-     * @return 下限を割っていれば空き容量（バイト）。割っていない・確認しない（{@link #minFreeGb} が 0）・読めなかった場合は {@code null}
-     */
-    private Long usableBytesIfBelowReserve(Path outputDirectory) {
-        long reserveBytes = DiskSpaceUtils.reserveBytes(minFreeGb);
-        if (reserveBytes <= 0) {
-            return null;
-        }
-        DiskSpaceUtils.Capacity disk = DiskSpaceUtils.read(outputDirectory);
-        if (disk.error() != null || disk.usableBytes() == null || disk.usableBytes() >= reserveBytes) {
-            return null;
-        }
-        return disk.usableBytes();
-    }
-
-    /**
-     * yt-dlp が結合・修正の途中で書いていた {@code {動画ID}.temp.mp4} を消す。
-     *
-     * <p>yt-dlp は結合（Twitch では修正）に失敗すると、この書きかけ（再生できない）を消さずに終わる。
-     * 空き容量が足りずに失敗した場合は空きを 0 まで使い切った大きさで残り、空きを塞ぎ続けて H2 の書き込みも
-     * 救済（{@link RecordingSalvager}）も止めたままにする。こちらから止めた場合も同じく残る。
-     * yt-dlp は結合が成功すると {@code .temp.mp4} を {@code .mp4} へ置き換え、結合の ffmpeg の終わりを待ってから
-     * 終わるので、プロセスが終わった後に残っているものは必ず書きかけ。
-     * <b>プロセスが終わったことを確かめた後（{@code ExitResult.exitCode()} が {@code null} でないとき）にだけ呼ぶ。</b>
-     *
-     * @param outputDirectory 録画フォルダ
-     * @param videoId         録画対象の動画 ID
-     */
-    private void deleteMergeLeftover(Path outputDirectory, String videoId) {
-        Path leftover = outputDirectory.resolve(videoId + ".temp.mp4");
-        try {
-            if (Files.deleteIfExists(leftover)) {
-                log.warn("yt-dlp の結合途中のファイルが残っていたため消しました（結合に失敗したか、途中で止めたため）: video={}, file={}",
-                        videoId, leftover);
-            }
-        } catch (IOException e) {
-            log.warn("結合途中のファイルを消せませんでした: video={}, file={}", videoId, leftover, e);
-        }
+        return YtDlpExitWatch.awaitExit(process, "録画", channel.getChannelName(), videoId, outputDirectory,
+                stallMinutes, minFreeGb, discordNotifier::sendAdminAlert);
     }
 
     /**
