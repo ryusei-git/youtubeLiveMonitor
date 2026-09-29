@@ -65,14 +65,22 @@ public class DefaultProcessLauncher implements ProcessLauncher {
      *
      * <p>実行ファイルが取れないプロセスは対象外にしてよい。このアプリが起動したプロセスは同じユーザーで動くため、
      * 実行ファイルを取れる（取れないのは他のユーザーのプロセスや、終了して回収待ちのプロセスなど）。
+     *
+     * <p>package-private なのは、テスト（{@code DefaultProcessLauncherTest}）から直接呼ぶため。
+     * 呼び出し元が使う {@code ProcessHandle.allProcesses()} は差し替えられないので、判定だけを取り出して確かめている。
      */
-    private static boolean isWorkerProcess(ProcessHandle.Info info) {
+    static boolean isWorkerProcess(ProcessHandle.Info info) {
         String executable = info.command().map(DefaultProcessLauncher::fileName).orElse("");
         return WORKER_EXECUTABLES.contains(executable) || isYtDlp(info);
     }
 
-    /** yt-dlp のプロセスかどうか。実行ファイルが yt-dlp のものと、Python の処理系で引数に yt-dlp を含むもの。 */
-    private static boolean isYtDlp(ProcessHandle.Info info) {
+    /**
+     * yt-dlp のプロセスかどうか。実行ファイルが yt-dlp のものと、Python の処理系で引数に yt-dlp を含むもの。
+     *
+     * <p>package-private なのは、テスト（{@code DefaultProcessLauncherTest}）から直接呼ぶため。
+     * 呼び出し元が使う {@code ProcessHandle.allProcesses()} は差し替えられないので、判定だけを取り出して確かめている。
+     */
+    static boolean isYtDlp(ProcessHandle.Info info) {
         String executable = info.command().map(DefaultProcessLauncher::fileName).orElse("");
         if ("yt-dlp".equals(executable)) {
             return true;
