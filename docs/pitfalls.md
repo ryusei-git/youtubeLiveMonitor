@@ -205,6 +205,8 @@ root のレベル設定が効かない（明示 level は additivity では止�
 この対応は `LogbackPatternConventionTest`（`src/test/java/com/example/monitor/service/`）が確かめている。
 `logback-spring.xml` の 3 つの `<pattern>` で実際に整形した行を `ChannelLogReader.readChannelLog()` で読み返すので、
 書式だけ・パーサーだけを変えると `./gradlew build` が落ちる（`logback-spring.xml` は logback 自身の警告を捨てているので、起動しても気づけない）。
+`CHANNEL_LOG` の `<fileNamePattern>`（日付で回った過去のファイルの名前）と、`ChannelLogReader` が探すファイル名の形も対になっている。
+片方だけ変えると、ログ画面から前日より前の行が黙って消える。これも同じテストの `ReadBack` が確かめている。
 
 ### 外部 API の例外をそのままログに渡さない（実際に発生した）
 

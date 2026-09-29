@@ -36,6 +36,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code NopStatusListener} で logback 自身の警告を捨てているので、書式を書き間違えても起動時に何も言われない。
  * 手書きのログ行で解析を確かめる {@code ChannelLogReaderTest} では、この食い違いに気づけない。
  *
+ * <p>{@code CHANNEL_LOG} の {@code <fileNamePattern>} も、{@code ChannelLogReader} が日付で回った過去のファイルを
+ * 探す名前の形と対になっている（#558）。片方だけ変えると、ログ画面から前日より前の行が黙って消え、何も失敗しないので
+ * 気づけない。そのため {@code <fileNamePattern>} から作った名前のファイルも読み返す（{@code ReadBack} の testMethod04）。
+ *
  * <p>{@code logback-spring.xml} を読み込んだ {@code LoggerContext} は作らない。作るとチャンネル別の
  * ファイル出力が作業ディレクトリの {@code logs/} に書き込まれる（#187）。{@code <pattern>} の文字列だけを取り出し、
  * このテストの中だけの {@link PatternLayout} で 1 件ずつ整形する。

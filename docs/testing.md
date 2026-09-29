@@ -46,7 +46,8 @@ JPQL・メソッド名から作るクエリ（`findByUserOrderBySubscribedAtDesc
   Spring の起動が 1 回増える。**そのうえ同じ `testdb` を使うと、後から起動したコンテキストの `ddl-auto: create-drop` が
   表を作り直し、先に起動したコンテキストが入れた行（初期管理者を含む）が消える**（テストは 1 つの JVM で動き、
   `DB_CLOSE_DELAY=-1` の名前付きのインメモリ DB は JVM の中で共有されるため）。設定を変えるときは、
-  `@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:<testdb 以外の名前>;DB_CLOSE_DELAY=-1")` で DB の名前を変える。
+  `@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:<testdb 以外の名前>;DB_CLOSE_DELAY=-1")` で DB の名前を変える
+  （例：`cli` プロファイルで起動する `YouTubeLiveMonitorApplicationTest` の `jdbc:h2:mem:clitest`）。
 
 ### JS のテスト
 
