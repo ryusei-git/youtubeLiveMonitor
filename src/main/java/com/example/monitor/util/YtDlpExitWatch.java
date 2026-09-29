@@ -28,7 +28,8 @@ import java.util.function.Consumer;
  * <p>管理者への通知を {@link Consumer} で受け取るのは、{@code util} は Bean に依存しない決まり
  * （{@code package-info.java}）だから。呼び出し側が {@code DiscordNotifier::sendAdminAlert} を渡す。
  *
- * <p>固まりの判定材料は {@link RecordingActivity} のとおりで、録画ファイルと yt-dlp のログの両方を見る。
+ * <p>固まりの判定材料は {@link RecordingActivity} のとおりで、出力のファイル（録画・ダウンロードとも {@code {動画ID}.*}）と
+ * yt-dlp のログの両方を見る。
  * 止め方は {@link ProcessTermination#terminateTreeAndAwait(ProcessHandle, Duration)} のとおりで、子孫ごと止める。
  */
 @Slf4j
