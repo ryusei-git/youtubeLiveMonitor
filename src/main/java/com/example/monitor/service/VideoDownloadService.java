@@ -14,6 +14,7 @@ import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.RecordingNotFoundException;
 import com.example.monitor.exception.ServiceDownloadInProgressException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
+import com.example.monitor.notification.DiscordNotifier;
 import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.AppUserRepository;
@@ -25,6 +26,8 @@ import com.example.monitor.util.ChannelLogContext;
 import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.RequestContext;
+import com.example.monitor.util.YtDlpExitWatch;
+import com.example.monitor.util.YtDlpExitWatch.ExitResult;
 import com.example.monitor.util.YtDlpFormatSelector;
 import com.example.monitor.util.YtDlpJsRuntime;
 import com.example.monitor.util.YtDlpLogFile;
@@ -72,6 +75,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * （{@link StreamRecorder} のクラス JavaDoc 参照）。ファイルなら再起動しても最後までダウンロードする。
  * 完了を待つ仮想スレッドは失われるが、{@link RecordingReconciler} が {@code RECORDING} のまま残った履歴を
  * 実ファイルの有無で補正するため、録画と同じように救済される。
+ *
+ * <p>完了は録画と同じ {@link YtDlpExitWatch} で待ち、出力が止まった yt-dlp と空き容量が下限を割ったときの yt-dlp は
+ * 子孫ごと止める。以前はこのクラスだけ {@link Process#waitFor()} で上限なく待っており、固まると {@code RECORDING} のまま、
+ * 動画 ID も予約されたまま残った（削除は 409、後始末も「処理中」として触らない）。
+ * 見回りを録画と共有しているのは、片方だけ直すずれを防ぐため。
  */
 @Service
 @RequiredArgsConstructor
@@ -117,12 +125,23 @@ public class VideoDownloadService {
     /**
      * ダウンロードを始めるのに必要な空き容量（GB）。自動録画（{@link StreamRecorder}）と同じ設定を使う。
      * 録画と手動ダウンロードは同じボリュームに書くため、片方だけ確かめても満杯は防げない。
+     * ダウンロード中も、録画と同じく {@link DiskSpaceUtils#reserveBytes(long)} を下限に見回り、割ったら止める（{@link YtDlpExitWatch}）。
      *
      * <p>初期値を 0（確認しない）にしているのは、Spring を通さずに組み立てるテストが、
      * 実行した機械の空き容量に左右されないようにするため（{@link StreamRecorder} と同じ）。
      */
     @Value("${monitor.recording.min-free-gb:20}")
     private long minFreeGb = 0;
+
+    /**
+     * 出力がこの分数だけ更新されなければ、固まったとみなしてダウンロードを止める（{@link YtDlpExitWatch}）。
+     * 自動録画（{@link StreamRecorder}）と同じ設定キーを読む。同じ yt-dlp・同じ出力の形なので、しきい値を分ける理由が無い。
+     * 30 分と長めに取る理由は {@link StreamRecorder} の同名のフィールドを参照。
+     *
+     * <p>{@link MonitorProperties.RecordingProperties} に入れない理由は {@link #jsRuntime} と同じ。
+     */
+    @Value("${monitor.recording.stall-minutes:30}")
+    private long stallMinutes = 30;
 
     /**
      * ダウンロード中の動画 ID の予約。同じ動画を二重にダウンロードしないために使う。
@@ -160,11 +179,19 @@ public class VideoDownloadService {
      * 枠が外れないまま残る事故は起きない（{@code docs/pitfalls.md}「録画中にアプリを再起動すると
      * 「録画中」のまま更新されなくなる」）。
      *
-     * <p>枠は完了待ち（{@link #awaitCompletion}）が終わるまで外れない。いまの完了待ちは
-     * {@code process.waitFor()} を上限なしで待つので、{@code yt-dlp} が固まると、その利用者は再起動まで
-     * 次を保存できない（固まり検知は #595 で入る。端末に保存の枠も同じ性質）。
+     * <p>枠は完了待ち（{@link #awaitCompletion}）が終わるまで外れない。{@code yt-dlp} が固まっても、完了待ちが
+     * 出力の止まった {@code yt-dlp} を {@link #stallMinutes} 分で止める（{@link YtDlpExitWatch}）ので、再起動を待たずに外れる
+     * （端末に保存の枠は、期限切れで止めるまで外れない）。
      */
     private final Map<Long, String> userSlots = new ConcurrentHashMap<>();
+
+    /**
+     * 固まったダウンロードを止めたことを管理者へ知らせるために使う（{@link YtDlpExitWatch}。録画と同じ）。
+     *
+     * <p>ダウンロードの失敗（{@code FAILED}）そのものは知らせない。操作した人が画面で結果を見るため。
+     * 止めたときだけ知らせるのは、yt-dlp の更新や空き容量の確保が要る兆しで、操作した人には分からないため。
+     */
+    private final DiscordNotifier discordNotifier;
 
     /**
      * URL を指定して動画のダウンロードを開始する。
@@ -415,6 +442,7 @@ public class VideoDownloadService {
         }
 
         Path outputFile = outputDirectory.resolve(videoId + ".mp4");
+        String channelName = channel == null ? "(未登録)" : channel.getChannelName();
         // 区切り文字は OS に依らず "/"（RecordingFileService.toRelativePath と揃える）
         String relativeFilePath = directoryName + "/" + videoId + ".mp4";
 
@@ -442,11 +470,11 @@ public class VideoDownloadService {
         }
 
         log.info("動画のダウンロードを開始しました: video={}, title={}, channel={}, directory={}",
-                videoId, title, channel == null ? "(未登録)" : channel.getChannelName(), outputDirectory);
+                videoId, title, channelName, outputDirectory);
 
         Thread.ofVirtual()
                 .name("download-" + videoId)
-                .start(() -> awaitCompletion(process, recording.getId(), videoId, outputFile, channelId));
+                .start(() -> awaitCompletion(process, recording.getId(), videoId, outputFile, channelId, channelName));
 
         return new DownloadResponse(
                 recording.getId(),
@@ -507,15 +535,17 @@ public class VideoDownloadService {
      * @param videoId     対象の動画 ID
      * @param outputFile  完成予定のファイルのパス
      * @param channelId   紐づいたチャンネル識別子。無ければ {@code null}
+     * @param channelName ログと通知に出すチャンネル名（紐づくチャンネルが無ければ {@code "(未登録)"}）
      */
-    void awaitCompletion(Process process, Long recordingId, String videoId, Path outputFile, String channelId) {
+    void awaitCompletion(Process process, Long recordingId, String videoId, Path outputFile, String channelId,
+                         String channelName) {
         try {
             // チャンネルが分かっているならチャンネル別ログにも残す（後から経緯を追えるように）
             if (channelId == null) {
-                runToCompletion(process, recordingId, videoId, outputFile);
+                runToCompletion(process, recordingId, videoId, outputFile, channelName);
             } else {
                 ChannelLogContext.runWithChannel(channelId,
-                        () -> runToCompletion(process, recordingId, videoId, outputFile));
+                        () -> runToCompletion(process, recordingId, videoId, outputFile, channelName));
             }
         } catch (RuntimeException e) {
             // 仮想スレッドの既定の処理（標準エラー）に流さず、アプリのログ（/logs 画面の「システム」）に残す。
@@ -535,21 +565,32 @@ public class VideoDownloadService {
      * プロセスの終了を待ち、結果を録画履歴に反映する。
      *
      * <p>出力は {@link YtDlpLogFile} のファイルへ向けているため（クラスの JavaDoc 参照）、ここでは読まない。
+     * 出力が止まった yt-dlp と、空き容量が下限を割ったときの yt-dlp は {@link YtDlpExitWatch#awaitExit} が子孫ごと止める
+     * （録画と同じ）。止めた後は、止まるまでの分を救済して記録する（録り直しは無い）。
      *
      * @param process     起動済みのダウンロードプロセス
      * @param recordingId 録画履歴の主キー
      * @param videoId     対象の動画 ID
      * @param outputFile  完成予定のファイルのパス
+     * @param channelName ログと通知に出すチャンネル名（紐づくチャンネルが無ければ {@code "(未登録)"}）
      */
-    private void runToCompletion(Process process, Long recordingId, String videoId, Path outputFile) {
-        try {
-            recordOutcome(recordingId, videoId, outputFile, process.waitFor());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.warn("ダウンロードの完了待ちが中断されました: video={}", videoId);
-            // 中断された場合も、既にファイルが出来ていれば成功として扱う
-            recordOutcome(recordingId, videoId, outputFile, null);
+    private void runToCompletion(Process process, Long recordingId, String videoId, Path outputFile,
+                                 String channelName) {
+        ExitResult exit = YtDlpExitWatch.awaitExit(process, "ダウンロード", channelName, videoId, outputFile.getParent(),
+                stallMinutes, minFreeGb, discordNotifier::sendAdminAlert);
+        if (exit.exitCode() != null) {
+            // プロセスが終わった後に残る .temp.mp4 は結合の書きかけ。詰め替えの前に空きを返す（録画と同じ）
+            YtDlpExitWatch.deleteMergeLeftover(outputFile.getParent(), videoId);
         }
+        // チャンネルの削除で行が連鎖削除され、プロセスも止められたときは、詰め替えも記録もしない
+        // （StreamRecorder.awaitCompletion と同じ）。詰め替えても、記録する行が無い
+        if (!recordingHistoryService.exists(recordingId)) {
+            log.info("録画履歴が削除されているため（チャンネルの削除）、ダウンロードの結果を記録しません: video={}, exitCode={}",
+                    videoId, exit.exitCode());
+            return;
+        }
+        // 待機が中断されたとき（exitCode が null）も、既にファイルが出来ていれば成功として扱う
+        recordOutcome(recordingId, videoId, outputFile, exit.exitCode());
     }
 
     /**
