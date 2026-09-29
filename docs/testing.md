@@ -106,6 +106,8 @@ node --test src/test/js/*.test.cjs    # リポジトリの直下で実行する
   仮想スレッドを通さず、テストのスレッドで直接呼んで確かめるため（`StreamRecorderTest` の `AwaitCompletion`）
 - `YouTubeSearchBudget` に package-private の `YouTubeSearchBudget(…, Clock)` がある（本番は `Clock.systemUTC()` を渡す、`@Autowired` を付けた
   public のコンストラクタ）。回数が戻る太平洋時間の 0 時の前後・夏時間の切り替えを、固定の時刻で確かめるため（`YouTubeSearchBudgetTest`）
+- `DefaultProcessLauncher` の `isWorkerProcess(ProcessHandle.Info)`・`isYtDlp(ProcessHandle.Info)` は package-private（元は private）。
+  呼び出し元が使う `ProcessHandle.allProcesses()` は差し替えられないので、判定の部品だけを直接呼んで確かめるため（`DefaultProcessLauncherTest`）
 
 ### モック化が難しい箇所への対応
 
