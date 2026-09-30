@@ -2,8 +2,10 @@ spring:
   main:
     banner-mode: off
     # コマンドが使う Bean だけを作る。既定では、コマンドと関係の無い通知・録画・画面の API の
-    # Bean まで作っていた（#184）。なお picocli は実行しないサブコマンドも作るため、--help でも
-    # チャンネルの管理（と DB への接続）までは作られる。
+    # Bean まで作っていた（#184）。picocli は実行するコマンドとその親だけを作るので、--help では
+    # チャンネルの管理（MonitoredChannelService）は作られない。ただし DB への接続（dataSource・
+    # entityManagerFactory）は、遅延初期化にしても Spring の起動の中で作られる。--help でも DB につなぎ、
+    # DB のファイルが無ければ作る。
     lazy-initialization: true
 
   datasource:

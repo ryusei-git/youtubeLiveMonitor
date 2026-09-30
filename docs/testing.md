@@ -108,6 +108,10 @@ node --test src/test/js/*.test.cjs    # リポジトリの直下で実行する
   public のコンストラクタ）。回数が戻る太平洋時間の 0 時の前後・夏時間の切り替えを、固定の時刻で確かめるため（`YouTubeSearchBudgetTest`）
 - `DefaultProcessLauncher` の `isWorkerProcess(ProcessHandle.Info)`・`isYtDlp(ProcessHandle.Info)` は package-private（元は private）。
   呼び出し元が使う `ProcessHandle.allProcesses()` は差し替えられないので、判定の部品だけを直接呼んで確かめるため（`DefaultProcessLauncherTest`）
+- `ResourceMonitorService` の `evaluateWarnings()`・`helperUsages()`・`serviceUsage()`・`recordingVideoId()`・`helperPurpose()`・`add()` と、
+  record の `Baseline`・`CpuMeter` は package-private（元は private）。`helperUsages()`・`serviceUsage()` は `measure()` から、
+  `evaluateWarnings()` は `warnings()` から切り出した（動きは変えていない）。OSHI で実際に測らずに、注意の判定と集計を
+  決めた値で確かめるため（`ResourceMonitorServiceTest`）。どれも JavaDoc に「`private` に戻さない」と書いてある
 
 ### モック化が難しい箇所への対応
 
@@ -144,3 +148,19 @@ node --test src/test/js/*.test.cjs    # リポジトリの直下で実行する
   合図が来る場合は、完了待ちを別スレッドで動かし、終わるまで `confirmStillLive()` を送り続ける
   （待つスレッドが無ければ何もしないので、送り続けてよい。`StreamRecorderTest` の `awaitCompletionWhileConfirming`）。
   `Thread.sleep` で待ち始めを見計らわない。
+- **`ProcessHandle` のモックの `onExit()` はスタブしなくてよい**: Mockito 5 の既定の応答では、`onExit()` は完了済みの
+  `CompletableFuture`（値は `null`）を、`descendants()` は空の `Stream` を返す。そのため `mock(ProcessHandle.class)` のままでも
+  `ProcessTermination.terminateTreeAndAwait` の `onExit().get(...)` はすぐに返る（`StreamRecorderTest` の `processNotExiting()`）。
+  終わらないプロセスを模すときだけ、`new CompletableFuture<>()` を返すようにスタブする（`ProcessTerminationTest`）。
+- **OSHI の `OSProcess` のモック**（`ResourceMonitorServiceTest`）: プロセスのモックを作るヘルパー `process()` が、分岐によって
+  呼ばれない getter までまとめてスタブする。厳密スタブの検査を受けると `UnnecessaryStubbingException` になるので、
+  このクラスには `@ExtendWith(MockitoExtension.class)` を付けない。
+- **`mockStatic`・`mockConstruction` は、それを作ったスレッドにしか効かない**（`SoundDetectionServiceTest`）: ほかのスレッドでは
+  本物が動く（`PcmDecoder.open()` なら本物の `nice ffmpeg`）。仮想スレッドへ逃がす入口（`SoundDetectionService` の
+  `startPending()`・`startDetection()`）は呼ばず、テストのスレッドから直接呼べる入口（`detect()`・`processPending()`）で確かめる。
+  - `@DataJpaTest` のテストのトランザクションはコミットされないので、ほかのスレッドからはテストが入れた行が見えない
+    （外部キーの待ちで止まりうる）。これもスレッドを立てない理由になる。
+  - 処理の途中でアプリの終了が始まる場合は、`mockConstruction` の中で `stop()` を呼んでから例外を投げると、スレッドを立てずに作れる
+    （`SoundDetectionServiceTest` の `detectStoppedMidway()`）。
+  - `final` のクラス（`EarKissDetector`・`PcmDecoder`）も、Mockito 5 の既定（inline）で `mockConstruction`・`mockStatic` できる。
+    テストのために `final` を外さない。
