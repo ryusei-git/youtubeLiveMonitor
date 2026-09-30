@@ -7,8 +7,10 @@ import com.example.monitor.config.MonitorProperties.TwitchProperties;
 import com.example.monitor.config.MonitorProperties.YouTubeProperties;
 import com.example.monitor.dto.DownloadResponse;
 import com.example.monitor.dto.VideoSource;
+import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
+import com.example.monitor.exception.InsufficientDiskSpaceException;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.notification.DiscordNotifier;
@@ -27,14 +29,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.AuthorityUtils;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -45,6 +52,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -467,6 +475,109 @@ class VideoDownloadServiceTest {
             // destroyForcibly() だけでは終わらない。実際に終了したことを確認してから解放する
             verify(process).waitFor();
             assertThat(service.isDownloading("aqz-KE-bpKQ")).isFalse();
+        }
+
+        @Test
+        @DisplayName("異常系：失敗の履歴だけでも、空きが足りず詰め替えを見送った録画があれば、消さずに空き容量の例外を投げて予約を外す")
+        void testMethod19(@TempDir Path tempDir) throws IOException {
+            givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
+            when(recordingRepository.existsByVideoId("aqz-KE-bpKQ")).thenReturn(true);
+            Recording failed = Recording.builder().id(10L).videoId("aqz-KE-bpKQ")
+                    .filePath("UCSMOQeBJ2RAnuFungnQOxLg/aqz-KE-bpKQ.mp4")
+                    .status(Recording.RecordingStatus.FAILED).build();
+            when(recordingRepository.findByVideoId("aqz-KE-bpKQ")).thenReturn(List.of(failed));
+            when(recordingFileService.resolveFilePath(failed)).thenReturn(tempDir.resolve("aqz-KE-bpKQ.mp4"));
+            when(recordingSalvager.lacksSpaceToSalvage(tempDir.resolve("aqz-KE-bpKQ.mp4"))).thenReturn(true);
+            VideoDownloadService service = newService(tempDir);
+
+            assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
+                    .isInstanceOf(InsufficientDiskSpaceException.class);
+
+            // 消すと、空きができれば直せたはずの録画を失う
+            verify(recordingHistoryService, never()).deleteRecording(any());
+            verify(processLauncher, never()).launch(any(), any());
+            // 予約が外れて、空きができればもう一度押せる
+            assertThat(service.isDownloading("aqz-KE-bpKQ")).isFalse();
+        }
+
+        @Test
+        @DisplayName("異常系：一般利用者の保存で詰め替えを見送った録画があれば、例外を投げて利用者の枠も外す")
+        void testMethod20(@TempDir Path tempDir) throws IOException {
+            givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
+            when(recordingRepository.existsByVideoId("aqz-KE-bpKQ")).thenReturn(true);
+            Recording failed = Recording.builder().id(10L).videoId("aqz-KE-bpKQ")
+                    .filePath("UCSMOQeBJ2RAnuFungnQOxLg/aqz-KE-bpKQ.mp4")
+                    .status(Recording.RecordingStatus.FAILED).build();
+            when(recordingRepository.findByVideoId("aqz-KE-bpKQ")).thenReturn(List.of(failed));
+            when(recordingFileService.resolveFilePath(failed)).thenReturn(tempDir.resolve("aqz-KE-bpKQ.mp4"));
+            when(recordingSalvager.lacksSpaceToSalvage(tempDir.resolve("aqz-KE-bpKQ.mp4"))).thenReturn(true);
+            AppUser alice = new AppUser("alice", "hashed-password", AppUser.Role.USER);
+            alice.setId(5L);
+            when(appUserRepository.findByUsername("alice")).thenReturn(Optional.of(alice));
+            VideoDownloadService service = newService(tempDir);
+
+            SecurityContextHolder.getContext().setAuthentication(
+                    new UsernamePasswordAuthenticationToken("alice", "n/a", AuthorityUtils.NO_AUTHORITIES));
+            try {
+                assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
+                        .isInstanceOf(InsufficientDiskSpaceException.class);
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
+
+            // 枠が残ると、この利用者は再起動まで保存できない
+            Map<Long, String> slots = (Map<Long, String>) ReflectionTestUtils.getField(service, "userSlots");
+            assertThat(slots).isEmpty();
+            assertThat(service.isDownloading("aqz-KE-bpKQ")).isFalse();
+        }
+
+        @Test
+        @DisplayName("異常系：失敗の履歴が2件で2件目だけ詰め替えを見送っていても、1件目も消さない")
+        void testMethod21(@TempDir Path tempDir) throws IOException {
+            givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
+            when(recordingRepository.existsByVideoId("aqz-KE-bpKQ")).thenReturn(true);
+            Recording first = Recording.builder().id(10L).videoId("aqz-KE-bpKQ")
+                    .filePath("UCSMOQeBJ2RAnuFungnQOxLg/aqz-KE-bpKQ.mp4")
+                    .status(Recording.RecordingStatus.FAILED).build();
+            Recording second = Recording.builder().id(11L).videoId("aqz-KE-bpKQ")
+                    .filePath("UCSMOQeBJ2RAnuFungnQOxLg/aqz-KE-bpKQ.f137.mp4")
+                    .status(Recording.RecordingStatus.FAILED).build();
+            when(recordingRepository.findByVideoId("aqz-KE-bpKQ")).thenReturn(List.of(first, second));
+            when(recordingFileService.resolveFilePath(first)).thenReturn(tempDir.resolve("first.mp4"));
+            when(recordingFileService.resolveFilePath(second)).thenReturn(tempDir.resolve("second.mp4"));
+            when(recordingSalvager.lacksSpaceToSalvage(tempDir.resolve("first.mp4"))).thenReturn(false);
+            when(recordingSalvager.lacksSpaceToSalvage(tempDir.resolve("second.mp4"))).thenReturn(true);
+            VideoDownloadService service = newService(tempDir);
+
+            assertThatThrownBy(() -> service.startDownload(YOUTUBE_URL))
+                    .isInstanceOf(InsufficientDiskSpaceException.class);
+
+            // すべて確かめ終える前に 1 件目を消していない
+            verify(recordingHistoryService, never()).deleteRecording(any());
+        }
+
+        @Test
+        @DisplayName("正常系：詰め替えを見送った録画が無ければ、失敗の履歴を消してからyt-dlpを起動する")
+        void testMethod22(@TempDir Path tempDir) throws IOException {
+            givenYouTubeVideo("UCSMOQeBJ2RAnuFungnQOxLg");
+            when(recordingRepository.existsByVideoId("aqz-KE-bpKQ")).thenReturn(true);
+            Recording failed = Recording.builder().id(10L).videoId("aqz-KE-bpKQ")
+                    .filePath("UCSMOQeBJ2RAnuFungnQOxLg/aqz-KE-bpKQ.mp4")
+                    .status(Recording.RecordingStatus.FAILED).build();
+            when(recordingRepository.findByVideoId("aqz-KE-bpKQ")).thenReturn(List.of(failed));
+            when(recordingFileService.resolveFilePath(failed)).thenReturn(tempDir.resolve("aqz-KE-bpKQ.mp4"));
+            when(recordingSalvager.lacksSpaceToSalvage(tempDir.resolve("aqz-KE-bpKQ.mp4"))).thenReturn(false);
+            when(monitoredChannelRepository.findByYoutubeChannelId(any())).thenReturn(Optional.empty());
+            // exitedProcess() の中でもスタブするので、when(...) の途中で呼ばずに先に作る
+            Process process = exitedProcess();
+            when(processLauncher.launch(any(), any())).thenReturn(process);
+
+            DownloadResponse response = newService(tempDir).startDownload(YOUTUBE_URL);
+
+            assertThat(response.videoId()).isEqualTo("aqz-KE-bpKQ");
+            InOrder order = inOrder(recordingHistoryService, processLauncher);
+            order.verify(recordingHistoryService).deleteRecording(10L);
+            order.verify(processLauncher).launch(any(), any());
         }
     }
 
