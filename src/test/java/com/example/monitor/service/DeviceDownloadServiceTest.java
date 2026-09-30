@@ -168,8 +168,9 @@ class DeviceDownloadServiceTest {
 
     /**
      * 止めたことを {@code destroy()} で確かめられる {@link ProcessHandle}。
-     * {@code onExit()} を完了済みにしておかないと、{@code ProcessTermination.terminateTreeAndAwait} が
-     * {@code onExit().get(...)} で NullPointerException になる（モックの既定値は null）。
+     * {@code onExit()} は、Mockito 5 の既定の応答でも完了済みの CompletableFuture（値は null）を返すので、
+     * スタブしなくても {@code ProcessTermination.terminateTreeAndAwait} はすぐに終わる。ここでは、止めた後に
+     * 終わっている相手であることを読み手に示すため、明示してスタブしている。
      */
     private ProcessHandle stoppableHandle() {
         ProcessHandle handle = mock(ProcessHandle.class);
