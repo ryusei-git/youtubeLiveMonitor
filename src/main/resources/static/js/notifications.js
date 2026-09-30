@@ -106,12 +106,14 @@
                 const tr = document.createElement("tr");
                 // 「動画」列は、サーバーが組み立てた URL だけをリンクにする（動画 ID から URL を推測しない）。
                 // Twitch の通知は URL が null で、動画 ID を文字で出す
+                // 結果は短いので通知時刻の次に置き、スマホ幅でも最初の表示に入れる。長い配信タイトルより
+                // 右にあると、列の幅に押されて入れ物の外に出てしまう（セルは折り返さないため）
                 tr.innerHTML = `
                     <td>${datetimeCell(h.notifiedAt)}</td>
+                    <td>${h.status === "SUCCESS" ? "成功" : '<span class="error">失敗</span>'}</td>
                     <td>${channelLink(h.channelName, h.channelUrl)}</td>
                     <td>${collapsibleCell(h.videoTitle)}</td>
                     <td>${externalLink(h.videoId, h.videoUrl)}</td>
-                    <td>${h.status === "SUCCESS" ? "成功" : '<span class="error">失敗</span>'}</td>
                     <td>${collapsibleCell(h.errorMessage)}</td>
                 `;
                 tbody.appendChild(tr);
