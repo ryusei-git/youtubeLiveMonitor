@@ -120,9 +120,12 @@ public class DatabaseTableService {
      * <p>物理名はエンティティのフィールド名から Hibernate の既定命名規則
      * （キャメルケース→スネークケース）で決まる。日本人管理者が読みやすいよう、
      * ここで日本語の論理名に対応付けている。
+     *
+     * <p>{@link #TABLE_LABELS} にテーブルを足したら、ここにもそのテーブルのカラムを足す。足し忘れても画面は
+     * 壊れない（物理名を出す）が、テーブル名だけ日本語で見出しが物理名のままの表になる（11 テーブルで起きていた）。
      */
-    private static final Map<String, Map<String, String>> COLUMN_LABELS = Map.of(
-            "CHANNELS", Map.ofEntries(
+    private static final Map<String, Map<String, String>> COLUMN_LABELS = Map.ofEntries(
+            Map.entry("CHANNELS", Map.ofEntries(
                     Map.entry("ID", "ID"),
                     Map.entry("PLATFORM", "プラットフォーム"),
                     Map.entry("YOUTUBE_CHANNEL_ID", "チャンネルID"),
@@ -143,8 +146,8 @@ public class DatabaseTableService {
                     Map.entry("LAST_RECORDED_VIDEO_ID", "最終録画動画ID"),
                     Map.entry("RECORD_TITLE_KEYWORDS", "タイトルフィルター（通知・録画）"),
                     Map.entry("CREATED_AT", "登録日時")
-            ),
-            "NOTIFICATION_HISTORY", Map.of(
+            )),
+            Map.entry("NOTIFICATION_HISTORY", Map.of(
                     "ID", "ID",
                     "CHANNEL_ID", "チャンネル（内部ID）",
                     "VIDEO_ID", "動画ID",
@@ -152,8 +155,8 @@ public class DatabaseTableService {
                     "STATUS", "送信結果",
                     "ERROR_MESSAGE", "エラー内容",
                     "NOTIFIED_AT", "通知日時"
-            ),
-            "RECORDINGS", Map.ofEntries(
+            )),
+            Map.entry("RECORDINGS", Map.ofEntries(
                     Map.entry("ID", "ID"),
                     Map.entry("CHANNEL_ID", "チャンネル（内部ID）"),
                     Map.entry("VIDEO_ID", "動画ID"),
@@ -167,7 +170,120 @@ public class DatabaseTableService {
                     Map.entry("STATUS", "状態"),
                     Map.entry("STARTED_AT", "開始日時"),
                     Map.entry("COMPLETED_AT", "完了日時")
-            )
+            )),
+            Map.entry("DISCOVERY_CANDIDATES", Map.ofEntries(
+                    Map.entry("CHANNEL_ID", "チャンネルID"),
+                    Map.entry("TITLE", "チャンネル名"),
+                    Map.entry("ICON_URL", "アイコンのURL"),
+                    Map.entry("DESCRIPTION", "説明（先頭500字）"),
+                    Map.entry("SUBSCRIBER_COUNT", "登録者数"),
+                    Map.entry("SUBSCRIBER_HIDDEN", "登録者数の非公開フラグ"),
+                    Map.entry("VIDEO_COUNT", "動画数"),
+                    Map.entry("CHANNEL_PUBLISHED_AT", "チャンネル開設日時"),
+                    Map.entry("FIRST_UPLOAD_AT", "最初の投稿日時"),
+                    Map.entry("SAMPLE_VIDEO_ID", "見本の動画ID"),
+                    Map.entry("SAMPLE_VIDEO_TITLE", "見本の動画のタイトル"),
+                    Map.entry("MATCHED_WORDS", "一致した語"),
+                    Map.entry("FOUND_BY_TERM", "見つけた検索語"),
+                    Map.entry("DISCOVERED_AT", "発見日時"),
+                    Map.entry("REFRESHED_AT", "最終取り直し日時"),
+                    Map.entry("STATUS", "判定"),
+                    Map.entry("DECIDED_BY", "判定した利用者"),
+                    Map.entry("DECIDED_AT", "判定日時")
+            )),
+            Map.entry("ONLINE_VIDEOS", Map.ofEntries(
+                    Map.entry("ID", "動画ID"),
+                    Map.entry("CHANNEL_ID", "チャンネル（内部ID）"),
+                    Map.entry("TITLE", "タイトル"),
+                    Map.entry("CONTENT_KIND", "動画の種類"),
+                    Map.entry("LIVE", "配信中フラグ"),
+                    Map.entry("WATCH_URL", "視聴URL"),
+                    Map.entry("LIVE_WATCH_URL", "配信の視聴URL"),
+                    Map.entry("THUMBNAIL_URL", "サムネイルのURL"),
+                    Map.entry("THUMBNAIL_ATTEMPTS", "サムネイル取得の試行回数"),
+                    Map.entry("THUMBNAIL_NEXT_ATTEMPT_AT", "サムネイルの次の取得日時"),
+                    Map.entry("PUBLISHED_AT", "公開日時"),
+                    Map.entry("SCHEDULED_START_TIME", "配信予定の開始時刻"),
+                    Map.entry("DISCOVERED_AT", "発見日時"),
+                    Map.entry("LAST_OBSERVED_AT", "最終確認日時")
+            )),
+            Map.entry("RECORDING_MARKS", Map.of(
+                    "ID", "ID",
+                    "USER_ID", "利用者（内部ID）",
+                    "RECORDING_ID", "録画（内部ID）",
+                    "WATCHED_AT", "視聴済みにした日時",
+                    "FAVORITE", "お気に入りフラグ",
+                    "POSITION_SECONDS", "再生位置（秒）",
+                    "POSITION_UPDATED_AT", "再生位置の更新日時"
+            )),
+            Map.entry("SOUND_CANDIDATES", Map.ofEntries(
+                    Map.entry("ID", "ID"),
+                    Map.entry("RECORDING_ID", "録画（内部ID）"),
+                    Map.entry("KIND", "種類"),
+                    Map.entry("POSITION_MS", "位置（ミリ秒）"),
+                    Map.entry("SCORE", "検出器の点数（0〜1）"),
+                    Map.entry("DETECTOR_VERSION", "検出器の版"),
+                    Map.entry("VERDICT", "答え"),
+                    Map.entry("REVIEWED_BY_ID", "答えた利用者（内部ID）"),
+                    Map.entry("REVIEWED_AT", "答えた日時"),
+                    Map.entry("CREATED_AT", "候補を付けた日時"),
+                    Map.entry("CARRIED_FROM_ID", "引き継ぎ元の候補（内部ID）")
+            )),
+            Map.entry("SOUND_DETECTION_RUNS", Map.of(
+                    "ID", "ID",
+                    "RECORDING_ID", "録画（内部ID）",
+                    "KIND", "種類",
+                    "DETECTOR_VERSION", "検出器の版",
+                    "STATUS", "結果",
+                    "CANDIDATE_COUNT", "候補の数",
+                    "ATTEMPTS", "試行回数",
+                    "MESSAGE", "失敗の理由",
+                    "STARTED_AT", "開始日時",
+                    "FINISHED_AT", "終了日時"
+            )),
+            Map.entry("SOUND_MARKS", Map.of(
+                    "ID", "ID",
+                    "RECORDING_ID", "録画（内部ID）",
+                    "USER_ID", "利用者（内部ID）",
+                    "KIND", "種類",
+                    "POSITION_MS", "位置（ミリ秒）",
+                    "CREATED_AT", "印を付けた日時"
+            )),
+            Map.entry("USER_NOTIFICATIONS", Map.of(
+                    "ID", "ID",
+                    "USER_ID", "利用者（内部ID）",
+                    "VIDEO_ID", "動画ID",
+                    "NOTIFIED_AT", "通知日時",
+                    "FAILURE_COUNT", "送信の失敗回数",
+                    "LAST_FAILED_AT", "最終失敗日時",
+                    "LAST_ERROR", "最後のエラー内容"
+            )),
+            Map.entry("USER_SUBSCRIPTIONS", Map.of(
+                    "ID", "ID",
+                    "USER_ID", "利用者（内部ID）",
+                    "CHANNEL_ID", "チャンネル（内部ID）",
+                    "SUBSCRIBED_AT", "購読日時",
+                    "NOTIFY_ENABLED", "通知フラグ",
+                    "RECORD_ENABLED", "自動録画の希望フラグ",
+                    "RECORD_TITLE_KEYWORDS", "タイトルフィルター（録画）"
+            )),
+            Map.entry("VIDEO_COLLECTION_QUOTA", Map.of(
+                    "ID", "ID",
+                    "QUOTA_DATE", "日付",
+                    "REQUESTS", "APIの使用回数"
+            )),
+            Map.entry("VIDEO_COLLECTION_STATES", Map.of(
+                    "ID", "チャンネル（内部ID）",
+                    "COLLECTING_SINCE", "収集の開始日時",
+                    "CHECKED_AT", "最終確認日時",
+                    "SUCCEEDED_AT", "最終成功日時",
+                    "FAILED", "失敗中フラグ"
+            )),
+            Map.entry("VIDEO_THUMBNAILS", Map.of(
+                    "ID", "動画ID",
+                    "CONTENT_TYPE", "画像の形式（Content-Type）",
+                    "CONTENT", "画像"
+            ))
     );
 
     /**
