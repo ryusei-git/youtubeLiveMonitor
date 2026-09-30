@@ -1694,13 +1694,14 @@ const myNotificationSettingsView = {
         /**
          * 表示を configured に合わせる。テスト送信・解除は登録した Webhook への操作なので、登録しているときだけ出す
          * （未設定のときに押せないボタンを先に見せると、最初にやる保存が下に押し出されるため）
+         * 警告も登録しているときだけ出す（未設定なら、警告が指すテスト送信のボタンが無いため）
          */
         const showState = () => {
             if (settings !== null) {
                 state.textContent = settings.configured ? "設定済み" : "未設定";
                 history.textContent = `最後に届けた日時: ${settings.lastDeliveredAt ? formatInstant(settings.lastDeliveredAt) : "まだありません"}`;
                 warning.textContent = `最近の通知が届いていません（${formatInstant(settings.lastFailedAt)}）。Discord 側で Webhook かチャンネルが削除された可能性があります。Webhook を作り直して保存し、「テスト送信」で確かめてください。`;
-                warning.hidden = !settings.failing;
+                warning.hidden = !(settings.configured && settings.failing);
             }
             testBtn.disabled = removeBtn.disabled = settings?.configured !== true;
             actions.hidden = settings?.configured !== true;
