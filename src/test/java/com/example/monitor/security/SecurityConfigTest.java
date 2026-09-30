@@ -51,6 +51,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -154,10 +155,10 @@ class SecurityConfigTest {
     /**
      * 管理者だけに開いている画面と API の一覧。SecurityConfig に ADMIN の規則を足したら、ここにも 1 行足す。
      * 行が欠けると、その規則が既定の authenticated() に落ちても気づけない（以前、一般利用者がチャンネルを削除できた）。
+     * 入口（{@code /}）は一般利用者を {@code /my} へ送るので入れない（{@code DeniedResponses} で確かめる）。
      */
     static Stream<Arguments> adminOnlyRequests() {
         return Stream.of(
-                Arguments.of(HttpMethod.GET, "/"),
                 Arguments.of(HttpMethod.GET, "/index.html"),
                 Arguments.of(HttpMethod.GET, "/tables.html"),
                 Arguments.of(HttpMethod.GET, "/invitations.html"),
@@ -631,10 +632,11 @@ class SecurityConfigTest {
         }
 
         @Test
-        @DisplayName("正常系：サイトの入口（/）の403は監査ログに残さない")
+        @DisplayName("正常系：一般利用者がサイトの入口（/）を開くと/myへ送られ、監査ログに残らない")
         void testMethod04() throws Exception {
             mockMvc.perform(get("/").with(user("t04-root-user").roles("USER")))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isFound())
+                    .andExpect(redirectedUrl("/my"));
 
             assertThat(auditLogs("t04-root-user", AuditAction.ACCESS_DENIED)).isEmpty();
         }
