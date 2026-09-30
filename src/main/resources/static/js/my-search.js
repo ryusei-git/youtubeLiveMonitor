@@ -334,7 +334,7 @@ const mySearchView = {
                   </select>
                   <label><input type="checkbox" name="excludeShorts" value="true"> Shorts（3 分以下）を除く</label>
                   <label><input type="checkbox" name="excludeSaved" value="true"> 保存済みを除く</label>
-                  <button type="reset">条件をクリア</button>
+                  <button type="button" class="clearDetailBtn">条件をクリア</button>
                 </div>
               </details>
             </form>
@@ -389,16 +389,37 @@ const mySearchView = {
                 field.value = value;
             }
         }
+        /** 詳しい条件の欄。「条件をクリア」で空にする範囲と、指定中の数を数える範囲。 */
+        const detailFields = Array.from(fields).filter((field) => MY_SEARCH_DETAIL_FIELDS.includes(field.name));
         const syncPeriod = () => { period.hidden = posted.value !== "custom"; };
         posted.addEventListener("change", syncPeriod);
         syncPeriod();
         // 詳しい条件を指定しているときは開き、何で絞り込んでいるかを見せる（アーカイブの畳み方と同じ）
-        const detailCount = MY_SEARCH_DETAIL_FIELDS.filter((name) => params.get(name)).length;
-        query(".filterCount", form).textContent = detailCount > 0 ? `${detailCount}件の条件を指定中` : "";
+        /**
+         * 詳しい条件のうち、既定から変えている欄の数を「詳しい条件」の横に出す。
+         * URL ではなく欄の中身から数える。「条件をクリア」や入力で欄が変わったとき、
+         * 押す前の数が残らないようにするため。
+         * 既定かどうかは検索（submit）で URL に載せるかの判定と同じにする
+         * （セーフサーチの「標準」は数えない）。
+         * @returns {number} 指定中の欄の数
+         */
+        const syncDetailCount = () => {
+            const count = detailFields.filter((field) => {
+                const value = field instanceof HTMLInputElement && field.type === "checkbox"
+                    ? (field.checked ? field.value : "") : field.value.trim();
+                return !(!value || (field instanceof HTMLSelectElement && value === field.options[0].value));
+            }).length;
+            query(".filterCount", form).textContent = count > 0 ? `${count}件の条件を指定中` : "";
+            return count;
+        };
+        const detailCount = syncDetailCount();
         more.open = detailCount > 0;
         const summaryEl = query("summary", more);
         const syncExpanded = () => summaryEl.setAttribute("aria-expanded", String(more.open));
         more.addEventListener("toggle", syncExpanded);
+        // 入力しただけ（まだ検索していない）でも、欄の中身と件数が食い違わないようにする
+        more.addEventListener("input", syncDetailCount);
+        more.addEventListener("change", syncDetailCount);
         syncExpanded();
 
         /**
@@ -526,7 +547,17 @@ const mySearchView = {
             // 今の結果の位置を残してから移るので、「戻る」で前の検索結果の同じ位置へ戻れる
             myNavigate(url);
         });
-        form.addEventListener("reset", () => window.setTimeout(syncPeriod));
+        // 「詳しい条件」の中のボタンなので、詳しい条件の欄だけを既定へ戻す。
+        // キーワードや並び順・投稿日などは残す。検索はし直さない
+        // （押すたびに検索の回数を使わないよう、検索ボタンを押したときだけ探す）
+        query(".clearDetailBtn", form).addEventListener("click", () => {
+            for (const field of detailFields) {
+                if (field instanceof HTMLSelectElement) field.value = field.options[0].value;
+                else if (field.type === "checkbox") field.checked = false;
+                else field.value = "";
+            }
+            syncDetailCount();
+        });
         moreButton.addEventListener("click", async () => {
             const token = nextPageToken;
             // 足せたページだけを残す（読めなかったページは「戻る」で足し直さない）
