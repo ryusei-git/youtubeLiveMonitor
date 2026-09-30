@@ -195,6 +195,11 @@ p.error { background: #fff0ee; border: 1px solid #f1d2cc; border-radius: 9px; pa
 .globalnav a { white-space: nowrap; }
 .pageHead { border-bottom: 0; padding-bottom: 0; }
 .table-scroll table { min-width: 100%; }
+/* マイチャンネルの表は 9 列あり、既定の余白（左右 16px）では幅 1280 の PC でも「通知」「解除」の列が
+   入れ物の外へはみ出す。折り返しは許さない（一覧のセルは 1 行）ので、この表だけ余白を詰め、長いキーワードは
+   末尾を省く（全文はボタンの title にある）。 */
+.myChannelsTable th, .myChannelsTable td { padding: 13px 10px; }
+.myChannelsTable .titleFilterCell .filterValue { max-width: 12em; }
 @media (max-width: 760px) {
     /* 縦並びではflex-basisが高さになるため、検索欄にデスクトップ用の幅を継承しない。 */
     #filterForm input[type="search"] { flex: none; height: 40px; }
