@@ -34,16 +34,24 @@ public class LoginAttemptFilter extends OncePerRequestFilter {
             response.setContentType("text/html;charset=UTF-8");
             // 管理者用の画面から来たなら管理者用のログイン画面へ戻す
             String loginPage = PortalAwareAuthenticationProvider.isAdminPortal(request) ? "/adminLogin.html" : "/userLogin.html";
+            // 秒のままだと「900秒」と出て分かりにくいので、分に切り上げて見せる（1〜59 秒は「約1分」）
+            long waitMinutes = (attempt.retryAfterSeconds() + 59) / 60;
             response.getWriter().write("""
                     <!doctype html><html lang="ja"><head><meta charset="UTF-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1">
                     <title>ログインを一時制限中 - Live Monitor</title>
-                    <link rel="stylesheet" href="/css/style.css"></head><body><main class="shell">
+                    <link rel="stylesheet" href="/css/style.css">
+                    <link rel="stylesheet" href="/css/studio.css"></head><body>
+                    <header class="masthead"><div class="shell"><span class="brand">
+                    <span class="brand-name">LIVE MONITOR</span>
+                    <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+                    </span></div></header>
+                    <main class="shell">
                     <h1>ログインを一時制限しています</h1>
-                    <p>ログインの試行が上限に達しました。時間をおいて、もう一度お試しください。</p>
+                    <p>ログインの試行が上限に達しました。約%d分後に、もう一度お試しください。</p>
                     <p><a href="%s">ログイン画面へ戻る</a></p>
                     </main></body></html>
-                    """.formatted(loginPage));
+                    """.formatted(waitMinutes, loginPage));
             return;
         }
         boolean successful = false;
