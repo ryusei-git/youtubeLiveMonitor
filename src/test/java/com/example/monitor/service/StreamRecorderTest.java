@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -456,6 +457,84 @@ class StreamRecorderTest {
 
             assertThat(result).isFalse();
             assertThat(stopRequestedOf(recorder)).doesNotContain("video001");
+        }
+
+        @Test
+        @DisplayName("異常系：予約を押さえている録画の行が消えていれば（チャンネルの削除）、起動せずfalseを返す")
+        void testMethod17(@TempDir Path tempDir) throws IOException {
+            // true を返すと巡回が lastRecordedVideoId を更新し、登録し直したチャンネルでこの配信を録らなくなる
+            StreamRecorder recorder = newRecorder(tempDir);
+            MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
+            activeRecordingsOf(recorder).add("video001");
+            Map<String, Long> trackedRecordingIds =
+                    (Map<String, Long>) ReflectionTestUtils.getField(recorder, "trackedRecordingIds");
+            trackedRecordingIds.put("video001", 100L);
+            when(recordingHistoryService.exists(100L)).thenReturn(false);
+
+            boolean result = recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル");
+
+            assertThat(result).isFalse();
+            verify(processLauncher, never()).launch(any(), any());
+            // 予約を取っていないので、他人の予約を外さない
+            assertThat(activeRecordingsOf(recorder)).contains("video001");
+        }
+
+        @Test
+        @DisplayName("異常系：行が消えた録画が巡回の合図を待っていれば、待ちを解いてからfalseを返す")
+        void testMethod18(@TempDir Path tempDir) {
+            StreamRecorder recorder = newRecorder(tempDir);
+            MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
+            activeRecordingsOf(recorder).add("video001");
+            Map<String, Long> trackedRecordingIds =
+                    (Map<String, Long>) ReflectionTestUtils.getField(recorder, "trackedRecordingIds");
+            trackedRecordingIds.put("video001", 100L);
+            when(recordingHistoryService.exists(100L)).thenReturn(false);
+            CompletableFuture<Void> waiting = new CompletableFuture<>();
+            Map<String, CompletableFuture<Void>> liveConfirmations =
+                    (Map<String, CompletableFuture<Void>>) ReflectionTestUtils.getField(recorder, "liveConfirmations");
+            liveConfirmations.put("video001", waiting);
+
+            boolean result = recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル");
+
+            assertThat(result).isFalse();
+            // 起きた録画スレッドは行が無いのを見て録り直さずに終わり、予約を早く外す
+            assertThat(waiting).isDone();
+        }
+
+        @Test
+        @DisplayName("正常系：予約を押さえている録画の行が残っていれば、今までどおり起動せずtrueを返す")
+        void testMethod19(@TempDir Path tempDir) throws IOException {
+            StreamRecorder recorder = newRecorder(tempDir);
+            MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
+            activeRecordingsOf(recorder).add("video001");
+            Map<String, Long> trackedRecordingIds =
+                    (Map<String, Long>) ReflectionTestUtils.getField(recorder, "trackedRecordingIds");
+            trackedRecordingIds.put("video001", 100L);
+
+            boolean result = recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル");
+
+            assertThat(result).isTrue();
+            verify(recordingHistoryService).exists(100L);
+            verify(processLauncher, never()).launch(any(), any());
+        }
+
+        @Test
+        @DisplayName("異常系：押さえている録画の行を確かめられなければ例外を伝え、その録画の予約は外さない")
+        void testMethod20(@TempDir Path tempDir) {
+            // 「判定できなかった」を「録画中」と扱わない。巡回は lastRecordedVideoId を更新せず次の巡回で試み直す
+            StreamRecorder recorder = newRecorder(tempDir);
+            MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
+            activeRecordingsOf(recorder).add("video001");
+            Map<String, Long> trackedRecordingIds =
+                    (Map<String, Long>) ReflectionTestUtils.getField(recorder, "trackedRecordingIds");
+            trackedRecordingIds.put("video001", 100L);
+            when(recordingHistoryService.exists(100L)).thenThrow(new IllegalStateException("DB に接続できません"));
+
+            assertThatThrownBy(() -> recorder.startRecording(channel, WATCH_URL, "video001", "配信タイトル"))
+                    .isInstanceOf(IllegalStateException.class);
+
+            assertThat(activeRecordingsOf(recorder)).contains("video001");
+            assertThat(trackedRecordingIds).containsEntry("video001", 100L);
         }
     }
 
@@ -1100,6 +1179,42 @@ class StreamRecorderTest {
 
             assertThat(leftover).doesNotExist();
             verify(recordingHistoryService).markCompleted(100L, 100L);
+        }
+
+        @Test
+        @DisplayName("正常系：録画が終わると予約を外し、この録画の対応を消す")
+        void testMethod25(@TempDir Path tempDir) throws Exception {
+            StreamRecorder recorder = newRecorder(tempDir);
+            MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
+            Process process = processExiting(0);
+            stubFileExists(12345L);
+            activeRecordingsOf(recorder).add("video001");
+            Map<String, Long> trackedRecordingIds =
+                    (Map<String, Long>) ReflectionTestUtils.getField(recorder, "trackedRecordingIds");
+            trackedRecordingIds.put("video001", 100L);
+
+            recorder.awaitCompletion(process, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
+
+            assertThat(recorder.isRecording("video001")).isFalse();
+            assertThat(trackedRecordingIds).doesNotContainKey("video001");
+        }
+
+        @Test
+        @DisplayName("正常系：同じ動画IDに別の録画の対応が置かれていれば、それを消さない")
+        void testMethod26(@TempDir Path tempDir) throws Exception {
+            StreamRecorder recorder = newRecorder(tempDir);
+            MonitoredChannel channel = new MonitoredChannel("UCxxxxxxxx", "テストチャンネル");
+            Process process = processExiting(0);
+            stubFileExists(12345L);
+            activeRecordingsOf(recorder).add("video001");
+            Map<String, Long> trackedRecordingIds =
+                    (Map<String, Long>) ReflectionTestUtils.getField(recorder, "trackedRecordingIds");
+            // 予約が外れた直後に始まった次の録画を模す
+            trackedRecordingIds.put("video001", 200L);
+
+            recorder.awaitCompletion(process, channel, "video001", 100L, tempDir.resolve("video001.mp4"), null, null);
+
+            assertThat(trackedRecordingIds).containsEntry("video001", 200L);
         }
     }
 }
