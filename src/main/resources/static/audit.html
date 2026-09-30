@@ -78,12 +78,13 @@
     <button type="button" id="resetBtn">条件をクリア</button>
   </form>
 
-  <div class="table-scroll">
+  <div class="table-scroll" id="auditTableWrap">
     <table id="auditTable">
       <thead><tr><th>発生時刻</th><th>操作者</th><th>操作</th><th>対象</th><th>結果</th><th>IP</th><th>相関ID</th><th>詳細</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>
+  <div id="auditEmpty" hidden></div>
 
   <div class="inline">
     <button id="prevBtn">前へ</button>
