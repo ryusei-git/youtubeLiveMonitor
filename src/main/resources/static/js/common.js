@@ -1398,6 +1398,10 @@ function rampColor(index) {
  * <p>横位置は点の番号ではなく時刻から決める。記録が抜けた時間があっても時間の縮尺が狂わないため。
  * null は 0 として描かずに線を切る。計測できなかった時間を「0%」と読み違えさせないため。
  *
+ * <p>前後が null の点は線にならないため、小さな丸で描く。
+ * 時刻の目盛りは両端と時刻の中点に置く（点の番号の中央に置くと、
+ * 記録が少ないときや間隔が不揃いなときに端の目盛りと重なる）。
+ *
  * @param {Date[]} times 各点の時刻（古い順、2 点以上）
  * @param {LineSeries[]} series 描く線
  * @param {{format: (value: number) => string, max?: number, height?: number}} options
@@ -1415,8 +1419,10 @@ function lineChart(times, series, options) {
     const max = options.max ?? Math.max(...measured, 1) * 1.1;
     const start = times[0].getTime();
     const span = Math.max(times[times.length - 1].getTime() - start, 1);
-    /** @param {number} i */
-    const x = (i) => pad.left + ((times[i].getTime() - start) / span) * plotWidth;
+    /** @param {number} ms 時刻（エポックミリ秒） */
+    const xAt = (ms) => pad.left + ((ms - start) / span) * plotWidth;
+    /** @param {number} i 点の番号 */
+    const x = (i) => xAt(times[i].getTime());
     /** @param {number} v */
     const y = (v) => pad.top + plotHeight - Math.min(v / max, 1) * plotHeight;
 
@@ -1429,25 +1435,43 @@ function lineChart(times, series, options) {
 
     /** @param {Date} date */
     const clock = (date) => `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-    const last = times.length - 1;
-    const timeLabels = [[0, "start"], [Math.floor(last / 2), "middle"], [last, "end"]].map(([i, anchor]) =>
-        `<text x="${x(Number(i)).toFixed(1)}" y="${height - 4}" text-anchor="${anchor}" class="lineAxis">${clock(times[Number(i)])}</text>`
+    const end = times[times.length - 1].getTime();
+    // 中央の目盛りは点の番号の中央ではなく、時刻の中点に置く。番号の中央だと、
+    // 記録が 2 点のとき左端と同じ点になり、記録の間隔が不揃いなとき（アプリを止めていた時間がある）
+    // 端の目盛りに寄って、文字が重なって読めない。
+    // 中点の時刻が端と同じ表示（同じ分）になるときは、同じ文字を並べても意味が無いので出さない
+    const middle = start + span / 2;
+    const middleText = clock(new Date(middle));
+    const marks = [
+        { at: start, anchor: "start" },
+        ...(middleText === clock(new Date(start)) || middleText === clock(new Date(end))
+            ? [] : [{ at: middle, anchor: "middle" }]),
+        { at: end, anchor: "end" },
+    ];
+    const timeLabels = marks.map((m) =>
+        `<text x="${xAt(m.at).toFixed(1)}" y="${height - 4}" text-anchor="${m.anchor}" class="lineAxis">${clock(new Date(m.at))}</text>`
     ).join("");
 
     const lines = series.map((s) => {
         let path = "";
-        let drawing = false;
+        let dots = "";
         s.values.forEach((v, i) => {
-            if (v === null) {
-                drawing = false;
-                return;
+            if (v === null) return;
+            const prev = i > 0 ? s.values[i - 1] : null;
+            const next = i < s.values.length - 1 ? s.values[i + 1] : null;
+            const px = x(i).toFixed(1);
+            const py = y(v).toFixed(1);
+            path += `${prev === null ? "M" : "L"}${px} ${py}`;
+            // 前後が null（または端）の点は線にならず、M だけのパスは何も描かれない。
+            // 起動直後（CPU の 1 点目は基準が無く null）や、計測に失敗した時間に挟まれた点が
+            // 消えないよう、丸で描く
+            if (prev === null && next === null) {
+                dots += `<circle cx="${px}" cy="${py}" r="2.5" fill="${s.color}"/>`;
             }
-            path += `${drawing ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`;
-            drawing = true;
         });
         const latest = [...s.values].reverse().find((v) => v !== null);
         return `<path d="${path}" stroke="${s.color}" vector-effect="non-scaling-stroke"><title>`
-            + `${escapeHtml(s.label)}: 最新 ${escapeHtml(latest === undefined || latest === null ? "-" : options.format(latest))}</title></path>`;
+            + `${escapeHtml(s.label)}: 最新 ${escapeHtml(latest === undefined || latest === null ? "-" : options.format(latest))}</title></path>${dots}`;
     }).join("");
 
     const legend = series.map((s) =>

@@ -241,6 +241,7 @@ td .markBtn { margin-right: 0; }
 .kpiGrid.resourceGrid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 16px; }
 .resourceGrid .kpiValue { font-size: 22px; }
 .resourceGrid .kpiUnit { white-space: nowrap; }
+.resourceGrid .kpiNumber { white-space: nowrap; }
 /* 録画の保存先のパスは長く、折り返さないとカードからはみ出してスマホで横スクロールが出る */
 .resourceGrid .kpi { min-width: 0; }
 .resourceGrid .kpiSub { overflow-wrap: anywhere; }
