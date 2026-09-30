@@ -709,7 +709,7 @@ async function deleteRecording(recording, onDelete) {
         showToast(`「${recording.videoTitle}」を削除しました`, "danger");
         onDelete();
     } catch (e) {
-        showError(errorMessage(e));
+        showError(errorMessage(e), { reveal: true });
     }
 }
 
@@ -731,7 +731,7 @@ async function stopRecording(recording, onStop) {
         showToast(`「${recording.videoTitle}」の録画を止めています`);
         onStop();
     } catch (e) {
-        showError(errorMessage(e));
+        showError(errorMessage(e), { reveal: true });
     }
 }
 
