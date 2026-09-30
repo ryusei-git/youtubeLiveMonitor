@@ -18,6 +18,9 @@ import com.example.monitor.exception.SoundMarkNotFoundException;
 import com.example.monitor.exception.TooManyPasswordAttemptsException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.exception.YouTubeApiUnavailableException;
+import com.example.monitor.util.ApiRequestPath;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
@@ -34,6 +37,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.util.DisconnectedClientHelper;
 
+import java.io.IOException;
 import java.sql.SQLException;
 import java.util.Map;
 
@@ -42,6 +46,8 @@ import java.util.Map;
  *
  * <p>個々のコントローラーで {@code try-catch} を書かずに済ませるための共通処理。
  * レスポンスの形式は {@code {"error": "理由"}} に統一している。
+ * ただし存在しない URL（404）だけは、API 以外なら JSON を返さず Boot のエラー画面
+ * （static/error/404.html）へ回す（{@link #handleNoResourceFound}）。
  *
  * <h2>すべての失敗を必ずログに残す</h2>
  * <b>以前はここで例外を握って利用者へ返すだけで、ログを出していたのは
@@ -331,15 +337,31 @@ public class GlobalExceptionHandler {
      * サーバー異常として扱い、<b>存在しない URL を叩かれるたびに ERROR ログが出る</b>状態になっていた。
      * 自動巡回や打ち間違いでも起きるため、放置すると本当の異常がログに埋もれる。
      *
+     * <p><b>API 以外（画面の URL）には JSON を返さず、Boot のエラー画面（static/error/404.html）へ回す。</b>
+     * 以前は画面の URL でも JSON を返していたため、ログイン後に存在しない URL を開くと、ブラウザに
+     * {@code {"error": ...}} がそのまま出て、題名も戻るリンクも無い画面になっていた（実際に発生した）。
+     * このクラスが JSON で処理を終えると、Boot のエラー画面までは届かない。API と画面の見分け方は
+     * 403 の画面（{@code RequestAuthenticationHandler}）と同じ {@link ApiRequestPath#matches} にそろえる。
+     *
      * @param e 発生した例外
-     * @return エラー内容を含むレスポンス
+     * @param request API への要求かを見分けるための要求
+     * @param response 画面のときに sendError でエラー画面へ回すための応答
+     * @return API ならエラー内容を含むレスポンス。画面なら {@code null}（sendError 済みで、Spring は応答に何も書かない）
+     * @throws IOException sendError に失敗したとき
      */
     @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<Map<String, String>> handleNoResourceFound(NoResourceFoundException e) {
+    public ResponseEntity<Map<String, String>> handleNoResourceFound(
+            NoResourceFoundException e, HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
         // 利用者側の誤りなので WARN 止まり。スタックトレースは残さない。
         // 応答には枠組みの文言（"No static resource ..."）をそのまま載せない。
         // 静的リソースとして解決を試みて失敗した、という内部の挙動が外から分かるため
-        return clientError(HttpStatus.NOT_FOUND, e, NOT_FOUND_MESSAGE);
+        ResponseEntity<Map<String, String>> json = clientError(HttpStatus.NOT_FOUND, e, NOT_FOUND_MESSAGE);
+        if (ApiRequestPath.matches(request)) {
+            return json;
+        }
+        response.sendError(HttpStatus.NOT_FOUND.value());
+        return null;
     }
 
     /**
