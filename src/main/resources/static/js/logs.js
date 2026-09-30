@@ -99,11 +99,13 @@ async function loadLogs() {
         tbody.innerHTML = "";
         for (const entry of data.entries.slice().reverse()) {
             const tr = document.createElement("tr");
+            // 本文（内容）を出力元より前に置き、スマホ幅でも最初の表示に入れる。出力元は完全修飾の
+            // ロガー名で長く、前にあると本文を入れ物の外へ押し出す（セルは折り返さないため）
             tr.innerHTML = `
                 <td>${escapeHtml(entry.timestamp)}</td>
                 <td>${escapeHtml(entry.level)}</td>
-                <td>${escapeHtml(entry.loggerName)}</td>
                 <td>${collapsibleCell(entry.message)}</td>
+                <td>${escapeHtml(entry.loggerName)}</td>
             `;
             tbody.appendChild(tr);
         }
