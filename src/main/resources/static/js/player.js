@@ -133,9 +133,31 @@ async function loadRelated(rec) {
     }
 }
 
+/**
+ * 録画を読み込めなかったときに、読み込めた録画にしか意味の無い部分を隠す。
+ *
+ * <p>残すと、黒い動画の枠（0:00）・小窓の案内・中身の無い詳細表・押しても何も起きない
+ * 削除ボタンが並び、読み込めなかったのか再生が始まらないだけなのか区別が付かない。
+ * 再生できない録画（showUnplayableNotice）と同じく、動画の枠の代わりに次にできることを出す。
+ */
+function showLoadFailure() {
+    el("title").textContent = "録画を読み込めませんでした";
+    el("player").hidden = true;
+    el("pipRow").hidden = true;
+    // 詳細表の枠（.table-scroll）と「同じチャンネルの録画」の見出しには id が無いので、main の直下の要素として探す
+    query("#mainContent > .table-scroll").hidden = true;
+    buttonEl("deleteBtn").hidden = true;
+    query("#mainContent > h2").hidden = true;
+    el("relatedGrid").hidden = true;
+    const notice = el("playerNotice");
+    notice.innerHTML = emptyState("録画を読み込めませんでした", "録画一覧から選び直してください。");
+    notice.hidden = false;
+}
+
 async function load() {
     if (!recordingId) {
         showError("再生する録画が指定されていません");
+        showLoadFailure();
         return;
     }
     try {
@@ -148,7 +170,7 @@ async function load() {
         loadRelated(loaded);
     } catch (e) {
         showError(errorMessage(e));
-        el("title").textContent = "録画を読み込めませんでした";
+        showLoadFailure();
     }
 }
 

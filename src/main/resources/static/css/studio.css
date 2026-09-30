@@ -201,6 +201,8 @@ p.error { background: #fff0ee; border: 1px solid #f1d2cc; border-radius: 9px; pa
 .onlinePlayButton { display: block; position: relative; padding: 0; border: 0; width: 100%; }
 .onlinePlayMark { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 16px; background: #17131dcc; color: #fff; border-radius: 12px; font-size: 24px; }
 .onlinePlayButton:disabled .onlinePlayMark { display: none; }
+/* サムネイルが無いと代わりの文言が ▶ と同じ中央に来て読めないため、文言を枠の下端へ寄せる（▶ は再生できる目印なので残す） */
+.onlinePlayButton .thumbPlaceholder:not([hidden]) { align-items: flex-end; padding-bottom: 12px; box-sizing: border-box; }
 .onlineTitle { padding: 0; border: 0; min-height: 0; text-align: left; white-space: normal; background: transparent; font: inherit; }
 .onlinePlayerDialog { width: min(1100px, calc(100% - 24px)); max-width: none; max-height: calc(100dvh - 24px); border: 1px solid var(--border); border-radius: 14px; padding: 20px; color: var(--text); }
 .onlinePlayerDialog::backdrop { background: #15111dcc; }
