@@ -1658,6 +1658,9 @@ function editTitleFilterCell(td, oldValue, save) {
     /** @param {string} value */
     const finish = (value) => {
         td.dataset.value = value;
+        // 管理画面の一覧（channels.js）は並べ替えの値を data-sort-value に持つ。変えないと、編集した後の
+        // 並べ替えで表を作ったときの値のまま並ぶ。持っていないセル（利用者の画面）には足さない
+        if (td.dataset.sortValue !== undefined) td.dataset.sortValue = value;
         td.dataset.editing = "false";
         td.innerHTML = titleFilterButton(value);
         query("button", td).focus();
@@ -2110,6 +2113,9 @@ function initStudioShell() {
  *
  * <p>吹き出しは position: fixed で出し、位置はここで CSS 変数に渡す。absolute だと、
  * 表の見出しの ⓘ は横スクロールの枠（`.table-scroll`）に切り取られるため。
+ * 縦は ⓘ の下と上で空いている方に出す。下だけに出していたときは、画面の下端近くの ⓘ
+ * （スマホで表の見出しが画面の下にあるとき）を押すと、吹き出しが画面の外に出て読めなかった。
+ * 空いている高さを超える本文は、吹き出しの中で送る。
  * Esc で閉じられるようにし、閉じた後はフォーカスが外れるまで出さない（WCAG 1.4.13 の「消せる」）。
  *
  * <p>ⓘ のクリックは既定の動作を取り消す。label の中の ⓘ を押すと、ブラウザの標準の動きで label の入力欄が操作され
@@ -2125,7 +2131,20 @@ function initHints() {
         if (!(hint instanceof HTMLElement) || !hint.matches(".hint[title]")) return;
         const rect = hint.getBoundingClientRect();
         hint.style.setProperty("--hint-left", `${rect.left}px`);
-        hint.style.setProperty("--hint-top", `${rect.bottom + 6}px`);
+        // 吹き出しの高さは本文の長さで変わり、::after の大きさは JS から測れない。そのため ⓘ の下と上で
+        // 空いている方に出し、空いている高さを最大の高さとして渡す（はみ出す分は吹き出しの中で送る）。
+        // 22px は ⓘ との間の 6px と、画面の端との間の 16px
+        const below = window.innerHeight - rect.bottom;
+        const above = rect.top;
+        if (below >= above) {
+            hint.style.setProperty("--hint-top", `${rect.bottom + 6}px`);
+            hint.style.setProperty("--hint-bottom", "auto");
+            hint.style.setProperty("--hint-max-height", `${Math.max(below - 22, 0)}px`);
+        } else {
+            hint.style.setProperty("--hint-top", "auto");
+            hint.style.setProperty("--hint-bottom", `${window.innerHeight - rect.top + 6}px`);
+            hint.style.setProperty("--hint-max-height", `${Math.max(above - 22, 0)}px`);
+        }
     };
     document.querySelectorAll(".hint[title]").forEach((hint) => {
         if (!(hint instanceof HTMLElement)) return;
