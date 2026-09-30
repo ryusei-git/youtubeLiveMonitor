@@ -54,6 +54,15 @@ public final class YouTubeChannelInputParser {
                     + "動画の URL や、/c/・/user/ で始まる古い形式の URL には対応していません";
 
     /**
+     * ハンドルに使えない文字（空白など）を含む入力を断るときの文言。
+     *
+     * <p><b>入力の値を入れない。</b>理由は {@link #UNSUPPORTED_URL_MESSAGE} と同じ。
+     */
+    private static final String INVALID_HANDLE_MESSAGE =
+            "ハンドルに使えない文字（空白など）が含まれています。"
+                    + "@ハンドル、チャンネルのページの URL、または UC で始まるチャンネル ID を入力してください";
+
+    /**
      * YouTube のチャンネル ID の形。{@code UC} で始まる 24 文字で、使える文字は
      * base64url と同じ集合（英数字・{@code _}・{@code -}）。
      *
@@ -93,9 +102,13 @@ public final class YouTubeChannelInputParser {
      * {@code /} を含む入力は、{@code @} を補わずに断る（クラスの JavaDoc 参照）。ハンドルにもチャンネル ID にも
      * {@code /} は使えないので、{@code @} を落としたハンドルと取り違えて断ることはない。
      *
+     * <p>ハンドルとして返す値（{@code @} で始まる入力・{@code /@} の URL から取り出した値・{@code @} を
+     * 補った値）に空白などハンドルに使えない文字が含まれていたら、API を呼ぶ前に断る
+     * （{@code requireHandleCharacters} 参照）。
+     *
      * @param rawInput 利用者が入力した文字列
      * @return チャンネル ID、または {@code @} から始まるハンドル
-     * @throws IllegalArgumentException 入力が空の場合、{@code /channel/} の URL の ID がチャンネル ID の形でない場合、またはチャンネルのページ以外の URL の場合
+     * @throws IllegalArgumentException 入力が空の場合、{@code /channel/} の URL の ID がチャンネル ID の形でない場合、チャンネルのページ以外の URL の場合、またはハンドルに使えない文字を含む場合
      */
     public static String normalize(String rawInput) {
         if (rawInput == null || rawInput.isBlank()) {
@@ -119,11 +132,14 @@ public final class YouTubeChannelInputParser {
         Matcher handleMatcher = HANDLE_IN_URL.matcher(trimmed);
         if (handleMatcher.find()) {
             // 日本語ハンドルは URL 上では百分率エンコードされているため元に戻す
-            return HANDLE_PREFIX + URLDecoder.decode(handleMatcher.group(1), StandardCharsets.UTF_8);
+            return requireHandleCharacters(HANDLE_PREFIX + URLDecoder.decode(handleMatcher.group(1), StandardCharsets.UTF_8));
         }
 
-        if (trimmed.startsWith(HANDLE_PREFIX) || CHANNEL_ID_FORMAT.matcher(trimmed).matches()) {
+        if (CHANNEL_ID_FORMAT.matcher(trimmed).matches()) {
             return trimmed;
+        }
+        if (trimmed.startsWith(HANDLE_PREFIX)) {
+            return requireHandleCharacters(trimmed);
         }
 
         // ハンドルにもチャンネル ID にも「/」は使えない。ここまで来て「/」を含むのは、
@@ -133,6 +149,29 @@ public final class YouTubeChannelInputParser {
         }
 
         // チャンネル ID の形をしていない＝ハンドルの @ を落として入力されたとみなす
-        return HANDLE_PREFIX + trimmed;
+        return requireHandleCharacters(HANDLE_PREFIX + trimmed);
+    }
+
+    /**
+     * ハンドルとして返す値に、ハンドルに使えない文字が無いことを確かめる。
+     *
+     * <p>空白・改行・制御文字・書式文字（ゼロ幅スペースなど）はハンドルに使えないので、この値で
+     * YouTube に問い合わせても必ず「見つかりません」になり、クォータを 1 使うだけになる（実際に発生した）。
+     * 文字の種類だけを見て、長さや記号の決まりは確かめない（YouTube の決まりが変わったときに、
+     * 正しいハンドルを断ってしまわないため）。
+     *
+     * @param handle {@code @} から始まるハンドル
+     * @return 渡された値そのもの
+     * @throws IllegalArgumentException ハンドルに使えない文字を含む場合
+     */
+    private static String requireHandleCharacters(String handle) {
+        boolean invalid = handle.codePoints().anyMatch(c -> Character.isWhitespace(c)
+                || Character.isSpaceChar(c)
+                || Character.isISOControl(c)
+                || Character.getType(c) == Character.FORMAT);
+        if (invalid) {
+            throw new IllegalArgumentException(INVALID_HANDLE_MESSAGE);
+        }
+        return handle;
     }
 }

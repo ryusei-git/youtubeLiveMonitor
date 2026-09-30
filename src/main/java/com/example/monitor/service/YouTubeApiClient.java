@@ -1,8 +1,10 @@
 package com.example.monitor.service;
 
+import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.dto.ChannelSearchResult;
 import com.example.monitor.dto.LiveStreamDetails;
 import com.example.monitor.exception.SearchQuotaExceededException;
+import com.example.monitor.exception.YouTubeApiUnavailableException;
 import com.example.monitor.util.ApiKeyRedactor;
 import com.example.monitor.util.EpochTimeConverter;
 import com.example.monitor.util.HtmlEntities;
@@ -58,6 +60,9 @@ public class YouTubeApiClient {
 
     /** 管理者のチャンネル名検索（{@code search.list}）の回数を、利用者の検索・発掘と同じ予算で数える。 */
     private final YouTubeSearchBudget searchBudget;
+
+    /** API キーの有無を、API を呼ぶ前に確かめるために使う。 */
+    private final MonitorProperties monitorProperties;
 
     /**
      * 動画 ID から配信の詳細情報を取得する。消費クォータは 1。
@@ -153,9 +158,14 @@ public class YouTubeApiClient {
      * 必ず本来のチャンネル ID へ解決してから保存する。
      *
      * @param handle {@code @} を含むハンドル文字列（例: {@code @example}）
-     * @return 解決できた場合はチャンネル ID。見つからない／通信に失敗した場合は {@link Optional#empty()}
+     * @return 解決できた場合はチャンネル ID。該当するチャンネルが無い場合は {@link Optional#empty()}
+     * @throws YouTubeApiUnavailableException API キーが設定されていない場合（API は呼ばない）、
+     *                                        または API の呼び出しに失敗した場合。空にすると
+     *                                        「ハンドルに該当するチャンネルが見つかりません」と表示され、
+     *                                        キーが無いことに気づけない（実際に発生した）
      */
     public Optional<String> resolveHandleToChannelId(String handle) {
+        requireApiKey();
         try {
             ChannelListResponse response = youtube.channels()
                     .list(List.of("id"))
@@ -171,7 +181,10 @@ public class YouTubeApiClient {
 
         } catch (IOException e) {
             log.error("ハンドルの解決に失敗しました: handle={}, reason={}", handle, ApiKeyRedactor.describe(e));
-            return Optional.empty();
+            if (DiscoveryYouTubeClient.isQuotaExceeded(e)) {
+                throw new YouTubeApiUnavailableException("YouTube API の本日の上限に達しました");
+            }
+            throw new YouTubeApiUnavailableException("YouTube API の呼び出しに失敗しました");
         }
     }
 
@@ -270,5 +283,19 @@ public class YouTubeApiClient {
             return snippet.getThumbnails().getDefault().getUrl();
         }
         return null;
+    }
+
+    /**
+     * API キーが設定されていなければ、API を呼ぶ前に断る。
+     *
+     * <p>キーが無くても API は呼べてしまい、Google が 403 を返す。呼んでから失敗にすると、
+     * 本当の通信の失敗と見分けがつかず、ログにも「失敗しました」が残るため、呼ぶ前に確かめる。
+     * 文言は利用者の検索（{@link YouTubeSearchService}）と揃える。
+     */
+    private void requireApiKey() {
+        String apiKey = monitorProperties.youtube().apiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new YouTubeApiUnavailableException("YouTube の API キーが設定されていません");
+        }
     }
 }

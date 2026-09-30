@@ -2,6 +2,7 @@ package com.example.monitor.cli;
 
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.exception.ChannelAlreadyRegisteredException;
+import com.example.monitor.exception.YouTubeApiUnavailableException;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.service.MonitoredChannelService;
 import lombok.RequiredArgsConstructor;
@@ -57,7 +58,7 @@ public class ChannelAddCommand implements Callable<Integer> {
     /**
      * チャンネルを登録する。
      *
-     * @return 成功なら 0、既に登録済み・入力が解決できない場合は 1
+     * @return 成功なら 0、既に登録済み・入力が解決できない・YouTube API を使えない場合は 1
      */
     @Override
     public Integer call() {
@@ -73,8 +74,8 @@ public class ChannelAddCommand implements Callable<Integer> {
         } catch (ChannelAlreadyRegisteredException e) {
             System.err.println(e.getMessage());
             return 1;
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            // 入力に該当するチャンネルが無い場合と、Twitch の認証情報が未設定の場合。
+        } catch (IllegalArgumentException | IllegalStateException | YouTubeApiUnavailableException e) {
+            // 入力に該当するチャンネルが無い場合、Twitch の認証情報が未設定の場合、YouTube の API キーが無い・API が失敗した場合。
             // 例外の生スタックトレースではなく理由だけを出す
             System.err.println(e.getMessage());
             return 1;
