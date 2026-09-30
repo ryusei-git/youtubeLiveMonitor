@@ -109,12 +109,19 @@ public class YouTubeApiClient {
      * でその日の検索を止めてから例外にする。空で返すと、上限で検索できなかったのに「該当するチャンネルが
      * 見つかりませんでした」と表示されるため。
      *
+     * <p>API キーが無いとき・呼び出しに失敗したときも空のリストにせず、例外にする。空で返すと
+     * 「該当するチャンネルが見つかりませんでした」と表示され、管理者にはキーが無いのか本当に 0 件なのかが
+     * 分からない（実際に発生した）。キーは回数を数える前に確かめる（API を呼ばないのに回数を使わないため）。
+     *
      * @param query 検索したいチャンネル名（部分一致）
-     * @return 見つかった候補。該当なし／通信に失敗した場合は空リスト
+     * @return 見つかった候補。該当なしの場合は空リスト
      * @throws SearchQuotaExceededException 検索の回数が本日の上限に達している場合、または YouTube が
      *                                      {@code quotaExceeded} を返した場合（管理画面では 429 になる）
+     * @throws YouTubeApiUnavailableException API キーが設定されていない場合（検索の回数は使わない）、
+     *                                        または API の呼び出しに失敗した場合（管理画面では 503 になる）
      */
     public List<ChannelSearchResult> searchChannelsByName(String query) {
+        requireApiKey();
         searchBudget.acquireForAdmin();
         List<ChannelSearchResult> searchResults = new ArrayList<>();
         try {
@@ -144,6 +151,7 @@ public class YouTubeApiClient {
                 throw new SearchQuotaExceededException();
             }
             log.error("チャンネル名検索に失敗しました: query={}, reason={}", query, ApiKeyRedactor.describe(e));
+            throw new YouTubeApiUnavailableException("YouTube API の呼び出しに失敗しました");
         }
         return searchResults;
     }

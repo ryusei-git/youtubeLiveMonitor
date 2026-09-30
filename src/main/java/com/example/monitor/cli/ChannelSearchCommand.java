@@ -2,6 +2,7 @@ package com.example.monitor.cli;
 
 import com.example.monitor.dto.ChannelSearchResult;
 import com.example.monitor.exception.SearchQuotaExceededException;
+import com.example.monitor.exception.YouTubeApiUnavailableException;
 import com.example.monitor.service.YouTubeApiClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -40,7 +41,7 @@ public class ChannelSearchCommand implements Callable<Integer> {
     /**
      * チャンネルを検索して候補を表示する。
      *
-     * @return 表示できれば 0（該当なしもエラーではないため）。検索の回数が本日の上限なら 1
+     * @return 表示できれば 0（該当なしもエラーではないため）。検索の回数が本日の上限、または API キーが無い・API の呼び出しに失敗したなら 1
      */
     @Override
     public Integer call() {
@@ -51,6 +52,10 @@ public class ChannelSearchCommand implements Callable<Integer> {
             System.err.println(e.getMessage());
             System.err.println("チャンネル名の検索は、利用者の検索と同じ 1 日の回数を使います"
                     + "（上限は .env の YOUTUBE_SEARCH_DAILY_LIMIT から YOUTUBE_SEARCH_DISCOVERY_LIMIT を引いた回数）");
+            return 1;
+        } catch (YouTubeApiUnavailableException e) {
+            // API キーが無い・呼び出しに失敗した。0 件と見分けがつくよう、理由を出して 1 で終わる
+            System.err.println(e.getMessage());
             return 1;
         }
 
