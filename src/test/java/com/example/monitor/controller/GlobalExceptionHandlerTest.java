@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -134,11 +136,13 @@ class GlobalExceptionHandlerTest {
 
         @Test
         @DisplayName("正常系：存在しないパスは404を返す（500にしない）")
-        void testMethod01() {
+        void testMethod01() throws Exception {
             // 汎用の Exception ハンドラを足した際、これが 500 になり
             // 存在しない URL を叩かれるたびに ERROR ログが出ていた（実際に発生した）
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/nonexistent");
             ResponseEntity<Map<String, String>> response = handler.handleNoResourceFound(
-                    new NoResourceFoundException(HttpMethod.GET, "/nonexistent-page.html", "/nonexistent-page.html"));
+                    new NoResourceFoundException(HttpMethod.GET, "/api/nonexistent", "/api/nonexistent"),
+                    request, new MockHttpServletResponse());
 
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         }
