@@ -816,6 +816,13 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
     /** 今表示している録画。表示を切り替えたとき、一覧を読み直さずに描き直すため。 */
     /** @type {Recording[]} */
     let shown = [];
+    /**
+     * ページ送り（前へ・番号・次へ）で移った先を描き終えたら、一覧の先頭（表示の切り替えと
+     * 件数の行）まで戻すか。ページ送りは一覧の下にあり、中身だけを入れ替えるとスクロール位置が
+     * 残って、新しいページの最後の方が見えたままになる。検索・条件のクリア・表示の切り替え・
+     * 自動の読み直しでは動かさない（上で操作している、または読んでいる位置を奪わないため）。
+     */
+    let scrollToTop = false;
 
     const fields = /** @type {NodeListOf<HTMLInputElement|HTMLSelectElement>} */ (form.querySelectorAll("[name]"));
     const cardButton = query(".cardViewBtn", viewToggle);
@@ -913,8 +920,13 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
         syncUrl(true);
     }
 
-    /** @param {number} to 移動先（0 始まり） */
-    function goToPage(to) {
+    /**
+     * @param {number} to 移動先（0 始まり）
+     * @param {boolean} [fromPager] ページ送りのボタンから移ったか。true なら描き終えた後で
+     *        一覧の先頭まで戻す
+     */
+    function goToPage(to, fromPager = false) {
+        scrollToTop = fromPager;
         page = to;
         syncUrl();
         load();
@@ -956,7 +968,7 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
                 btn.setAttribute("aria-current", "page");
                 btn.disabled = true;
             } else {
-                btn.addEventListener("click", () => goToPage(p));
+                btn.addEventListener("click", () => goToPage(p, true));
             }
             pageNumbers.appendChild(btn);
             previous = p;
@@ -1011,6 +1023,16 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
         // 押せないページ送りを残さない（1 ページに収まるとき、0 件を含む）。
         pager.hidden = totalPages <= 1;
         renderPageNumbers();
+        if (scrollToTop) {
+            // 押した番号のボタンは描き直しで消え、フォーカスが body に落ちる。キーボード・読み上げの
+            // 利用者も新しいページの先頭から読めるよう、戻した行へフォーカスを移す
+            // （位置は scrollIntoView で合わせたので、フォーカスでは動かさない）
+            scrollToTop = false;
+            const top = viewToggle.parentElement ?? viewToggle;
+            top.scrollIntoView({ block: "start" });
+            top.tabIndex = -1;
+            top.focus({ preventScroll: true });
+        }
         return true;
     }
 
@@ -1031,10 +1053,10 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
     cardButton.addEventListener("click", () => switchView("card"));
     listButton.addEventListener("click", () => switchView("list"));
     prevButton.addEventListener("click", () => {
-        if (page > 0) goToPage(page - 1);
+        if (page > 0) goToPage(page - 1, true);
     });
     nextButton.addEventListener("click", () => {
-        if (page + 1 < totalPages) goToPage(page + 1);
+        if (page + 1 < totalPages) goToPage(page + 1, true);
     });
 
     return { restore, goToPage, apiParams, show };
