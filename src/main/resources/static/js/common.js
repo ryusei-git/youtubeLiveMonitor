@@ -1670,11 +1670,13 @@ function bindPager({ load, prev = "prevBtn", next = "nextBtn", info = "pageInfo"
  * （別々に書くと、片方だけ直して見た目がずれる）。
  *
  * @param {string} value 現在の条件。空文字なら未設定
+ * @param {string} [unsetLabel] 条件がないときに出す文字。列の幅に余裕のない表（マイチャンネル）が短い文字を渡す。
+ *     省略すると「条件なし（すべて対象）」
  * @returns {string} セルへ差し込む HTML
  */
-function titleFilterButton(value) {
+function titleFilterButton(value, unsetLabel = "条件なし（すべて対象）") {
     const unset = value ? "" : " is-unset";
-    const label = value ? escapeHtml(value) : "条件なし（すべて対象）";
+    const label = value ? escapeHtml(value) : escapeHtml(unsetLabel);
     return `<button type="button" class="filterValue${unset}"`
         + ` title="${value ? escapeHtml(value) : "条件を設定していません"}"`
         + ` aria-label="通知・録画の条件を編集">${label}</button>`;
@@ -1725,7 +1727,7 @@ function editTitleFilterCell(td, oldValue, save) {
         // 並べ替えで表を作ったときの値のまま並ぶ。持っていないセル（利用者の画面）には足さない
         if (td.dataset.sortValue !== undefined) td.dataset.sortValue = value;
         td.dataset.editing = "false";
-        td.innerHTML = titleFilterButton(value);
+        td.innerHTML = titleFilterButton(value, td.dataset.unsetLabel);
         query("button", td).focus();
     };
     saveButton.addEventListener("click", async (ev) => {
