@@ -73,12 +73,17 @@ public class MyNotificationSettingsController {
      * 今の設定の状態を組み立てる。登録・解除の応答も読み込みと同じ内容にするのは、登録し直すと過去の失敗が消える
      * （{@code UserNotificationRepository#clearFailures}）ため、画面が警告を消すには登録後の状態を知る必要があるから。
      *
+     * <p>Webhook を登録していなければ {@code failing} は常に {@code false} にする。届けようがないので
+     * 「作り直して保存し、テスト送信で確かめて」と促す警告は出せない。解除では前の失敗を消すが、解除と同時に
+     * 巡回が古い URL へ送って失敗を記録することもあるため、消すだけに頼らずここでも判定する。
+     *
      * @return 設定の状態
      */
     private NotificationSettingsResponse currentSettings() {
         NotificationDeliveryStatus status = userNotificationService.getDeliveryStatus();
-        return new NotificationSettingsResponse(userNotificationService.isWebhookConfigured(),
-                status.lastDeliveredAt(), status.lastFailedAt(), status.failing());
+        boolean configured = userNotificationService.isWebhookConfigured();
+        return new NotificationSettingsResponse(configured,
+                status.lastDeliveredAt(), status.lastFailedAt(), configured && status.failing());
     }
 
     /**
