@@ -394,7 +394,6 @@ const mySearchView = {
         const syncPeriod = () => { period.hidden = posted.value !== "custom"; };
         posted.addEventListener("change", syncPeriod);
         syncPeriod();
-        // 詳しい条件を指定しているときは開き、何で絞り込んでいるかを見せる（アーカイブの畳み方と同じ）
         /**
          * 詳しい条件のうち、既定から変えている欄の数を「詳しい条件」の横に出す。
          * URL ではなく欄の中身から数える。「条件をクリア」や入力で欄が変わったとき、
@@ -413,6 +412,7 @@ const mySearchView = {
             return count;
         };
         const detailCount = syncDetailCount();
+        // 詳しい条件を指定しているときは開き、何で絞り込んでいるかを見せる（アーカイブの畳み方と同じ）
         more.open = detailCount > 0;
         const summaryEl = query("summary", more);
         const syncExpanded = () => summaryEl.setAttribute("aria-expanded", String(more.open));
