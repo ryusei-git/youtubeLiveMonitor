@@ -121,12 +121,39 @@
 
             pager.update(data.totalPages || 1);
         } catch (e) {
-            if (request === historyRequest) showError(errorMessage(e));
+            if (request !== historyRequest) return;
+            clearResults();
+            showError(errorMessage(e));
         }
+    }
+
+    /**
+     * 表示中の結果を消す。読み込みに失敗したときに呼ぶ。
+     *
+     * <p>消さずにエラー帯だけ出すと、前の条件・前のページの行が残り、URL・入力欄の条件と表の中身が
+     * 食い違う（開始と終了を逆にした期間の URL を開くと、エラーの下に前の結果が出うる）。
+     * ページ送りの番号は触らない。update(1) で総ページ数だけ戻すと「4 / 1」のような表示になり、
+     * 「次へ」で失敗したページを読み直せなくなるため。
+     */
+    function clearResults() {
+        query("#historyTable tbody").innerHTML = "";
+        el("historyTableWrap").hidden = true;
+        const empty = el("historyEmpty");
+        empty.hidden = true;
+        empty.innerHTML = "";
     }
 
     el("filterForm").addEventListener("submit", (ev) => {
         ev.preventDefault();
+        // 期間の開始が終了より後なら送らずに止める。送ると API は 400 を返すが、その前に syncUrl() が
+        // URL を不正な条件に書き換え、URL と表の中身が食い違うため。止めたときは URL・表・ページ送りを
+        // 最後に成功した条件のまま残す。datetime-local の値は同じ形式の文字列なので、文字列のまま比べられる
+        const since = inputEl("sinceFilter").value;
+        const until = inputEl("untilFilter").value;
+        if (since && until && since > until) {
+            showError("期間の開始は終了以前にしてください");
+            return;
+        }
         pager.reset();
         syncUrl();
         loadHistory();

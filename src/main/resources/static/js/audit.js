@@ -52,6 +52,7 @@
             const action = selectEl("actionFilter").value;
             const outcome = selectEl("outcomeFilter").value;
             const requestId = inputEl("requestIdFilter").value.trim();
+            const hasFilter = [since, until, username, action, outcome, requestId].some(Boolean);
             if (since) params.set("since", since);
             if (until) params.set("until", until);
             if (username) params.set("username", username);
@@ -79,10 +80,38 @@
                 tbody.appendChild(tr);
             }
             bindDatetimeCells(tbody);
+
+            // 0 件のときは空の表を出さない。見出しだけの表では、読み込みに失敗したのか該当が無いのか区別できないため
+            const isEmpty = data.content.length === 0;
+            el("auditTableWrap").hidden = isEmpty;
+            const empty = el("auditEmpty");
+            empty.hidden = !isEmpty;
+            empty.innerHTML = !isEmpty ? ""
+                : hasFilter
+                    ? emptyState("条件に合う監査ログはありません", "条件を変えるか、「条件をクリア」を押してください。")
+                    : emptyState("監査ログはまだありません", "ログインや設定の変更などの操作をすると、ここに記録されます。");
+
             pager.update(data.totalPages || 1);
         } catch (e) {
+            clearResults();
             showError(errorMessage(e));
         }
+    }
+
+    /**
+     * 表示中の結果を消す。読み込みに失敗したときに呼ぶ。
+     *
+     * <p>消さずにエラー帯だけ出すと、前の条件・前のページの行が残り、入力欄の条件と表の中身が
+     * 食い違う（期間の開始と終了を逆にして絞り込むと、エラーの下に前の結果がそのまま出ていた）。
+     * ページ送りの番号は触らない。update(1) で総ページ数だけ戻すと「4 / 1」のような表示になり、
+     * 「次へ」で失敗したページを読み直せなくなるため。
+     */
+    function clearResults() {
+        query("#auditTable tbody").innerHTML = "";
+        el("auditTableWrap").hidden = true;
+        const empty = el("auditEmpty");
+        empty.hidden = true;
+        empty.innerHTML = "";
     }
 
     el("filterForm").addEventListener("submit", (ev) => {
