@@ -67,6 +67,9 @@ h1[tabindex="-1"]:focus { outline: none; box-shadow: none; }
 .inline { gap: 10px; margin: 16px 0; flex-wrap: wrap; }
 #filterForm { padding: 16px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
 #filterForm input[type="search"] { flex: 1 1 240px; }
+/* ラベルの文字は無名の flex 項目なので、flex-basis の大きい検索欄に 1〜2 文字の幅まで
+   縮められて「操作 / 者」のように折れる。絞り込みのラベルは短い語なので、入力欄の側を縮める。 */
+#filterForm label { white-space: nowrap; }
 #addForm { background: #fff; padding: 20px; border: 1px solid var(--border); border-radius: 12px; align-items: center; }
 #addForm label { font-size: 12px; }
 /* 配信元の選択肢は API から入るため、入る前後で幅が変わってフォームが折り返し直さないよう幅を固定する。
