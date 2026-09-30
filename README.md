@@ -344,6 +344,8 @@ bin/monitor.sh channel add -i UCxxxxxxxxxxxxxxxxxxxxxx -n "配信者名"
 
 `-i` にはチャンネル ID のほか、**ハンドル（`@foo`）やチャンネルページの URL をそのまま**渡せます。
 URL の場合は自動で本来のチャンネル ID に解決されます。
+ハンドルの解決には YouTube API キーが要ります（キーが無いと「YouTube の API キーが設定されていません」で止まります）。
+空白など、ハンドルに使えない文字を含む入力は、API に問い合わせずに断ります。
 
 ```bash
 bin/monitor.sh channel add -i "https://www.youtube.com/@foo" -n "配信者名"
