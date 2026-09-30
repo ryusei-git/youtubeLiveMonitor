@@ -73,7 +73,7 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
     int incrementFailureCount(@Param("id") Long id);
 
     /**
-     * 利用者の失敗の時刻と理由を消す。Webhook を登録し直したときに呼ぶ。
+     * 利用者の失敗の時刻と理由を消す。Webhook を登録し直したとき・解除したときに呼ぶ。
      *
      * <p>前の Webhook での失敗が残っていると、新しい Webhook がまだ一度も試されていないのに
      * 「最近の通知が届いていない」と見えてしまう。登録した時刻を {@code AppUser} に持って比べる方法もあるが、
