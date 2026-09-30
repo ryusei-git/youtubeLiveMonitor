@@ -38,8 +38,12 @@ import java.io.IOException;
  *       以前は API だけを記録していて、画面を探っても何も残らなかった。</li>
  *   <li><b>未ログイン（401・ログイン画面への転送）は記録しない。</b>誰の操作か特定できないまま
  *       監査ログが埋もれるだけになるため（#49）。</li>
- *   <li><b>サイトの入口（{@code /}）は記録しない。</b>管理者の画面だが、エラー画面の「トップへ戻る」や
- *       ブックマークから一般利用者も自然に開く。記録すると権限外の探りが埋もれる。</li>
+ *   <li><b>サイトの入口（{@code /}）は記録せず、一般利用者は利用者のトップへ送る。</b>
+ *       管理者の画面だが、エラー画面の「トップへ戻る」やブックマークから一般利用者も自然に開く。
+ *       未ログインで入口を開いてからログインした一般利用者も、保存された入口の要求へ戻される。
+ *       記録すると権限外の探りが埋もれ、403 の画面を出すと「トップへ戻る」を押しただけで
+ *       「権限がありません」と言われる。送るのは GET だけ（GET には CSRF の検証が無いので、
+ *       入口の GET で拒まれるのは管理者でない利用者だけ）。</li>
  *   <li><b>CSRF トークンの不一致は detail に {@code csrf=true} を付ける。</b>{@code CsrfFilter} の拒否も
  *       このクラスへ来る（{@code SecurityConfig}）。付けないと、役割の不足（権限外の探り）と、
  *       トークンの無い送信（別サイトからの送信の試み・手で組み立てた要求）を管理者が見分けられない。</li>
@@ -61,8 +65,17 @@ public class RequestAuthenticationHandler implements AuthenticationEntryPoint, A
     /** remember-me でのログインかを、ExceptionTranslationFilter と同じ判定で見分けるため。 */
     private static final AuthenticationTrustResolver TRUST_RESOLVER = new AuthenticationTrustResolverImpl();
 
-    /** サイトの入口。拒否しても監査ログには残さない（クラスの説明を参照）。 */
+    /**
+     * サイトの入口。拒否しても監査ログには残さず、一般利用者は {@code USER_TOP} へ送る
+     * （クラスの説明を参照）。
+     */
     private static final String SITE_ROOT = "/";
+
+    /**
+     * 入口で拒んだ一般利用者を送る先。{@code RoleBasedAuthenticationSuccessHandler} が
+     * 一般利用者をログイン後に送る先と同じ、利用者画面のトップ。
+     */
+    private static final String USER_TOP = "/my";
 
     private final AuditLogger auditLogger;
 
@@ -95,7 +108,8 @@ public class RequestAuthenticationHandler implements AuthenticationEntryPoint, A
     }
 
     /**
-     * 拒否した要求に応答し、ログイン済みなら監査ログへ記録する。
+     * 拒否した要求に応答し、ログイン済みなら監査ログへ記録する。入口（{@code /}）を開いた
+     * 一般利用者は、403 の画面ではなく利用者のトップへ送る（クラスの説明を参照）。
      *
      * <p>主体を引数で受け取るのは、{@link #commence} から呼ぶときは
      * {@code ExceptionTranslationFilter} が {@code SecurityContextHolder} を空にした後で、
@@ -124,6 +138,10 @@ public class RequestAuthenticationHandler implements AuthenticationEntryPoint, A
             // セッション切れのPOSTはCSRF検証が先に失敗するため、ここでも未認証を判定する。
             writeError(response, loggedIn ? 403 : 401,
                     loggedIn ? "操作が許可されていません。権限を確認し、必要なら画面を更新してください" : "ログインし直してください");
+        } else if (loggedIn && SITE_ROOT.equals(path) && "GET".equals(request.getMethod())) {
+            // 入口の GET で拒まれるのは管理者でない利用者だけ（GET には CSRF の検証が無い）。
+            // 403 の画面ではなく利用者のトップへ送る（クラスの説明を参照）
+            response.sendRedirect(request.getContextPath() + USER_TOP);
         } else {
             new AccessDeniedHandlerImpl().handle(request, response, exception);
         }
