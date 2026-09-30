@@ -130,6 +130,7 @@ public class UserNotificationService {
 
     /**
      * ログイン中の利用者の Webhook を解除する。以後この利用者には通知を送らない。
+     * 前の Webhook での失敗の記録も消す（{@code UserNotificationRepository#clearFailures}）。
      * 登録していなければ何もしない。
      */
     public void unregisterWebhook() {
@@ -139,6 +140,9 @@ public class UserNotificationService {
         }
         DatabaseUpdateVerifier.verify(appUserRepository.updateDiscordWebhookUrl(user.getId(), null),
                 "Discord の Webhook の解除", user.getId());
+        // 前の Webhook での失敗を残さない。残すと、解除した後も「最近の通知が届いていない」と警告し続け、
+        // 次に登録するまで消す手段が無い
+        userNotificationRepository.clearFailures(user);
         log.info("Discord の Webhook を解除しました: user={}", user.getUsername());
         auditLogger.record(AuditAction.NOTIFICATION_SETTING_CHANGE, AuditOutcome.SUCCESS, user.getId(),
                 user.getUsername(), null, AUDIT_TARGET_TYPE, user.getUsername(), "Discord の Webhook を解除");
