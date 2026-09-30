@@ -147,6 +147,9 @@ async function loadRecordingFailures() {
  * <p>録画だけのディスク使用量では、ログや DB の肥大化に気づけないため別に出している。
  * ディレクトリの走査は録画の量に比例して重いので、毎分の自動更新（loadDashboard）には含めず、
  * 開いたときと利用者が求めたとき（表示を更新・今すぐチェック）だけ読む（#190）。
+ *
+ * <p>上部のディスク使用量（loadDiskUsage）も同じ理由で、同じ時機にだけ読む。
+ * この表の「録画」と同じ値なので、片方だけ読み直すと同じ画面で 2 つの値が食い違う。
  */
 async function loadServiceStorage() {
     const box = el("serviceStorage");
@@ -234,6 +237,9 @@ function resourceCard(label, valueHtml, subHtml, warned, usedRatio = null) {
  * @returns {string} 差し込む HTML
  */
 function renderSystemCards(system, warned) {
+    // 主の値（「227.0 MB」）は数字と単位の間で折り返さないよう kpiNumber で包む。
+    // 折り返してよいのは主の値と「/ 合計」の間だけ
+    // （カード 5 枚の横並びで幅が足りないため）
     const size = (/** @type {number|null} */ bytes) => escapeHtml(formatFileSize(bytes));
     const rate = (/** @type {number|null} */ bytes) => bytes === null ? "-" : `${size(bytes)}/s`;
     // 1 分平均負荷は OS が提供しないと null（Windows など）。ここで例外になると loadResources の catch が
@@ -243,16 +249,16 @@ function renderSystemCards(system, warned) {
     const diskUsedRatio = system.diskTotalBytes === null || system.diskFreeBytes === null
         ? null : 1 - system.diskFreeBytes / system.diskTotalBytes;
     const swap = system.swapTotalBytes > 0
-        ? resourceCard("スワップ", `${size(system.swapUsedBytes)}<span class="kpiUnit">/ ${size(system.swapTotalBytes)}</span>`,
+        ? resourceCard("スワップ", `<span class="kpiNumber">${size(system.swapUsedBytes)}</span><span class="kpiUnit">/ ${size(system.swapTotalBytes)}</span>`,
             "", warned.has("swap"), system.swapUsedBytes / system.swapTotalBytes)
         : resourceCard("スワップ", "なし", "", false);
     return `<div class="kpiGrid resourceGrid">
         ${resourceCard("CPU", escapeHtml(formatPercent(system.cpuPercent)),
             `${system.cores} コア・負荷 ${load}`, warned.has("cpu"))}
-        ${resourceCard("メモリ", `${size(system.memoryUsedBytes)}<span class="kpiUnit">/ ${size(system.memoryTotalBytes)}</span>`,
+        ${resourceCard("メモリ", `<span class="kpiNumber">${size(system.memoryUsedBytes)}</span><span class="kpiUnit">/ ${size(system.memoryTotalBytes)}</span>`,
             `空き ${size(system.memoryAvailableBytes)}`, warned.has("memory"), system.memoryUsedBytes / system.memoryTotalBytes)}
         ${swap}
-        ${resourceCard("ディスク（録画の保存先）", `${size(system.diskFreeBytes)}<span class="kpiUnit">空き / ${size(system.diskTotalBytes)}</span>`,
+        ${resourceCard("ディスク（録画の保存先）", `<span class="kpiNumber">${size(system.diskFreeBytes)}</span><span class="kpiUnit">空き / ${size(system.diskTotalBytes)}</span>`,
             escapeHtml(system.diskPath), warned.has("disk"), diskUsedRatio)}
         ${resourceCard("ネットワーク", `<span class="resourceRate">↓ ${rate(system.networkReceiveBytesPerSecond)}</span>`
             + `<span class="resourceRate">↑ ${rate(system.networkSendBytesPerSecond)}</span>`, "受信・送信", false)}
@@ -530,7 +536,7 @@ buttonEl("browseDirectoryBtn").addEventListener("click", async () => {
             dirInput.value = result.path;
         }
     } catch (e) {
-        showError(errorMessage(e));
+        showError(errorMessage(e), { reveal: true });
     } finally {
         btn.disabled = false;
     }
@@ -580,9 +586,11 @@ formEl("settingsForm").addEventListener("submit", async (ev) => {
         twitchClientSecretInput.value = "";
     } catch (e) {
         // 400・500 なら .env は変わっていない（SettingsController.updateSettings() 参照）ので、
-        // 読み込んだときの再起動待ちの文に戻す（空にすると、再起動待ちの変更まで消えたように見える）
-        result.textContent = loaded.pendingRestart;
-        showError(errorMessage(e));
+        // 読み込んだときの再起動待ちの文を残す（消すと、再起動待ちの変更まで消えたように見える）。
+        // 保存ボタンは画面の下にあり、理由を出すエラー帯は画面の外になるので、
+        // 失敗したことをボタンの横にも出し、帯まで画面を動かす（#574 と同じ扱い）
+        result.textContent = `保存できませんでした（理由は画面上部）。${loaded.pendingRestart}`;
+        showError(errorMessage(e), { reveal: true });
         submitBtn.disabled = false;
         return;
     }
@@ -692,7 +700,9 @@ async function loadDashboard() {
 
 buttonEl("refreshDashboardBtn").addEventListener("click", () => {
     loadDashboard();
+    // ファイル容量の表の「録画」と上部のディスク使用量は同じ値なので、必ず一緒に読み直す
     loadServiceStorage();
+    loadDiskUsage();
 });
 startVisibleRefresh(loadDashboard);
 
