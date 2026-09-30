@@ -716,7 +716,7 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
 | PUT | `/api/channels/{id}/record` | 録画設定の ON/OFF 切り替え |
 | PUT | `/api/channels/{id}/record-title-filter` | 録画対象を絞り込むタイトルキーワードの更新 |
 | DELETE | `/api/channels/{id}` | 監視対象の削除。通知履歴・録画履歴（視聴済み・お気に入り・耳キスの印と候補を含む）・購読・収集した動画（サムネイル・収集の状態を含む）・チャンネル別ログも消え、録画中の yt-dlp は止める。録画ファイルは残る（録画画面の「削除済みチャンネルの録画を一括削除」で片付ける） |
-| GET | `/api/channels/search?name=` | チャンネル名から検索（**YouTube のみ**。1回100クォータ消費） |
+| GET | `/api/channels/search?name=` | チャンネル名から検索（**YouTube のみ**。1回100クォータ消費。API キーが無い・呼び出しに失敗したときは 503、キーが無いときは回数を使わない） |
 | GET | `/api/notifications` | 通知履歴（失敗した試行も含む） |
 | GET | `/api/recordings?keyword=&status=&channelId=` | 録画履歴（録画中・失敗も含む）。`keyword` は配信タイトルとチャンネル名の部分一致 |
 | GET | `/api/recordings/{id}` | 録画履歴 1 件（再生画面用） |

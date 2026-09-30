@@ -1,7 +1,9 @@
 package com.example.monitor.service;
 
+import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.dto.ChannelSearchResult;
 import com.example.monitor.dto.LiveStreamDetails;
+import com.example.monitor.exception.YouTubeApiUnavailableException;
 import com.google.api.client.util.DateTime;
 import com.google.api.services.youtube.YouTube;
 import com.google.api.services.youtube.model.ResourceId;
@@ -14,11 +16,11 @@ import com.google.api.services.youtube.model.Video;
 import com.google.api.services.youtube.model.VideoLiveStreamingDetails;
 import com.google.api.services.youtube.model.VideoListResponse;
 import com.google.api.services.youtube.model.VideoSnippet;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.when;
 
@@ -52,8 +55,13 @@ class YouTubeApiClientTest {
     @Mock
     private YouTubeSearchBudget searchBudget;
 
-    @InjectMocks
     private YouTubeApiClient youTubeApiClient;
+
+    @BeforeEach
+    void setUp() {
+        youTubeApiClient = new YouTubeApiClient(youtube, searchBudget, new MonitorProperties(
+                new MonitorProperties.YouTubeProperties("test-key", 120), null, null, null, null));
+    }
 
     private void stubVideosList(VideoListResponse response) throws IOException {
         when(youtube.videos()).thenReturn(videosResource);
@@ -218,7 +226,7 @@ class YouTubeApiClientTest {
         }
 
         @Test
-        @DisplayName("異常系：IOExceptionが発生した場合は空リストを返す")
+        @DisplayName("異常系：IOExceptionが発生した場合はYouTubeApiUnavailableExceptionを投げる")
         void testMethod03() throws IOException {
             when(youtube.search()).thenReturn(searchResource);
             when(searchResource.list(anyList())).thenReturn(searchListRequest);
@@ -227,9 +235,9 @@ class YouTubeApiClientTest {
             when(searchListRequest.setMaxResults(org.mockito.ArgumentMatchers.anyLong())).thenReturn(searchListRequest);
             when(searchListRequest.execute()).thenThrow(new IOException("通信エラー"));
 
-            List<ChannelSearchResult> results = youTubeApiClient.searchChannelsByName("テスト");
-
-            assertThat(results).isEmpty();
+            assertThatThrownBy(() -> youTubeApiClient.searchChannelsByName("テスト"))
+                    .isInstanceOf(YouTubeApiUnavailableException.class)
+                    .hasMessage("YouTube API の呼び出しに失敗しました");
         }
     }
 }
