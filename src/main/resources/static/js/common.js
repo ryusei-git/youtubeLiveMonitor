@@ -178,12 +178,23 @@ function redirectToLogin() {
 
 /**
  * セッション切れをJSON解析より先に扱い、同時に複数のAPIが失敗しても一度だけ遷移する。
+ * 通信そのものの失敗（電波が切れた・サービスの再起動中）では、fetch が TypeError を投げる。
+ * その文はブラウザが決める英語で、ブラウザごとに違う（Chrome は「Failed to fetch」、Safari は「Load failed」）。
+ * そのまま画面に出しても利用者には意味が分からないため、ここで 1 か所だけ日本語の文に包む
+ * （errorMessage で文を見て分けると、ブラウザごとの文に合わせ続けることになる）。
  * @param {string} path APIパス
  * @param {RequestInit} [options] 通信設定
  * @returns {Promise<Response>} 応答
  */
 async function authenticatedFetch(path, options) {
-    const response = await fetch(path, options);
+    let response;
+    try {
+        response = await fetch(path, options);
+    } catch (e) {
+        // 中断（AbortController）は通信の失敗ではないので、そのまま呼び出し元へ返す
+        if (e instanceof DOMException && e.name === "AbortError") throw e;
+        throw new Error("通信できませんでした。通信の良い所で、もう一度お試しください", { cause: e });
+    }
     if (response.status === 401) {
         redirectToLogin();
         throw new Error("ログインの有効期限が切れました。ログインし直してください");

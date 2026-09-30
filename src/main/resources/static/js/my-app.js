@@ -462,6 +462,8 @@ let myTopStopRefresh = null;
  * トップ。購読しているチャンネルの配信中と配信予定を出す。
  * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直す（管理画面のダッシュボードと同じ間隔）。
  * 配信予定も一緒に読み直すのは、始まった配信が「配信予定」に残ったまま「配信中」にも並ぶのを避けるため。
+ * 失敗は欄ごとに扱う。片方の API が失敗しても、取れた方の欄は出す
+ * （まとめて扱うと、片方の失敗で両方の欄が消える）。
  * @type {MyView}
  */
 const myTopView = {
@@ -481,38 +483,47 @@ const myTopView = {
         const upcoming = query(".upcomingPanel > div", root);
         myPauseDockOnVideoDialog(live);
         /**
-         * 前回描いた内容の要約。同じなら描き直さない（描き直すとフォーカスしていたカードが DOM から外れ、body へ飛ぶため）。
-         * 動画の要約は common.js の onlineVideosRenderKey で作る（lastObservedAt を比べる値から外す理由もそこに書いてある）。
+         * 前回描いた内容の要約。欄ごとに持ち、同じなら描き直さない（描き直すとフォーカスしていたカードが
+         * DOM から外れ、body へ飛ぶため）。動画の要約は common.js の onlineVideosRenderKey で作る
+         * （lastObservedAt を比べる値から外す理由もそこに書いてある）。空文字は「まだ一度も描けていない」を表す。
          */
-        let lastKey = "";
+        let lastLiveKey = "";
+        let lastUpcomingKey = "";
         const load = async () => {
-            try {
-                const [page, streams] = await Promise.all([
-                    // 購読は 1 人 50 件までなので、API の上限の 100 件で全部入る（ページ送りを置かない）
-                    apiGet("/api/videos?liveOnly=true&size=100"),
-                    apiGet("/api/my/upcoming"),
-                ]);
-                if (!live.isConnected) return;
-                const key = JSON.stringify([onlineVideosRenderKey(page.content), streams]);
-                if (key === lastKey) {
-                    clearError();
-                    return;
+            const [liveResult, upcomingResult] = await Promise.allSettled([
+                // 購読は 1 人 50 件までなので、API の上限の 100 件で全部入る（ページ送りを置かない）
+                apiGet("/api/videos?liveOnly=true&size=100"),
+                apiGet("/api/my/upcoming"),
+            ]);
+            if (!live.isConnected) return;
+            const failed = '<p class="muted">読み込めませんでした。1 分ごとに読み直します。</p>';
+            /** @type {string[]} */
+            const errors = [];
+            if (liveResult.status === "fulfilled") {
+                const key = onlineVideosRenderKey(liveResult.value.content);
+                if (key !== lastLiveKey) {
+                    lastLiveKey = key;
+                    renderLiveVideoCards(live, liveResult.value, emptyState("配信中のチャンネルはありません"));
                 }
-                lastKey = key;
-                clearError();
-                renderLiveVideoCards(live, page, emptyState("配信中のチャンネルはありません"));
-                renderUpcomingStreams(streams, upcoming, emptyState("7 日以内の配信予定はありません"));
-            } catch (e) {
-                if (!live.isConnected) return;
-                showError(errorMessage(e));
-                // まだ一度も描けていない（lastKey が空の）ときは、欄の「読み込み中...」を置き換える。残すと、待てば出るのか
-                // 読めなかったのか分からない（#338）。一度描けていれば前回の内容を残す（失敗はエラー帯で伝わり、描き直すとフォーカスが飛ぶ）
-                if (!lastKey) {
-                    const failed = '<p class="muted">読み込めませんでした。1 分ごとに読み直します。</p>';
-                    live.innerHTML = failed;
-                    upcoming.innerHTML = failed;
-                }
+            } else {
+                errors.push(`配信中の一覧を読み込めませんでした: ${errorMessage(liveResult.reason)}`);
+                // まだ一度も描けていないときは、欄の「読み込み中...」を置き換える。残すと、待てば出るのか
+                // 読めなかったのか分からない（#338）。一度描けていれば前回の内容を残す
+                // （失敗はエラー帯で伝わり、描き直すとフォーカスが飛ぶ）
+                if (!lastLiveKey) live.innerHTML = failed;
             }
+            if (upcomingResult.status === "fulfilled") {
+                const key = JSON.stringify(upcomingResult.value);
+                if (key !== lastUpcomingKey) {
+                    lastUpcomingKey = key;
+                    renderUpcomingStreams(upcomingResult.value, upcoming, emptyState("7 日以内の配信予定はありません"));
+                }
+            } else {
+                errors.push(`配信予定を読み込めませんでした: ${errorMessage(upcomingResult.reason)}`);
+                if (!lastUpcomingKey) upcoming.innerHTML = failed;
+            }
+            if (errors.length) showError(errors.join(" / "));
+            else clearError();
         };
         load();
         myTopStopRefresh = startVisibleRefresh(load);
@@ -819,6 +830,12 @@ const myWatchView = {
             const soundMarks = document.createElement("section");
             query(".table-scroll", root).before(soundMarks);
             myWatchStopSoundMarks = myBindSoundMarks(rec, soundMarks);
+        } else if (rec.status === "RECORDING") {
+            // 録画中は待てば見られる。失敗と同じエラー帯に出すと、ファイルが消えたように読める
+            // （管理者の再生画面の player.js の showUnplayableNotice と同じ分け方。
+            // 文はマイチャンネルの「配信中・録画中」の説明にそろえる）
+            query(".watchMarks", root).insertAdjacentHTML("beforebegin", emptyState("録画中です",
+                "録画が終わるとアーカイブに並び、ここで再生できます。終わってからこのページを開き直してください。"));
         } else {
             showError("この録画は再生できるファイルが残っていません");
         }
