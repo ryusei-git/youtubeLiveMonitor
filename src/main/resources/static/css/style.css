@@ -1262,6 +1262,20 @@ button:disabled:hover {
         white-space: nowrap;
     }
 
+    /* ページ送りは入力欄ではないので縦に積まない。幅いっぱいのボタンが 4 段以上に並ぶと、
+       一覧の続きを探すのにスクロールが要るうえ、どれが今のページか見比べにくい */
+    .inline.pager {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .inline.pager button {
+        width: auto;
+        min-width: 2.75rem;
+    }
+
     /* 指で押しやすい高さを確保する */
     button {
         padding: 0.6rem 1rem;
