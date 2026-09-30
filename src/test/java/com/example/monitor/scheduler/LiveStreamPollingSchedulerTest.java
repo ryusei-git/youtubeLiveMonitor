@@ -1236,6 +1236,80 @@ class LiveStreamPollingSchedulerTest {
             verify(streamRecorder, never()).confirmStillLive(any());
             verify(streamRecorder, never()).startRecording(any(), any(), any(), any());
         }
+
+        @Test
+        @DisplayName("正常系：配信中と判定した動画が同じ動画の待機所に戻っても、通知の失敗回数を0に戻さない")
+        void testMethod68() {
+            // 判定が待機所と配信中を行き来するたびに 0 に戻すと、上限を設けた意味が消える
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setNotificationFailureCount(1);
+            target.setCurrentLiveVideoId("videoA");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.upcoming("videoA", "予定タイトル", WATCH_URL_PREFIX + "videoA", null));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository, never()).resetNotificationFailureCount(anyLong());
+        }
+
+        @Test
+        @DisplayName("正常系：前回と同じ動画の待機所のままなら、通知の失敗回数を0に戻さない")
+        void testMethod69() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setNotificationFailureCount(1);
+            target.setUpcomingVideoId("videoA");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.upcoming("videoA", "予定タイトル", WATCH_URL_PREFIX + "videoA", null));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository, never()).resetNotificationFailureCount(anyLong());
+        }
+
+        @Test
+        @DisplayName("正常系：別の動画の待機所に移ったら、通知の失敗回数を0に戻す")
+        void testMethod70() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setNotificationFailureCount(1);
+            target.setCurrentLiveVideoId("videoX");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.upcoming("videoA", "予定タイトル", WATCH_URL_PREFIX + "videoA", null));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository).resetNotificationFailureCount(1L);
+        }
+
+        @Test
+        @DisplayName("正常系：待機所だった動画が配信中に戻っても、失敗回数が上限なら数え直さず詳細も取らない")
+        void testMethod71() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setNotificationFailureCount(3);
+            target.setUpcomingVideoId("videoA");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("videoA", "配信タイトル", null, WATCH_URL_PREFIX + "videoA"));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository, never()).resetNotificationFailureCount(anyLong());
+            // 行き来のたびに videos.list のクォータを使わない
+            verify(streamPlatform, never()).fetchDetails(any(), anyString());
+        }
+
+        @Test
+        @DisplayName("正常系：待機所だった動画と別の動画が配信を始めたら、失敗回数を数え直して通知を試みる")
+        void testMethod72() {
+            MonitoredChannel target = channel(1L, "UCxxxxxxxx", null);
+            target.setNotificationFailureCount(3);
+            target.setUpcomingVideoId("videoA");
+            when(monitoredChannelRepository.findAll()).thenReturn(List.of(target));
+            detects("UCxxxxxxxx", LiveStreamDetection.live("videoB", "別の配信", null, WATCH_URL_PREFIX + "videoB"));
+
+            scheduler.pollAllChannels();
+
+            verify(monitoredChannelRepository).resetNotificationFailureCount(1L);
+            verify(streamPlatform).fetchDetails(any(), eq("videoB"));
+        }
     }
 
     @Nested

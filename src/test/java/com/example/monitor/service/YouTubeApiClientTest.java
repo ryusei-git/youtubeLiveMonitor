@@ -6,6 +6,9 @@ import com.example.monitor.dto.LiveStreamDetails;
 import com.example.monitor.exception.YouTubeApiUnavailableException;
 import com.google.api.client.util.DateTime;
 import com.google.api.services.youtube.YouTube;
+import com.google.api.services.youtube.model.Channel;
+import com.google.api.services.youtube.model.ChannelListResponse;
+import com.google.api.services.youtube.model.ChannelSnippet;
 import com.google.api.services.youtube.model.ResourceId;
 import com.google.api.services.youtube.model.SearchListResponse;
 import com.google.api.services.youtube.model.SearchResult;
@@ -53,6 +56,12 @@ class YouTubeApiClientTest {
     private YouTube.Search.List searchListRequest;
 
     @Mock
+    private YouTube.Channels channelsResource;
+
+    @Mock
+    private YouTube.Channels.List channelsListRequest;
+
+    @Mock
     private YouTubeSearchBudget searchBudget;
 
     private YouTubeApiClient youTubeApiClient;
@@ -68,6 +77,12 @@ class YouTubeApiClientTest {
         when(videosResource.list(anyList())).thenReturn(videosListRequest);
         when(videosListRequest.setId(anyList())).thenReturn(videosListRequest);
         when(videosListRequest.execute()).thenReturn(response);
+    }
+
+    private void stubChannelsList() throws IOException {
+        when(youtube.channels()).thenReturn(channelsResource);
+        when(channelsResource.list(anyList())).thenReturn(channelsListRequest);
+        when(channelsListRequest.setId(anyList())).thenReturn(channelsListRequest);
     }
 
     private void stubSearchList(SearchListResponse response) throws IOException {
@@ -238,6 +253,48 @@ class YouTubeApiClientTest {
             assertThatThrownBy(() -> youTubeApiClient.searchChannelsByName("テスト"))
                     .isInstanceOf(YouTubeApiUnavailableException.class)
                     .hasMessage("YouTube API の呼び出しに失敗しました");
+        }
+    }
+
+    @Nested
+    @DisplayName("fetchChannelTitle()")
+    class FetchChannelTitle {
+
+        @Test
+        @DisplayName("正常系：チャンネル名を前後の空白を除いて返す")
+        void testMethod01() throws IOException {
+            stubChannelsList();
+            when(channelsListRequest.execute()).thenReturn(new ChannelListResponse().setItems(
+                    List.of(new Channel().setSnippet(new ChannelSnippet().setTitle("  公式名  ")))));
+
+            assertThat(youTubeApiClient.fetchChannelTitle("UCxxxxxxxx")).contains("公式名");
+        }
+
+        @Test
+        @DisplayName("異常系：応答を解析できずIllegalArgumentExceptionが出ても、例外を投げずに空を返す")
+        void testMethod02() throws IOException {
+            stubChannelsList();
+            when(channelsListRequest.execute()).thenThrow(new IllegalArgumentException("no JSON input found"));
+
+            assertThat(youTubeApiClient.fetchChannelTitle("UCxxxxxxxx")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("異常系：途中で切れた応答でNullPointerExceptionが出ても、例外を投げずに空を返す")
+        void testMethod03() throws IOException {
+            stubChannelsList();
+            when(channelsListRequest.execute()).thenThrow(new NullPointerException());
+
+            assertThat(youTubeApiClient.fetchChannelTitle("UCxxxxxxxx")).isEmpty();
+        }
+
+        @Test
+        @DisplayName("異常系：IOExceptionが発生した場合は空を返す")
+        void testMethod04() throws IOException {
+            stubChannelsList();
+            when(channelsListRequest.execute()).thenThrow(new IOException("通信エラー"));
+
+            assertThat(youTubeApiClient.fetchChannelTitle("UCxxxxxxxx")).isEmpty();
         }
     }
 }
