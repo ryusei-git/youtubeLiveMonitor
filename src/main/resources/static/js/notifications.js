@@ -3,7 +3,7 @@
 // （各画面のスクリプトは <script> で読み込まれ、既定では同じスコープを共有するため）
 (() => {
     const pageSize = 20;
-    const pager = bindPager({ load: loadHistory });
+    const pager = bindPager({ load: () => loadHistory(true) });
     /** 読み込みの通し番号。条件を続けて変えたとき、遅れて届いた古い応答で表を上書きしないため */
     let historyRequest = 0;
 
@@ -80,7 +80,16 @@
         history.replaceState(null, "", params ? `${location.pathname}?${params}` : location.pathname);
     }
 
-    async function loadHistory() {
+    /**
+     * 通知履歴を読み込んで表を描き直す。
+     *
+     * @param {boolean} [reveal] 失敗したとき、エラー帯が見える位置まで画面を動かすか。利用者が押した
+     *   操作（絞り込み・条件のクリア・ページ送り）のときだけ true にする。表の下のページ送りで
+     *   失敗すると、帯が画面の外に出て、「n / m」の番号だけが進み、何も起きなかったように見えるため。
+     *   画面を開いたときの読み込み（init）は false のまま（開いた直後は先頭にいて帯が見えている。
+     *   showError の決まりと同じ）
+     */
+    async function loadHistory(reveal = false) {
         const request = ++historyRequest;
         try {
             const params = filterParams();
@@ -123,7 +132,7 @@
         } catch (e) {
             if (request !== historyRequest) return;
             clearResults();
-            showError(errorMessage(e));
+            showError(errorMessage(e), { reveal });
         }
     }
 
@@ -151,12 +160,12 @@
         const since = inputEl("sinceFilter").value;
         const until = inputEl("untilFilter").value;
         if (since && until && since > until) {
-            showError("期間の開始は終了以前にしてください");
+            showError("期間の開始は終了以前にしてください", { reveal: true });
             return;
         }
         pager.reset();
         syncUrl();
-        loadHistory();
+        loadHistory(true);
     });
 
     el("resetBtn").addEventListener("click", () => {
@@ -167,7 +176,7 @@
         inputEl("untilFilter").value = "";
         pager.reset();
         syncUrl();
-        loadHistory();
+        loadHistory(true);
     });
 
     /**
