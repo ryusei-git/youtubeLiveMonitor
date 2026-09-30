@@ -149,7 +149,7 @@
         } catch (e) {
             recording[kind] = !next;
             renderRecordingMarkButton(button, kind, !next);
-            showError(errorMessage(e));
+            showError(errorMessage(e), { reveal: true });
         } finally {
             button.disabled = false;
         }
@@ -198,9 +198,12 @@
     /**
      * 一覧を読み込む。
      *
-     * @param {boolean} clearAlert 成功したらエラー帯を消すか。利用者が一覧を読み直す操作（検索・条件のクリア・
-     *   ページ送り・「戻る」「進む」）のときだけ true にする。開いた直後・10 秒ごとの読み直し・削除などの後の
-     *   読み直しで消すと、直前の操作の失敗や、並んで走る選択肢の読み込みの失敗を、利用者が読む前に消してしまうため
+     * @param {boolean} clearAlert 利用者が一覧を読み直す操作（検索・条件のクリア・ページ送り・
+     *   「戻る」「進む」）のときだけ true にする。true のときは、成功したらエラー帯を消し、失敗したら
+     *   エラー帯が見える位置まで画面を動かす（一覧の下のページ送りで失敗すると、帯が画面の外に出て、
+     *   何も起きなかったように見えるため）。開いた直後・10 秒ごとの読み直し・削除などの後の読み直しを
+     *   false にするのは、成功で消すと、直前の操作の失敗や並んで走る選択肢の読み込みの失敗を利用者が
+     *   読む前に消してしまい、失敗で動かすと、読んでいる途中の画面が勝手に先頭へ飛ぶため
      */
     async function loadRecordings(clearAlert) {
         const request = ++loadRequest;
@@ -214,7 +217,7 @@
                 data.totalElements === 0 ? "該当する録画はありません" : `${data.totalElements}件`;
             scheduleRefreshWhileRunning(data.content);
         } catch (e) {
-            if (request === loadRequest) showError(errorMessage(e));
+            if (request === loadRequest) showError(errorMessage(e), { reveal: clearAlert });
         }
     }
 
@@ -255,7 +258,7 @@
             loadDiskUsageIfOpen();
         } catch (e) {
             summary.textContent = "";
-            showError(errorMessage(e));
+            showError(errorMessage(e), { reveal: true });
         } finally {
             btn.disabled = false;
         }
@@ -299,13 +302,14 @@
                     loadDiskUsageIfOpen();
                     loadRecordings(false);
                 } catch (e) {
-                    showError(errorMessage(e));
+                    // 先に候補の表を消してから動かす。後で消すと、ページが縮んで動かした位置がずれうる
                     container.replaceChildren();
+                    showError(errorMessage(e), { reveal: true });
                 }
             });
         } catch (e) {
             summary.textContent = "";
-            showError(errorMessage(e));
+            showError(errorMessage(e), { reveal: true });
         } finally {
             btn.disabled = false;
         }
