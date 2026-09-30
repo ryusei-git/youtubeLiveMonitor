@@ -1448,6 +1448,10 @@ function myChannelRow(ch, reload) {
     // 配信元は管理画面の表と同じく、プラットフォーム名をチャンネルページへのリンクにする（プラットフォームと
     // リンクで列を分けると表が横に長くなり、よく使う画面の幅でも解除のボタンが横にはみ出すため）。
     // 購読した日は日付だけを出し、時刻は title に回す（時刻まで出すと表が横に長くなり、よく使う幅で解除がはみ出す）。
+    // 自動録画・通知のボタンは「オン」「オフ」だけを出し、何のボタンかは列の見出しと aria-label で伝える（見出しを
+    // ボタンにも繰り返すと列が広がり、通知の列を足したときに幅 1280 でも解除が表の外へはみ出した）。同じ理由で、
+    // 条件のないキーワードは「すべて」と短く出す（説明はボタンの title にある）。表の余白を詰める理由は studio.css の
+    // .myChannelsTable に書いた。
     // 並べ替えは秒までの値で比べる（数字の並びを数として比べるため、秒未満の桁数が行ごとに違うと正しく並ばない）
     const subscribed = escapeHtml(formatDateTimeSimple(ch.subscribedAt));
     tr.innerHTML = `<td><span class="channelWithIcon">${channelIcon(ch.channelIconUrl)}<a href="/my/archive?channelId=${ch.id}">${escapeHtml(ch.channelName)}</a></span></td>
@@ -1455,9 +1459,9 @@ function myChannelRow(ch, reload) {
         <td>${myChannelStateLabel(ch)}</td>
         <td data-sort-value="${ch.recordingCount}">${ch.recordingCount}件</td>
         <td data-sort-value="${subscribed}" title="${subscribed}">${subscribed.slice(0, 10)}</td>
-        <td><button type="button" class="recordBtn" aria-pressed="${ch.recordEnabled}">自動録画: ${ch.recordEnabled ? "オン" : "オフ"}</button></td>
-        <td class="titleFilterCell">${titleFilterButton(ch.recordTitleKeywords || "")}</td>
-        <td><button type="button" class="notifyBtn" aria-pressed="${ch.notifyEnabled}">通知: ${ch.notifyEnabled ? "オン" : "オフ"}</button></td>
+        <td><button type="button" class="recordBtn" aria-label="自動録画" aria-pressed="${ch.recordEnabled}">${ch.recordEnabled ? "オン" : "オフ"}</button></td>
+        <td class="titleFilterCell" data-unset-label="すべて">${titleFilterButton(ch.recordTitleKeywords || "", "すべて")}</td>
+        <td><button type="button" class="notifyBtn" aria-label="通知" aria-pressed="${ch.notifyEnabled}">${ch.notifyEnabled ? "オン" : "オフ"}</button></td>
         <td><button type="button" class="unsubscribeBtn">解除</button></td>`;
 
     const recordBtn = /** @type {HTMLButtonElement} */ (query(".recordBtn", tr));
@@ -1468,7 +1472,7 @@ function myChannelRow(ch, reload) {
             // 変えるのは自分の希望だけ。キーワードは今の値をそのまま送る
             await apiPut(`/api/my/channels/${ch.id}/record`, { enabled: next, titleKeywords: ch.recordTitleKeywords || "" });
             ch.recordEnabled = next;
-            recordBtn.textContent = `自動録画: ${next ? "オン" : "オフ"}`;
+            recordBtn.textContent = next ? "オン" : "オフ";
             recordBtn.setAttribute("aria-pressed", String(next));
             if (recordBtn.isConnected) clearError();
             showToast(next ? "この配信者の録画を始めます" : "この配信者の録画をやめます");
@@ -1487,7 +1491,7 @@ function myChannelRow(ch, reload) {
         try {
             await apiPut(`/api/my/channels/${ch.id}/notify`, { enabled: next });
             ch.notifyEnabled = next;
-            notifyBtn.textContent = `通知: ${next ? "オン" : "オフ"}`;
+            notifyBtn.textContent = next ? "オン" : "オフ";
             notifyBtn.setAttribute("aria-pressed", String(next));
             if (notifyBtn.isConnected) clearError();
             showToast(next ? "通知をオンにしました" : "通知をオフにしました");
@@ -1556,7 +1560,7 @@ const myChannelsView = {
               あなたがオフにしても録画自体は続きます</strong>（保存先が共通のため）。
             </p>
             <div class="table-scroll">
-              <table>
+              <table class="myChannelsTable">
                 <thead><tr>
                   <th data-sort="text" data-key="name">チャンネル名</th><th>配信元</th><th>状態</th>
                   <th data-sort="number" data-key="recordings">録画数</th><th data-sort="text" data-key="subscribed">購読した日</th>
@@ -1631,7 +1635,7 @@ const myChannelsView = {
                 clearError();
                 showToast(recordEnabled.checked
                     ? `${added.channelName} を追加しました。配信を自動で録画します`
-                    : `${added.channelName} を追加しました。録画するには表の「自動録画: オフ」を押してオンにしてください`);
+                    : `${added.channelName} を追加しました。録画するには表の「自動録画」の列の「オフ」を押してオンにしてください`);
                 channelInput.value = "";
                 channelName.value = "";
                 load();
