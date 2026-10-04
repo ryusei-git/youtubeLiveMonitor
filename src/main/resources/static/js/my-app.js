@@ -1452,6 +1452,8 @@ function myChannelRow(ch, reload) {
     // ボタンにも繰り返すと列が広がり、通知の列を足したときに幅 1280 でも解除が表の外へはみ出した）。同じ理由で、
     // 条件のないキーワードは「すべて」と短く出す（説明はボタンの title にある）。表の余白を詰める理由は studio.css の
     // .myChannelsTable に書いた。
+    // ボタンのセルの data-label は、iPhone の幅で表をカードに組み替えたとき（mobile.css）に列の見出しの代わりに出す。
+    // PC では data-label に当たる規則が無いので表示は変わらない。
     // 並べ替えは秒までの値で比べる（数字の並びを数として比べるため、秒未満の桁数が行ごとに違うと正しく並ばない）
     const subscribed = escapeHtml(formatDateTimeSimple(ch.subscribedAt));
     tr.innerHTML = `<td><span class="channelWithIcon">${channelIcon(ch.channelIconUrl)}<a href="/my/archive?channelId=${ch.id}">${escapeHtml(ch.channelName)}</a></span></td>
@@ -1459,9 +1461,9 @@ function myChannelRow(ch, reload) {
         <td>${myChannelStateLabel(ch)}</td>
         <td data-sort-value="${ch.recordingCount}">${ch.recordingCount}件</td>
         <td data-sort-value="${subscribed}" title="${subscribed}">${subscribed.slice(0, 10)}</td>
-        <td><button type="button" class="recordBtn" aria-label="自動録画" aria-pressed="${ch.recordEnabled}">${ch.recordEnabled ? "オン" : "オフ"}</button></td>
-        <td class="titleFilterCell" data-unset-label="すべて">${titleFilterButton(ch.recordTitleKeywords || "", "すべて")}</td>
-        <td><button type="button" class="notifyBtn" aria-label="通知" aria-pressed="${ch.notifyEnabled}">${ch.notifyEnabled ? "オン" : "オフ"}</button></td>
+        <td data-label="自動録画"><button type="button" class="recordBtn" aria-label="自動録画" aria-pressed="${ch.recordEnabled}">${ch.recordEnabled ? "オン" : "オフ"}</button></td>
+        <td class="titleFilterCell" data-unset-label="すべて" data-label="キーワード">${titleFilterButton(ch.recordTitleKeywords || "", "すべて")}</td>
+        <td data-label="通知"><button type="button" class="notifyBtn" aria-label="通知" aria-pressed="${ch.notifyEnabled}">${ch.notifyEnabled ? "オン" : "オフ"}</button></td>
         <td><button type="button" class="unsubscribeBtn">解除</button></td>`;
 
     const recordBtn = /** @type {HTMLButtonElement} */ (query(".recordBtn", tr));
