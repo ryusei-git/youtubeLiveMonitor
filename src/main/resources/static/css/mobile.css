@@ -248,3 +248,10 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 /* size="60" のままでは URL の欄が画面の幅を超えるので、幅いっぱいにする。ボタンも幅いっぱいにして押しやすくする。 */
 #downloadUrl { width: 100%; box-sizing: border-box; }
 #downloadForm button[type="submit"] { width: 100%; }
+
+/* 利用者登録・パスワード再設定・アカウントのパスワード変更の入力欄（#795）。size="28" の幅（約 250px）で止まると
+   375px では右に空きが残り、ボタンも左に小さく寄るので、ログイン（style.css の .loginField input・.loginCard button）に
+   そろえて幅いっぱいにする。size="28" は PC の幅を決めているので HTML には残し、ここで上書きする。
+   box-sizing を足すのは、枠と内側の余白の分だけ本文の右端から入力欄がはみ出さないようにするため。 */
+#registerForm input, #resetForm input, #passwordForm input { width: 100%; box-sizing: border-box; }
+#registerForm button[type="submit"], #resetForm button[type="submit"], #passwordForm button[type="submit"] { width: 100%; }
