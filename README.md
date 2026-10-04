@@ -751,6 +751,8 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
 | GET | `/api/admin/tables` | DB のテーブル一覧 |
 | GET | `/api/admin/tables/{name}` | テーブルの内容 |
 | PUT | `/api/admin/tables/{name}/{pk}` | 行の更新 |
+| PUT | `/api/admin/users/{id}/username` | 一般利用者の利用者名を変える（管理者のみ。本文 `{"username":"...","adminPassword":"<管理者自身の今のパスワード>"}`。成功は 204 で、その利用者のログイン中の状態は切れる。管理者のパスワード違いは 403、要件違反は 400、管理者・自分自身・同じ名前は 409） |
+| PUT | `/api/admin/users/{id}/password` | 一般利用者の新しいパスワードを決める（管理者のみ。本文 `{"password":"...","adminPassword":"..."}`。今のパスワードは見られない。成功は 204 で、その利用者のほかの端末のログイン・「ログインしたままにする」・再設定用のリンクは切れる。403・400・409 は上と同じ） |
 | POST | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS&force=` | 録画の耳キスの検出を今すぐ始める（202。今の版で検出済みなら `force=true` が要る。検出が走っている・再生できない録画は 409） |
 | GET | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS` | 今の版の検出の実行記録（`status`・`candidateCount`・`attempts`・`message` など。まだ一度も検出していなければ 404） |
 | GET | `/api/my/recordings/{recordingId}/sound-marks?kind=EAR_KISS` | 録画に付いた耳キスの印（全員の分）を位置の順に返す（ログインしていれば誰でも使える。以下の `/api/my/**` も同じ） |
