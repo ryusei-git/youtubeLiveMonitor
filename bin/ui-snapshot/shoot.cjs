@@ -11,6 +11,7 @@
  *       タイムゾーン・言語: 端末の設定に左右されないよう Asia/Tokyo・ja-JP に決める
  *       アニメーション: screenshot の animations: "disabled" と prefers-reduced-motion、入力欄のカーソルは caret: "hide"
  *       外部への通信: 確認用インスタンス以外への要求は止める（チャンネルのアイコン・外部の画像が、届く・届かないで変わらないように）
+ *       角の描き方: Chromium の部分的な描き直しを止める（理由は CHROMIUM_ARGS）
  *   - 画面は 1 枚の全体（fullPage）で撮る。iPhone では下の方の崩れも見たいし、PC の比較でも見えていない部分の差を拾える
  *   - 画面ごとに読み込みを待ってから撮る（通信が落ち着く → 「読み込み中...」が消える → フォント → 2 フレーム）
  * 管理画面を足すときは、SCREENS に管理者でログインする種類を足し、login() を管理者用のログイン画面に分ければよい。
@@ -177,9 +178,25 @@ async function shoot(context, size, screen) {
     }
 }
 
+/**
+ * Chromium の起動引数。--disable-partial-raster で、画面の一部が書き換わったときも、その部分を含むタイル全体を描き直させる。
+ *
+ * 【なぜ要るか】（#802。実際に発生した）同じビルド・同じ確認用インスタンスでも、pc-1920x1080/my-archive-list.png の
+ * 検索欄・ボタン・枠の角の画素が、撮るたびに 2〜3 通りのどれかになっていた（色の値が 1 だけ違う。差は 6・42・48 ピクセル）。
+ * 要素の位置（getBoundingClientRect）は毎回小数点以下まで同じで、--disable-gpu でも揺れたので、レイアウトや GPU ではなく
+ * 描画（ラスタライズ）の揺れ。Chromium は、データが届いて画面の一部が変わると、すでに描いたタイルのうち変わった範囲だけを
+ * 描き直す（partial raster）。角の丸い枠をその範囲で切り取って描くと、境目の画素のぼかし（アンチエイリアス）が
+ * 全体を描いたときと 1 だけ違う値になる。どの範囲がいつ描き直されるかは、通信と描画の間合いで毎回変わるので、
+ * 結果が揺れる。一覧の画面は、検索欄の選択肢・件数・表が別々の通信で後から埋まるので、書き換えの回数が多く揺れやすい。
+ * 部分的な描き直しを止めると、毎回タイル全体を同じ範囲で描くので、同じ画面なら同じ画素になる（同じ画面を 20 回撮って差 0）。
+ * 実際のブラウザの描き方とは違うが、差は角の 1 段階の色だけで、変更の前後を比べる目的には影響しない。
+ * 版（PLAYWRIGHT_VERSION）と同じく、この引数を変えたら前後の両方を撮り直す（引数の無い版で撮った画像とは角の画素が違う）。
+ */
+const CHROMIUM_ARGS = ["--disable-partial-raster"];
+
 async function launch(engines, size) {
     try {
-        return await engines[size.browser].launch();
+        return await engines[size.browser].launch(size.browser === "chromium" ? { args: CHROMIUM_ARGS } : {});
     } catch (e) {
         const hint = size.browser === "webkit"
             ? "（Windows で Smart App Control が有効なら WebKit は動きません。UI_SNAPSHOT_IPHONE_ENGINE=chromium で撮れます）"
