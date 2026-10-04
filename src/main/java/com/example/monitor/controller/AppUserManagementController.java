@@ -1,7 +1,10 @@
 package com.example.monitor.controller;
 
+import com.example.monitor.dto.AdminPasswordSetRequest;
+import com.example.monitor.dto.AdminUsernameChangeRequest;
 import com.example.monitor.dto.AppUserResponse;
 import com.example.monitor.service.AppUserManagementService;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
@@ -59,6 +62,39 @@ public class AppUserManagementController {
     public AppUserManagementService.PasswordResetIssued issuePasswordReset(@PathVariable Long id,
                                                                             Authentication authentication) {
         return service.issuePasswordReset(id, authentication.getName());
+    }
+
+    /**
+     * 一般利用者の利用者名を変える。操作者はリクエストの本文ではなく認証情報から取る。
+     * @param id 利用者ID
+     * @param body 新しい利用者名と、操作者（管理者）自身の今のパスワード
+     * @param authentication 操作者の認証情報
+     * @param request 操作元の IP（管理者のパスワードの照合の回数の上限に使う）
+     * @return 成功時204。管理者のパスワードが違えば 403、名前が要件を満たさなければ 400、
+     *         管理者・自分自身や同じ名前があれば 409、照合に続けて失敗していれば 429（{@code GlobalExceptionHandler}）
+     */
+    @PutMapping("/{id}/username")
+    public ResponseEntity<Void> rename(@PathVariable Long id, @RequestBody AdminUsernameChangeRequest body,
+                                       Authentication authentication, HttpServletRequest request) {
+        service.rename(id, body.username(), body.adminPassword(), authentication.getName(), request.getRemoteAddr());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 一般利用者の新しいパスワードを決める。今のパスワードは返さない（ハッシュしか持っていない）。
+     * @param id 利用者ID
+     * @param body 新しいパスワードと、操作者（管理者）自身の今のパスワード
+     * @param authentication 操作者の認証情報
+     * @param request 操作元の IP（管理者のパスワードの照合の回数の上限に使う）
+     * @return 成功時204。管理者のパスワードが違えば 403、新しいパスワードが要件を満たさなければ 400、
+     *         管理者・自分自身なら 409、照合に続けて失敗していれば 429（{@code GlobalExceptionHandler}）
+     */
+    @PutMapping("/{id}/password")
+    public ResponseEntity<Void> setPassword(@PathVariable Long id, @RequestBody AdminPasswordSetRequest body,
+                                            Authentication authentication, HttpServletRequest request) {
+        service.setPassword(id, body.password(), body.adminPassword(), authentication.getName(),
+                request.getRemoteAddr());
+        return ResponseEntity.noContent().build();
     }
 
     /**

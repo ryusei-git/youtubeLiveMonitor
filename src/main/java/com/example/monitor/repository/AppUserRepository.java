@@ -123,6 +123,51 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
                        @Param("changedAt") LocalDateTime changedAt);
 
     /**
+     * 管理者が決めたパスワードのハッシュと変更時刻を書き、出ている再設定用の token を消す（#807）。
+     *
+     * <p>{@link #updatePassword} と別にしているのは 2 つの理由から。再設定用のリンクを同じ 1 本の UPDATE で消すため
+     * （2 本に分けると、間で失敗したとき古いリンクだけが生き残る）。また {@link #disableUser} と同じく、
+     * 読み込み後に権限が変わっても管理者のパスワードを書き換えないよう、更新条件に権限を含めるため。
+     * 変更時刻を書くのは {@link #updatePassword} と同じく、それより前のセッションを失効させるため。
+     *
+     * @param id           利用者の主キー
+     * @param role         操作可能な権限
+     * @param passwordHash エンコード済みの新しいパスワード
+     * @param changedAt    変更した時刻
+     * @return 更新した件数。対象の行が無い・権限が違えば 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE AppUser u SET u.passwordHash = :passwordHash, u.passwordChangedAt = :changedAt, "
+            + "u.passwordResetToken = NULL, u.passwordResetExpiresAt = NULL "
+            + "WHERE u.id = :id AND u.role = :role")
+    int setPasswordByAdmin(@Param("id") Long id, @Param("role") Role role,
+                           @Param("passwordHash") String passwordHash, @Param("changedAt") LocalDateTime changedAt);
+
+    /**
+     * 利用者名を書き換え、変更時刻（{@link AppUser#passwordChangedAt}）も今にする（#807）。
+     *
+     * <p>変更時刻を書くのは、その利用者のログイン中のセッションを次のリクエストで失効させるため（{@link #isSessionValid}）。
+     * ログイン ID が変わったのに古いセッションが残ると、本人が知らないうちに名前が変わったことに気づけない。
+     * 「ログインしたままにする」の Cookie は利用者名を載せているので、名前が変われば利用者が見つからず、
+     * 何もしなくても使えなくなる。
+     * 同じ名前がすでにあれば、一意制約で {@code DataIntegrityViolationException} になる。
+     * 更新条件に権限を含める理由は {@link #setPasswordByAdmin} と同じ。
+     *
+     * @param id        利用者の主キー
+     * @param role      操作可能な権限
+     * @param username  新しい利用者名
+     * @param changedAt 変更した時刻
+     * @return 更新した件数。対象の行が無い・権限が違えば 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE AppUser u SET u.username = :username, u.passwordChangedAt = :changedAt "
+            + "WHERE u.id = :id AND u.role = :role")
+    int updateUsername(@Param("id") Long id, @Param("role") Role role,
+                       @Param("username") String username, @Param("changedAt") LocalDateTime changedAt);
+
+    /**
      * パスワードの再設定用の token から利用者を引く。再設定の画面を開いた時点の確認に使う。
      *
      * @param token 再設定用のリンクに載っていた文字列
