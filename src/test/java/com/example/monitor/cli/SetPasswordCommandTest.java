@@ -215,15 +215,17 @@ class SetPasswordCommandTest {
         @Test
         @DisplayName("異常系：新しいパスワードが要件を満たさなければ1を返し、失敗を記録して更新しない")
         void testMethod03() {
-            givenOptions("admin", "short");
-            when(appUserRepository.findByUsername("admin")).thenReturn(Optional.of(admin()));
+            // 最低の文字数は一般利用者にだけ掛かる（管理者は短くできる、#806）ので、一般利用者で確かめる
+            givenOptions("carol", "short");
+            when(appUserRepository.findByUsername("carol"))
+                    .thenReturn(Optional.of(new AppUser("carol", "hash", AppUser.Role.USER)));
 
             int exitCode = command.call();
 
             assertThat(exitCode).isEqualTo(1);
             assertThat(errContent.toString()).contains("パスワードは8文字以上にしてください");
             verify(auditLogger).record(AuditAction.PASSWORD_CHANGE, AuditOutcome.FAILURE, null, null, null,
-                    "USER", "admin", AUDIT_DETAIL + ": パスワードは8文字以上にしてください");
+                    "USER", "carol", AUDIT_DETAIL + ": パスワードは8文字以上にしてください");
             verify(appUserRepository, never()).updatePassword(any(), any(), any());
         }
 

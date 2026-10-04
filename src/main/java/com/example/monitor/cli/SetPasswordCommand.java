@@ -112,7 +112,7 @@ public class SetPasswordCommand implements Callable<Integer> {
 
         String hash;
         try {
-            PasswordPolicy.validate(newPassword);
+            PasswordPolicy.validate(user.getRole(), newPassword);
             hash = PASSWORD_ENCODER.encode(newPassword);
         } catch (IllegalArgumentException e) {
             auditLogger.record(AuditAction.PASSWORD_CHANGE, AuditOutcome.FAILURE, null, null, null,
