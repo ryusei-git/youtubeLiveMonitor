@@ -134,9 +134,11 @@ const myDiscoverView = {
         apiGet("/api/my/discover/status").then((s) => {
             if (!list.isConnected) return;
             const lastRun = s.lastRunAt ? `${formatInstant(s.lastRunAt)}（検索 ${s.lastRunSearches} 回）` : "まだ";
+            // iPhone の幅では 3 つの値が 1 段落に詰まって区切りが分からないので、行を分ける（mobile.css の .discoverStatus の white-space と対）
+            const separator = matchMedia("(max-width: 760px)").matches ? "\n" : "・";
             query(".discoverStatus", root).textContent = [`最後の巡回 ${lastRun}`,
                 `次の巡回 ${s.nextRunAt ? formatInstant(s.nextRunAt) : "止まっています"}`,
-                `今日の発掘の検索 ${s.discoverySearchesUsedToday}/${s.discoveryLimit} 回`].join("・");
+                `今日の発掘の検索 ${s.discoverySearchesUsedToday}/${s.discoveryLimit} 回`].join(separator);
         }).catch(() => {
             // 状態が出なくても候補は見られるので、エラー帯には出さない。空のままだと読み込み中と区別が付かないので、行に書く
             if (list.isConnected) query(".discoverStatus", root).textContent = "巡回の状態を読み込めませんでした";

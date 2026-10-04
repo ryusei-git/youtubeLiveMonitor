@@ -61,6 +61,11 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 .onlineTitle { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* PC の大きさのままの ▶ は、半分の幅のサムネイルでは絵を隠しすぎる。 */
 .onlinePlayMark { font-size: 16px; padding: 4px 10px; }
+/* サムネイルの無い動画（#794）。2 列で枠の背が 90px ほどになると、studio.css で枠の下端へ寄せた「サムネイル取得待ち」と
+   中央の ▶ が重なって文言が読めない。文言が出ているカードでだけ ▶ を上へずらし、文言の下の余白も少し詰めて間を空ける
+   （▶ は再生できる目印なので消さない。サムネイルのあるカードの ▶ は中央のまま）。 */
+.onlinePlayButton .thumbPlaceholder:not([hidden]) { padding-bottom: 8px; }
+.onlinePlayButton:has(> .thumbPlaceholder:not([hidden])) .onlinePlayMark { top: 36%; }
 
 /* アーカイブのリスト（#790）。9 列の表は 375px では開始日時とチャンネルしか見えないので、表の 1 行を 3 行のカードに組み替える。
    JS で別のカードを作らないのは、印のボタンが 2 組になって押した後の表示をそろえる手間が増えるため（親 #785「表の扱い」）。
@@ -218,3 +223,28 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 /* studio.css の .sortButton は見出しの中で th の見た目のままにするため min-height: 0 にしている。帯では指で押すボタンなので、
    上の button の規則と同じ 44px に戻す（.sortButton の規則のほうが詳しいので、ここでも詳しく書く）。 */
 .myChannelsTable .sortButton, .myChannelsTable .sortButton:hover { min-height: 44px; padding: 0 6px; font-size: 12px; }
+
+/* 動画・配信の 3 つの段（#794）。PC と同じ 20px の余白のままだと、2 列のカード（#790）が 1 枚 150px ほどまで細くなるので、
+   段の枠の余白と段どうしの間を詰める。見出しとページ送り（前へ・次へ）は同じ行に置き、収まらないときだけ
+   ページ送りが次の行の右に回る（折り返しは studio.css の flex-wrap: wrap のまま。margin-left: auto で右に寄せる）。 */
+.videoSection { padding: 14px 12px; margin-top: 18px; }
+.videoSectionHead { gap: 8px; padding-bottom: 10px; margin-bottom: 12px; }
+.videoSectionHead h2 { font-size: 16px; }
+.videoPager { margin-left: auto; }
+#videoFilterForm { padding: 12px; }
+
+/* 新人発掘の巡回の状態（#794）。3 つの値は iPhone の幅でだけ改行で区切って入れる（my-discover.js の myDiscoverView.render()）。
+   改行をそのまま行の区切りとして出し、続く空白は詰める（pre-line）。PC では「・」区切りの 1 行のまま。
+   候補のカード（.discoverCard）のアイコンの列は studio.css の 760px 以下で既に 44px になっているので、ここでは足さない。 */
+.discoverStatus { white-space: pre-line; }
+
+/* 動画ダウンロードの保存先（#794）。説明が長く 2 行になると、2 行目がラジオボタンの下の左端に回り込んで
+   どちらの選択肢の続きか分かりにくいので、ラジオボタンを左の列に置き、説明をその右の列で揃えて折り返す。
+   2 つの選択肢の間の <br> は、label を flex（ブロック）にすると空行になるだけなので消す。 */
+#downloadForm fieldset label { display: flex; align-items: flex-start; gap: 8px; margin: 6px 0; }
+/* 説明の 1 行目の文字の高さにボタンを揃える。 */
+#downloadForm fieldset input[type="radio"] { flex: none; margin-top: 0.3em; }
+#downloadForm fieldset br { display: none; }
+/* size="60" のままでは URL の欄が画面の幅を超えるので、幅いっぱいにする。ボタンも幅いっぱいにして押しやすくする。 */
+#downloadUrl { width: 100%; box-sizing: border-box; }
+#downloadForm button[type="submit"] { width: 100%; }
