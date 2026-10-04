@@ -1,0 +1,19 @@
+/* このファイルは link の media で幅 760px 以下にだけ効く。
+   PC の画面を変えないため、iPhone だけの規則はここにだけ書く（#785）。
+   効く範囲は link の media で決まっているので、このファイルの中で @media を重ねて書かない。
+   幅 760px は studio.css の @media (max-width: 760px) に揃えている。 */
+
+/* 横向きにしたときなどに iOS が勝手に文字を拡大し、レイアウトが崩れるのを防ぐ。 */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* iOS は 16px 未満の入力欄に触ると画面を拡大し、戻すのに手間がかかる。16px にして拡大させない。 */
+input, select, textarea { font-size: 16px; }
+
+/* 指で押す前提の大きさ（Apple の推奨は 44pt）。PC のままの 32〜38px では押し損じる。 */
+button, .searchWatchActions a, .discoverTabs a { min-height: 44px; }
+
+/* 一覧の行の中・耳キスの印は 44px にすると行が伸びすぎて一覧が見にくくなるので、少し小さめで止める。 */
+td button, .markBtn { min-height: 40px; }
+
+/* ミニプレーヤーは高さが限られている（--dock-mini-height）ので、行の中のボタンと同じ 40px にする。 */
+#playerDock.is-mini .dockBar button { min-height: 40px; }
