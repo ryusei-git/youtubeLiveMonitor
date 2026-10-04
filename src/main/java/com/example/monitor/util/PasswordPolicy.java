@@ -1,5 +1,7 @@
 package com.example.monitor.util;
 
+import com.example.monitor.entity.AppUser;
+
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -34,7 +36,10 @@ public final class PasswordPolicy {
     }
 
     /**
-     * パスワードが要件を満たすか調べる。
+     * パスワードが一般利用者の要件を満たすか調べる。
+     *
+     * <p>招待からの登録（{@code InvitationService}）はこちらを使う。招待で作られるのは一般利用者だけなので、
+     * 権限で分ける必要がない。
      *
      * @param password パスワード
      * @throws IllegalArgumentException 要件を満たさない場合。メッセージはそのまま画面に出せる
@@ -49,9 +54,39 @@ public final class PasswordPolicy {
     }
 
     /**
+     * パスワードが、その権限の利用者の要件を満たすか調べる。
+     *
+     * <p>管理者（{@link AppUser.Role#ADMIN}）だけは最低の文字数（{@link #MIN_LENGTH}）を見ず、空でないことだけを求める。
+     * 利用者の決定（2026-10-04、#806）で、管理者のパスワードを {@code admin} のような短い値にできるようにした。
+     * 管理者は 1 人で、本人が自分で管理するものなので、最低の文字数を押し付けないことにした。
+     * 一般利用者には今までどおり {@link #validate(String)} の要件を掛ける（全員の決まりは弱めない）。
+     *
+     * <p>短いパスワードは推測されやすく、管理者はすべての設定と利用者を扱えるので、当てられたときの害は大きい。
+     * それでも許すのは、ログインに回数制限（利用者名ごとに 5 回で 15 分、接続元 IP ごとに 20 回で 15 分。
+     * {@code docs/login-attempt-limits.md}）があり、総当たりの試行が守りになっているため。
+     * 上限（{@link #MAX_BYTES}）は BCrypt の制約なので、管理者にも掛ける。
+     *
+     * @param role     パスワードを決める利用者の権限
+     * @param password パスワード
+     * @throws IllegalArgumentException 要件を満たさない場合。メッセージはそのまま画面に出せる
+     */
+    public static void validate(AppUser.Role role, String password) {
+        if (role != AppUser.Role.ADMIN) {
+            validate(password);
+            return;
+        }
+        if (password == null || password.isBlank()) {
+            throw new IllegalArgumentException("パスワードを入力してください");
+        }
+        if (exceedsMaxBytes(password)) {
+            throw new IllegalArgumentException(TOO_LONG_MESSAGE);
+        }
+    }
+
+    /**
      * パスワードが BCrypt で扱える長さを超えているかを返す。
      *
-     * <p>要件の全体（{@link #validate}）とは別に公開するのは、初期管理者の作成（{@code AdminUserInitializer}）が
+     * <p>要件の全体（{@link #validate(String)}）とは別に公開するのは、初期管理者の作成（{@code AdminUserInitializer}）が
      * 上限だけを確かめるため。
      *
      * @param password パスワード。{@code null} なら超えていない扱い

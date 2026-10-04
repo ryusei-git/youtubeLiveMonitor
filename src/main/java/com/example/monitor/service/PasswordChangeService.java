@@ -104,7 +104,7 @@ public class PasswordChangeService {
             if (!matched) {
                 throw new IllegalArgumentException("今のパスワードが違います");
             }
-            PasswordPolicy.validate(newPassword);
+            PasswordPolicy.validate(user.getRole(), newPassword);
         } catch (IllegalArgumentException e) {
             log.info("パスワードの変更を受け付けませんでした: user={}, reason={}", user.getUsername(), e.getMessage());
             record(user, AuditOutcome.FAILURE, clientIp, e.getMessage());
@@ -151,7 +151,8 @@ public class PasswordChangeService {
             resetTokenRejection(user).ifPresent(reason -> {
                 throw new IllegalArgumentException(reason);
             });
-            PasswordPolicy.validate(newPassword);
+            // 該当する利用者がいなければ resetTokenRejection で断っているので、ここでの user は null ではない
+            PasswordPolicy.validate(user.getRole(), newPassword);
             // 読んでから書くまでに同じリンクが使われていたら 0 件になる（1 回限りを UPDATE の条件で守る）
             if (appUserRepository.resetPasswordByToken(token, passwordEncoder.encode(newPassword),
                     changedAtNow(), LocalDateTime.now()) != 1) {
