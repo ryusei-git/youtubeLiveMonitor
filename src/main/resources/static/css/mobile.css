@@ -163,3 +163,58 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 /* 再生画面の題名（#792）。23px では長い題名が 3〜4 行になり、詳細の表と耳キスのボタンが遠くなるので小さくする。
    .watchMarks は再生画面にだけあるので、ほかの画面の見出しは変えない。 */
 #view:has(> .watchMarks) > h1 { font-size: 18px; line-height: 1.4; margin: 4px 0 8px; }
+
+/* マイチャンネルの購読の表（#793）。9 列の表は 375px ではチャンネル名と配信元の途中までしか見えず、いちばん使う
+   自動録画の切り替えに届かないので、表の 1 行を 3 行のカードに組み替える。
+     1 行目: [アイコン] チャンネル名(1)                          状態(3)
+     2 行目: 配信元(2) · 録画数(4) · 購読した日(5)
+     3 行目: 自動録画 [オフ]  キーワード [すべて]      通知 [オン]  [解除(9)]
+   括弧は myChannelRow() の td の順。JS で別のカードを作らないのは、自動録画・通知のボタンが 2 組になって押した後の
+   表示をそろえる手間が増えるため（親 #785「表の扱い」）。
+   grid ではなくアーカイブのリスト（.myArchiveTable）と同じ折り返しのある flex にしたのは、行ごとに区切りの数
+   （2・3・4 つ）が違い、共通の列に載せると 1 行目のチャンネル名の幅が 3 行目のボタンの列幅に縛られるため。
+   行の切れ目は tr::after（1 行目の後）と tr::before（2 行目の後）の幅 100% の空の要素で作り、td の順は order で並べ替える。
+   セルは折り返さず（docs/pitfalls.md「一覧のセルは折り返さない」）、収まらない値は末尾を省く。 */
+.myChannelsTable, .myChannelsTable thead, .myChannelsTable tbody { display: block; }
+.myChannelsTable tbody tr { display: flex; flex-wrap: wrap; align-items: center; padding: 12px; border-bottom: 1px solid #eeeff3; }
+.myChannelsTable tbody tr:last-child { border-bottom: 0; }
+.myChannelsTable tbody tr::after { content: ""; order: 3; flex: 0 0 100%; }
+.myChannelsTable tbody tr::before { content: ""; order: 5; flex: 0 0 100%; }
+.myChannelsTable td { display: block; padding: 0; border: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* チャンネル名は残りの幅を取る。.channelWithIcon は inline-flex で中身の幅まで広がるので、セルの幅で止めて中のリンクの側で
+   末尾を省く（トップの配信予定の表と同じ）。min-width を 0 にしないのは、状態の幅で名前が幅 0 まで潰れて消えないようにするため。 */
+.myChannelsTable td:nth-child(1) { order: 1; flex: 1 1 0; min-width: 6em; font-size: 14px; font-weight: 650; }
+.myChannelsTable td:nth-child(1) .channelWithIcon { max-width: 100%; min-width: 0; vertical-align: middle; }
+.myChannelsTable td:nth-child(1) .channelWithIcon a { overflow: hidden; text-overflow: ellipsis; }
+.myChannelsTable td:nth-child(3) { order: 2; flex: 0 0 auto; margin-left: 12px; }
+.myChannelsTable td:nth-child(2), .myChannelsTable td:nth-child(4), .myChannelsTable td:nth-child(5) { order: 4; flex: 0 1 auto; margin-top: 4px; font-size: 12px; color: var(--text-muted); }
+.myChannelsTable td:nth-child(4)::before, .myChannelsTable td:nth-child(5)::before { content: "·"; padding: 0 6px; }
+/* 3 行目。何のボタンかは PC では列の見出しで伝えているので、見出しを隠す代わりに data-label（myChannelRow()）をボタンの左に出す。 */
+.myChannelsTable td:nth-child(n+6) { order: 6; display: flex; align-items: center; flex: 0 0 auto; margin-top: 8px; }
+.myChannelsTable td[data-label]::before { content: attr(data-label); margin-right: 4px; font-size: 11px; color: var(--text-muted); }
+/* 375px では 4 組を PC の大きさのボタンのまま並べると 1 行に収まらないので、ボタンの左右の余白だけ詰める（高さは 40px のまま）。 */
+.myChannelsTable td:nth-child(n+6) button { padding-left: 6px; padding-right: 6px; }
+/* キーワードは長さが決まらないので残りの幅に収め、値は末尾を省く（全文はボタンの title にある）。幅 0 から伸ばすので、
+   長いキーワードでも通知・解除が次の行へ押し出されない。studio.css の 12rem の下限と 12em の上限はここでは外す。
+   値のボタンは破線の下線を文字のすぐ下に引くため、上の 40px の高さと左右の余白を外す（押すのはセル全体で受けているので
+   セルを行の高さまで伸ばして、押せる範囲を 3 行目の高さのままにする。myChannelRow() の filterCell の click）。 */
+.myChannelsTable td.titleFilterCell { flex: 1 1 0; min-width: 0; margin-left: 10px; align-self: stretch; }
+.myChannelsTable td.titleFilterCell .filterValue { max-width: 100%; min-width: 0; min-height: 0; padding-left: 0; padding-right: 0; }
+.myChannelsTable td:nth-child(8), .myChannelsTable td:nth-child(9) { margin-left: 8px; }
+/* キーワードを押すと common.js の editTitleFilterCell() がセルの中を入力欄と保存・取消（.filterEdit）に置き換える。
+   3 行目の残りの幅には収まらないので、編集中だけ 3 行目の下に幅いっぱいの 1 行で出し、入力欄を残りの幅に縮める
+   （style.css の 11rem のままだと 375px で取消が画面の外に出る）。 */
+.myChannelsTable td.titleFilterCell[data-editing="true"] { order: 7; flex: 0 0 100%; margin-left: 0; }
+.myChannelsTable td.titleFilterCell .filterEdit { flex: 1 1 auto; min-width: 0; }
+.myChannelsTable td.titleFilterCell .filterEdit input { flex: 1 1 0; width: auto; min-width: 0; }
+
+/* 並べ替えの帯（#793）。カードには列の見出しが無いので、見出しの行を表の上の横 1 行にし、並べ替えのボタン
+   （makeTableSortable() が data-sort の見出しに入れる .sortButton。チャンネル名・録画数・購読した日）だけを残す。
+   押したときの動き（URL の sort に残す）は見出しのときと同じ。 */
+.myChannelsTable thead tr { display: flex; gap: 8px; align-items: center; padding: 0 12px; background: #fafbfc; border-bottom: 1px solid #eeeff3; }
+.myChannelsTable thead tr::before { content: "並べ替え"; font-size: 12px; color: var(--text-muted); }
+.myChannelsTable thead th { padding: 0; border: 0; background: none; }
+.myChannelsTable thead th:not([data-key]) { display: none; }
+/* studio.css の .sortButton は見出しの中で th の見た目のままにするため min-height: 0 にしている。帯では指で押すボタンなので、
+   上の button の規則と同じ 44px に戻す（.sortButton の規則のほうが詳しいので、ここでも詳しく書く）。 */
+.myChannelsTable .sortButton, .myChannelsTable .sortButton:hover { min-height: 44px; padding: 0 6px; font-size: 12px; }
