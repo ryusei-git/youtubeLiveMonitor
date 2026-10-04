@@ -686,7 +686,7 @@ const myArchiveView = {
             </div>
             <div class="videoGrid"></div>
             <div class="table-scroll" hidden>
-              <table>
+              <table class="myArchiveTable">
                 <thead><tr><th>開始日時</th><th>チャンネル</th><th>タイトル</th><th>長さ</th><th>サイズ</th><th>状態</th><th>ジャンル</th><th>視聴</th><th>★</th></tr></thead>
                 <tbody></tbody>
               </table>
