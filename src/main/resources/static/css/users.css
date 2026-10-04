@@ -3,3 +3,12 @@
 #userTable .statusLamp.is-live .lamp { background: #227448; border-color: #227448; animation: none; }
 #userTable .statusLamp.is-live .lampText { color: #227448; }
 .userToolbar { display: flex; align-items: center; gap: 16px; margin: 20px 0 12px; }
+/* 伏せ字は値ではないことが分かるよう、muted で控えめに出し、文字の間を少し空ける。 */
+#userTable .maskedPassword { letter-spacing: 1px; }
+#userEditPanel .userEditActions { display: flex; gap: 8px; }
+/* 「パスワード」の列と変更のボタンを足して 7 列になり、既定の余白（左右 16px）では幅 1280 の PC で
+   「操作」の列が入れ物の外へはみ出す（削除のボタンに横スクロールが要る）。折り返しは許さない（一覧のセルは 1 行）ので、
+   マイチャンネルの表（studio.css の .myChannelsTable）と同じく、この表だけ余白とセルの中のボタンを詰め、
+   ボタンの文言を短くする（「変更」「再設定リンク」。何の操作かは aria-label と title にある）。 */
+#userTable th, #userTable td { padding: 13px 8px; }
+#userTable td button { padding: 5px 8px; }
