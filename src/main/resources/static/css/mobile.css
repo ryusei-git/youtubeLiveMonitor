@@ -49,3 +49,42 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 /* 動画のダイアログは画面の中央に出る。背の高い動画で上下いっぱいになったとき、ステータスバーとホームインジケーターに
    かからないよう、安全領域の分だけ最大の高さと幅を減らす。 */
 .onlinePlayerDialog { width: calc(100% - 24px - var(--safe-left) - var(--safe-right)); max-height: calc(100dvh - 24px - var(--safe-top) - var(--safe-bottom)); }
+
+/* 録画・動画のカード（#790）。1 列のままだと 8 件で 3400px ほどの縦長になり、一覧として見渡せないので 2 列にする。
+   .videoGrid はトップの配信中・動画・配信・再生画面の「同じチャンネルの録画」でも使うので、そこも同じく 2 列になる。
+   minmax(0, 1fr) にするのは、長い題名などの最小内容幅で列が広がり、ページ全体が横にはみ出さないようにするため。 */
+.videoGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; }
+/* 幅が半分になるので題名は 2 行で打ち切り、カードの高さを揃える（書き方は studio.css の .searchTitle と同じ）。 */
+.videoCard .cardTitle { font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.videoCard .cardBody .muted { font-size: 11px; }
+/* 動画のカードは題名が h3 の中のボタンなので、ボタンの側で 2 行に打ち切る（h3 で打ち切っても 1 個のボタンは切れない）。 */
+.onlineTitle { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* PC の大きさのままの ▶ は、半分の幅のサムネイルでは絵を隠しすぎる。 */
+.onlinePlayMark { font-size: 16px; padding: 4px 10px; }
+
+/* アーカイブのリスト（#790）。9 列の表は 375px では開始日時とチャンネルしか見えないので、表の 1 行を 3 行のカードに組み替える。
+   JS で別のカードを作らないのは、印のボタンが 2 組になって押した後の表示をそろえる手間が増えるため（親 #785「表の扱い」）。
+     1 行目: タイトル(3)
+     2 行目: チャンネル(2)                          開始日時(1)
+     3 行目: 長さ(4) · サイズ(5) · 状態(6) · ジャンル(7)   [視聴(8)][★(9)]
+   括弧は myArchiveRow() の td の順。並べ替えは order で行い、td の順そのものは変えない。
+   grid ではなく折り返しのある flex にしたのは、2 行目（2 つ）と 3 行目（6 つ）で区切りの数が違い、共通の列に載せると
+   押すと伸びる開始日時の幅が 3 行目の列幅まで動かしてしまうため。行の切れ目は tr::after（幅 100% の空の要素）で作る。
+   セルは折り返さず（docs/pitfalls.md「一覧のセルは折り返さない」）、収まらない値は末尾を省く。 */
+.myArchiveTable, .myArchiveTable tbody { display: block; }
+.myArchiveTable thead { display: none; }
+.myArchiveTable tr { display: flex; flex-wrap: wrap; align-items: center; padding: 12px 14px; border-bottom: 1px solid #eeeff3; }
+.myArchiveTable tbody tr:last-child { border-bottom: 0; }
+.myArchiveTable tr::after { content: ""; order: 4; flex: 0 0 100%; }
+.myArchiveTable td { display: block; padding: 0; border: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.myArchiveTable td:nth-child(3) { order: 1; flex: 0 0 100%; font-size: 14px; font-weight: 650; margin-bottom: 4px; }
+/* 開始日時は押すと秒未満まで伸びる（datetimeCell）。縮むのはチャンネルの側にして、日時は削らない。
+   min-width を 0 にしないのは、幅 0 から始まる要素は幅 100% のタイトルの後ろにも「収まる」と扱われ、1 行目の右端に
+   幅 0 のまま載って消えるため（実際に撮った画像で起きた）。 */
+.myArchiveTable td:nth-child(2) { order: 2; flex: 1 1 0; min-width: 4em; }
+.myArchiveTable td:nth-child(1) { order: 3; flex: 0 0 auto; margin-left: 12px; color: var(--text-muted); }
+.myArchiveTable td:nth-child(n+4) { order: 5; flex: 0 0 auto; margin-top: 6px; color: var(--text-muted); }
+/* ジャンルは長さが決まらないので残りの幅に収めて末尾を省き、印のボタンをその右に寄せる。 */
+.myArchiveTable td:nth-child(7) { flex: 1 1 0; }
+.myArchiveTable td:nth-child(n+8) { margin-left: 6px; }
+.myArchiveTable td:nth-child(n+5):not(:nth-child(n+8))::before { content: "·"; padding: 0 6px; }
