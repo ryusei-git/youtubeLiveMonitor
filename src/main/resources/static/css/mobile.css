@@ -88,3 +88,43 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 .myArchiveTable td:nth-child(7) { flex: 1 1 0; }
 .myArchiveTable td:nth-child(n+8) { margin-left: 6px; }
 .myArchiveTable td:nth-child(n+5):not(:nth-child(n+8))::before { content: "·"; padding: 0 6px; }
+
+/* トップの配信予定（#791）。8 列の表は 375px では日付〜開始までの 4 列しか見えず、何の配信か分からないので、
+   表の 1 行を 4 行のカードに組み替える。
+     1 行目: 日付(1) (曜日(2)) 時間(3)                 開始まで(4)
+     2 行目: [アイコン] チャンネル名(5)                ジャンル(6)
+     3 行目: タイトル(7)
+     4 行目:                                   カレンダーに追加(8)
+   括弧は common.js の renderUpcomingStreams() の td の順。表は管理画面のダッシュボードと共通なので JS は変えず、
+   このファイル（管理画面には読み込まれない）の規則だけで組み替える（親 #785「表の扱い」）。
+   grid（auto auto auto minmax(0, 1fr)）ではなくアーカイブのリストと同じ折り返しのある flex にしたのは、grid だと
+   2 行目のチャンネル名が 1 行目の日付・曜日・時間の 3 列の幅に縛られるため。チャンネル名が長いとその 3 列が広がって
+   開始まで・ジャンルの列が潰れ、逆に縛ると 375px でチャンネル名に 100px ほどしか残らない。flex なら行ごとに
+   「左の値が残りの幅を取り、右の値は中身の幅」にできる。td の順は表示の順と同じなので order は 1 行目と 2 行目の
+   切れ目（tr::after、幅 100% の空の要素）を挟むためにだけ使う。3・4 行目は幅 100% なので自然に改行される。
+   セルは折り返さず（docs/pitfalls.md「一覧のセルは折り返さない」）、収まらない値は末尾を省く。 */
+#upcomingTable, #upcomingTable tbody { display: block; }
+#upcomingTable thead { display: none; }
+#upcomingTable tr { display: flex; flex-wrap: wrap; align-items: center; padding: 12px 16px; border-bottom: 1px solid #eeeff3; }
+#upcomingTable tbody tr:last-child { border-bottom: 0; }
+#upcomingTable tr::after { content: ""; order: 2; flex: 0 0 100%; }
+#upcomingTable td { display: block; padding: 0; border: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; order: 3; }
+#upcomingTable td:nth-child(-n+4) { order: 1; flex: 0 0 auto; }
+#upcomingTable td:nth-child(2) { margin-left: 4px; }
+/* 曜日は JS で文字を変えず（管理画面の表と共通）、括弧だけをここで足す。 */
+#upcomingTable td:nth-child(2)::before { content: "("; }
+#upcomingTable td:nth-child(2)::after { content: ")"; }
+#upcomingTable td:nth-child(3) { margin-left: 6px; }
+/* 開始までは 30 秒ごとに文字だけ書き換わる（refreshUpcomingStartsIn）。残りの幅に収めて右に寄せ、
+   「予定を 〜過ぎ」のように長くなっても 1 行目が横にはみ出さないよう、収まらなければ末尾を省く。 */
+#upcomingTable td:nth-child(4) { flex: 1 1 0; margin-left: 12px; text-align: right; color: var(--text-muted); }
+/* チャンネル名は残りの幅を取る。.channelWithIcon は inline-flex で中身の幅まで広がるので、セルの幅で止めて中のリンクの側で
+   末尾を省く（リンクは flex の子なので overflow: hidden で中身より細く縮める）。min-width を 0 にしないのは、
+   ジャンルが長いときにチャンネル名が幅 0 まで潰れて消えないようにするため。 */
+#upcomingTable td:nth-child(5) { flex: 1 1 0; min-width: 6em; margin-top: 6px; font-weight: 650; }
+#upcomingTable td:nth-child(5) .channelWithIcon { max-width: 100%; min-width: 0; vertical-align: middle; }
+#upcomingTable td:nth-child(5) .channelWithIcon a { overflow: hidden; text-overflow: ellipsis; }
+#upcomingTable td:nth-child(6) { flex: 0 1 auto; margin: 6px 0 0 12px; font-size: 12px; color: var(--text-muted); }
+/* タイトルは全文をリンク先（YouTube）で見られるので、1 行で末尾を省く。 */
+#upcomingTable td:nth-child(7) { flex: 0 0 100%; margin-top: 4px; }
+#upcomingTable td:nth-child(8) { flex: 0 0 100%; margin-top: 4px; text-align: right; }
