@@ -633,6 +633,26 @@ Java の `dto` パッケージと対になっています（片方を変えた�
 cd src/main/resources/static && npx -y -p typescript tsc -p jsconfig.json
 ```
 
+### 画面のスクリーンショットを撮り比べる
+
+`bin/ui-snapshot.sh` は、利用者の画面（`/my` 以下・ログイン・登録・パスワード再設定）を
+PC（1280×800・1920×1080、Chromium）と iPhone（375×667・393×852・430×932、WebKit）の大きさで撮り、
+変更の前後で PC の画像に 1 ピクセルでも差があるかを数えます（iPhone 向けの変更が PC の画面を変えていないことの確認）。
+撮る相手は確認用インスタンス（`bin/sandbox.sh`）で、表示用のチャンネル・録画は撮る前に自動で入れます。
+
+```bash
+# PR のベースブランチの作業ツリーで
+./gradlew clean build && bin/sandbox.sh start && bin/ui-snapshot.sh shoot /tmp/before && bin/sandbox.sh stop
+# 変更した作業ツリーで
+./gradlew clean build && bin/sandbox.sh start && bin/ui-snapshot.sh shoot /tmp/after && bin/sandbox.sh stop
+bin/ui-snapshot.sh diff /tmp/before /tmp/after   # PC の画像に差があれば終了コード 1。差分の画像は /tmp/after/diff/
+```
+
+- 初回に Playwright と pngjs を `~/.cache/youtubeLiveMonitor/ui-snapshot`（`UI_SNAPSHOT_DEPS` で変更可）へ入れます。git には載せません
+- ポートを変えて起動した確認用インスタンスは `SANDBOX_PORT=<ポート>` を付けて撮ります
+- Windows で Smart App Control が有効だと WebKit が起動できません。そのときは
+  `UI_SNAPSHOT_IPHONE_ENGINE=chromium` を付けると、iPhone の大きさも Chromium で撮ります（出力先は `iphone-…-chromium`）
+
 ### 画面の共通の操作
 
 - **補足説明はホバーで表示**: 見出しやラベルの横にある `ⓘ` にカーソルを当てると説明が出ます。
