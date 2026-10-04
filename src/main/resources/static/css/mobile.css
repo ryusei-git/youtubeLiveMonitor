@@ -128,3 +128,38 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 /* タイトルは全文をリンク先（YouTube）で見られるので、1 行で末尾を省く。 */
 #upcomingTable td:nth-child(7) { flex: 0 0 100%; margin-top: 4px; }
 #upcomingTable td:nth-child(8) { flex: 0 0 100%; margin-top: 4px; text-align: right; }
+
+/* 再生画面の操作の帯（#792）。PC と同じ折り返しのままだと 375px で -10秒・+10秒・速度・小窓で再生が 2 行になり、
+   動画の下の 1 画面目を帯だけで使うので、文字と左右の余白を詰めて 1 行に収める（高さは押しやすさのため 44px のまま）。
+   詰め方は studio.css の 760px 以下の #playerDock.is-mini .dockBar と同じ。±10 秒と小窓のボタンは残りの幅を分け合う。 */
+#playerDock.is-full .dockBar { flex-wrap: nowrap; gap: 6px; }
+#playerDock.is-full .dockBar button { font-size: 13px; padding-left: 8px; padding-right: 8px; }
+#playerDock.is-full #dockBack, #playerDock.is-full #dockForward, #playerDock.is-full #dockPip { flex: 1 1 auto; }
+/* 速度の選択肢は、中身（「1.25倍」まで）の幅だけにする。文字はボタンと揃えて 13px にはせず 16px のままにする
+   （16px 未満の選択肢は触ったときに iOS が画面を拡大する。上の input, select, textarea の規則）。16px のままでも
+   375px で「小窓を閉じる」まで 1 行に収まることを確かめてある。 */
+#playerDock.is-full #dockRate { width: auto; padding-left: 8px; padding-right: 8px; }
+/* 小窓にできないときの案内（common.js の bindPictureInPictureButton() が #dockPip の後ろに足す）は 1 行に収まらないので、
+   案内が出たときだけ折り返しを許し、帯の下の行に幅いっぱいで出す。 */
+#playerDock.is-full .dockBar:has(.pipHint) { flex-wrap: wrap; }
+#playerDock.is-full .pipHint { flex-basis: 100%; }
+
+/* 再生画面の耳キスのボタン（#792）。style.css の 768px 以下の .inline の縦積みのままだと、5 つのボタンが幅いっぱいに
+   積まれて 230px ほどを使い、詳細の表が遠くなるので 2 列にする。「ここは耳キス」はいちばん押すボタンなので 2 列分の幅で
+   先頭に置き、状態の文は長くなるので 2 列分に出す。
+     [          ここは耳キス          ]
+     [ 前の耳キスへ   ][ 次の耳キスへ    ]
+     [ 印の所だけ再生 ][ 候補を順に確かめる ]
+   セレクタは myBindSoundMarks() が作る段落を、JS を変えずに見分けるためのもの。
+   minmax(0, 1fr) にするのは、ボタンの文字の幅で列が広がって画面の横にはみ出さないようにするため。 */
+.inline:has(> .soundMarkAdd) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.inline:has(> .soundMarkAdd) > .soundMarkAdd, .inline:has(> .soundMarkAdd) > .soundMarkStatus { grid-column: 1 / -1; }
+/* 半分の幅では「候補を順に確かめる」が PC の大きさの文字では 1 行に収まらないので、文字と左右の余白を詰める（文言は変えない）。 */
+.inline:has(> .soundMarkAdd) > button { font-size: 13px; padding-left: 8px; padding-right: 8px; }
+/* 「候補を順に確かめる」を押した後の答えのボタン（耳キス・ちがう・もう一度・やめる）も、縦に 4 つ積まず 2 列 × 2 行にする。
+   答えのボタンの大きさ（.soundReviewBig）は、聞いてすぐ押すためのものなので変えない。 */
+.soundReviewButtons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+
+/* 再生画面の題名（#792）。23px では長い題名が 3〜4 行になり、詳細の表と耳キスのボタンが遠くなるので小さくする。
+   .watchMarks は再生画面にだけあるので、ほかの画面の見出しは変えない。 */
+#view:has(> .watchMarks) > h1 { font-size: 18px; line-height: 1.4; margin: 4px 0 8px; }
