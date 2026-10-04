@@ -42,9 +42,30 @@
     <p class="muted" id="resetLinkNote"></p>
     <div id="resetLinkField"></div>
   </section>
+  <section id="userEditPanel" hidden>
+    <h2 id="userEditTitle">利用者の変更</h2>
+    <p class="muted">今のパスワードは管理者にも見られません。変えたら、新しい利用者名・パスワードを本人に伝えてください。本人がほかの端末でログインしていれば、ログインし直しが必要になります。</p>
+    <p id="userEditError" role="alert" class="error" hidden></p>
+    <form id="renameForm" hidden>
+      <p><label>新しい利用者名（3 文字以上）<br>
+        <input type="text" id="renameUsername" autocomplete="off" required minlength="3" size="28"></label></p>
+      <p><label>管理者のパスワード<br>
+        <input type="password" id="renameAdminPassword" autocomplete="current-password" required size="28"></label></p>
+      <p class="userEditActions"><button type="submit">保存</button><button type="button" class="cancelUserEdit">取消</button></p>
+    </form>
+    <form id="userPasswordForm" hidden>
+      <p><label>新しいパスワード（8 文字以上）<br>
+        <input type="password" id="userNewPassword" autocomplete="new-password" required minlength="8" size="28"></label></p>
+      <p><label>新しいパスワード（確認）<br>
+        <input type="password" id="userNewPasswordConfirm" autocomplete="new-password" required minlength="8" size="28"></label></p>
+      <p><label>管理者のパスワード<br>
+        <input type="password" id="userPasswordAdminPassword" autocomplete="current-password" required size="28"></label></p>
+      <p class="userEditActions"><button type="submit">保存</button><button type="button" class="cancelUserEdit">取消</button></p>
+    </form>
+  </section>
   <div class="table-scroll">
     <table id="userTable">
-      <thead><tr><th>利用者名</th><th>権限</th><th>状態</th><th>登録日時</th><th>最終ログイン</th><th>操作</th></tr></thead>
+      <thead><tr><th>利用者名</th><th>パスワード</th><th>権限</th><th>状態</th><th>登録日時</th><th>最終ログイン</th><th>操作</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>

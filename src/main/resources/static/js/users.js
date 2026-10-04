@@ -13,18 +13,22 @@ async function loadUsers() {
         for (const user of users) {
             const row = document.createElement("tr");
             const managed = user.role === "USER";
-            row.innerHTML = `<td>${collapsibleCell(user.username)}</td>
+            // パスワードは BCrypt のハッシュしか無く見られないので、どの行も同じ伏せ字にする（長さも実際とは関係ない）
+            row.innerHTML = `<td>${collapsibleCell(user.username)}${managed ? ' <button type="button" class="renameUser" aria-label="利用者名を変更" title="利用者名を変更">変更</button>' : ""}</td>
+                <td><span class="muted maskedPassword" title="パスワードは見られません">●●●●●●●●</span>${managed ? ' <button type="button" class="setUserPassword" aria-label="パスワードを変更" title="パスワードを変更">変更</button>' : ""}</td>
                 <td>${managed ? "一般利用者" : "管理者"}</td>
                 <td>${statusLamp(user.enabled ? "live" : "idle", user.enabled ? "有効" : "無効")}</td>
                 <td>${datetimeCell(user.createdAt)}</td>
                 <td>${user.lastLoginAt ? datetimeCell(user.lastLoginAt) : '<span class="muted">未ログイン</span>'}</td>
-                <td>${managed ? `<button type="button" class="resetUser" ${user.enabled ? "" : "disabled"}>再設定用のリンクを発行</button>
+                <td>${managed ? `<button type="button" class="resetUser" aria-label="再設定用のリンクを発行" title="再設定用のリンクを発行" ${user.enabled ? "" : "disabled"}>再設定リンク</button>
                     ${user.enabled ? '<button type="button" class="disableUser">無効化</button>' : '<button type="button" class="enableUser">有効化</button>'}
                     <button type="button" class="deleteUser">削除</button>` : '<span class="muted">管理者は操作できません</span>'}</td>`;
             if (managed) {
                 query(".resetUser", row).addEventListener("click", (ev) => issueResetLink(user, /** @type {HTMLButtonElement} */ (ev.currentTarget)));
                 query(user.enabled ? ".disableUser" : ".enableUser", row).addEventListener("click", () => changeUser(user, user.enabled ? "disable" : "enable"));
                 query(".deleteUser", row).addEventListener("click", () => changeUser(user, "delete"));
+                query(".renameUser", row).addEventListener("click", () => openUserEdit(user, "rename"));
+                query(".setUserPassword", row).addEventListener("click", () => openUserEdit(user, "password"));
             }
             body.append(row);
         }
@@ -104,6 +108,116 @@ async function issueResetLink(user, button) {
         button.disabled = false;
     }
 }
+
+/** @type {any} 「利用者の変更」の欄で変えている利用者。閉じているときは null。 */
+let userEditTarget = null;
+/** @type {boolean} 保存の二重送信を避ける。送信中に別の行のボタンで欄の中身を差し替えさせないためにも使う。 */
+let userEditPending = false;
+
+/** 欄の入力を空へ戻す。パスワードは見せないので、閉じる・別の利用者へ切り替えるたびに残さない。 */
+function clearUserEditInputs() {
+    for (const id of ["renameUsername", "renameAdminPassword", "userNewPassword", "userNewPasswordConfirm", "userPasswordAdminPassword"]) {
+        inputEl(id).value = "";
+    }
+}
+
+/** @param {string|null} message 欄の中に出す失敗の文言。null なら隠す */
+function showUserEditError(message) {
+    const box = el("userEditError");
+    box.textContent = message ?? "";
+    box.hidden = message === null;
+}
+
+/**
+ * 一般利用者の利用者名・パスワードを変える欄を、表の上に出す（#808。API は #807）。
+ * 再設定用のリンク（{@link issueResetLink}）と同じく表の上に出し、どの行の操作かを見出しで示す。
+ * @param {any} user 対象の表示情報
+ * @param {"rename"|"password"} mode 変えるもの
+ */
+function openUserEdit(user, mode) {
+    if (userEditPending) return;
+    userEditTarget = user;
+    clearUserEditInputs();
+    showUserEditError(null);
+    el("userEditTitle").textContent = mode === "rename"
+        ? `${user.username} の利用者名を変更`
+        : `${user.username} のパスワードを変更`;
+    formEl("renameForm").hidden = mode !== "rename";
+    formEl("userPasswordForm").hidden = mode !== "password";
+    const panel = el("userEditPanel");
+    panel.hidden = false;
+    panel.scrollIntoView({ block: "nearest" });
+    inputEl(mode === "rename" ? "renameUsername" : "userNewPassword").focus();
+}
+
+function closeUserEdit() {
+    if (userEditPending) return;
+    userEditTarget = null;
+    clearUserEditInputs();
+    showUserEditError(null);
+    el("userEditPanel").hidden = true;
+}
+
+/**
+ * 欄の保存を送る。成功したら欄を閉じて表を読み直す。
+ * 失敗したら欄は開いたまま、新しい値は打ち直さずに済むよう残し、管理者のパスワードだけ消す。
+ * API が断った（403・404・409 など）ときは、ほかの管理者が先に変えたかもしれないので表も読み直す。
+ * 通信そのものの失敗（authenticatedFetch が TypeError を cause に包む）では、表の読み直しも失敗するので行わない。
+ * @param {HTMLFormElement} form 送るフォーム
+ * @param {HTMLInputElement} adminPassword 管理者のパスワードの入力欄
+ * @param {(user: any) => Promise<string>} send API を呼び、成功時のトーストの文言を返す
+ */
+async function submitUserEdit(form, adminPassword, send) {
+    const user = userEditTarget;
+    if (userEditPending || !user) return;
+    userEditPending = true;
+    const buttons = form.querySelectorAll("button");
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+        const message = await send(user);
+        userEditPending = false;
+        closeUserEdit();
+        showToast(message);
+        await loadUsers();
+    } catch (e) {
+        showUserEditError(errorMessage(e));
+        if (!(e instanceof Error && e.cause instanceof TypeError)) await loadUsers();
+    } finally {
+        adminPassword.value = "";
+        buttons.forEach(button => { button.disabled = false; });
+        userEditPending = false;
+    }
+}
+
+formEl("renameForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const username = inputEl("renameUsername");
+    const adminPassword = inputEl("renameAdminPassword");
+    submitUserEdit(formEl("renameForm"), adminPassword, async (user) => {
+        const next = username.value.trim();
+        await apiPut(`/api/admin/users/${user.id}/username`, { username: username.value, adminPassword: adminPassword.value });
+        return `${user.username} の利用者名を ${next} に変更しました。本人に新しい利用者名を伝えてください`;
+    });
+});
+
+/** 確認欄はサーバーへ送らない。自分のパスワードの変更と同じく、打ち間違いを画面だけで確かめる。 */
+formEl("userPasswordForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const next = inputEl("userNewPassword");
+    const confirmInput = inputEl("userNewPasswordConfirm");
+    const adminPassword = inputEl("userPasswordAdminPassword");
+    if (next.value !== confirmInput.value) {
+        showUserEditError("新しいパスワードが一致しません");
+        adminPassword.value = "";
+        return;
+    }
+    submitUserEdit(formEl("userPasswordForm"), adminPassword, async (user) => {
+        await apiPut(`/api/admin/users/${user.id}/password`, { password: next.value, adminPassword: adminPassword.value });
+        return `${user.username} のパスワードを変更しました。本人に新しいパスワードを伝えてください`;
+    });
+});
+
+document.querySelectorAll(".cancelUserEdit").forEach(button => button.addEventListener("click", closeUserEdit));
 
 el("reloadUsers").addEventListener("click", loadUsers);
 
