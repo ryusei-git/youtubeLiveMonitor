@@ -17,3 +17,35 @@ td button, .markBtn { min-height: 40px; }
 
 /* ミニプレーヤーは高さが限られている（--dock-mini-height）ので、行の中のボタンと同じ 40px にする。 */
 #playerDock.is-mini .dockBar button { min-height: 40px; }
+
+/* ノッチ・ホームインジケーター（安全領域）の余白（#788）。my.html の viewport-fit=cover で画面の端まで描くので、
+   固定した部品は自分で安全領域を避ける。env() は安全領域の無い端末（PC・viewport-fit=cover の無い画面）では 0。
+   値を一度だけ変数に置くのは、どの規則がどの端の余白を足しているかを読みやすくするため。 */
+:root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    scroll-padding-top: calc(128px + var(--safe-top));
+}
+
+/* 上端。ステータスバーは default（my.html）なので今の iOS では上の inset は 0 のはずだが、端末や iOS の版で
+   本文がステータスバーの下に入った場合でも、固定したヘッダーとメニューが時刻の表示に重ならないようにしておく。
+   ヘッダーは inset の分だけ背を伸ばして白地で埋め、メニューと本文の開始位置をその分だけ下げる。 */
+body:has(.globalnav) .masthead { height: calc(var(--mobile-header-height) + var(--safe-top)); padding: var(--safe-top) var(--safe-right) 0 var(--safe-left); }
+.globalnav { top: calc(var(--mobile-header-height) + var(--safe-top)); padding: 0 var(--safe-right) 0 var(--safe-left); }
+body:has(.globalnav) { padding-top: calc(var(--mobile-header-height) + var(--mobile-nav-height) + var(--safe-top)); }
+
+/* 左右。縦向きでは 0 だが（横向きは対応しない #785）、本文と再生画面の枠が端末の角に切られないよう足しておく。 */
+body { padding-left: var(--safe-left); padding-right: var(--safe-right); }
+
+/* 下端。画面下に固定したミニプレーヤーは、ホームインジケーターの分だけ背を伸ばして下の余白で避ける
+   （中身の位置と高さは --dock-mini-height のまま）。本文の末尾とトーストも同じ分だけ上げる。 */
+#playerDock.is-mini { height: calc(var(--dock-mini-height) + var(--safe-bottom)); padding: 6px calc(10px + var(--safe-right)) calc(6px + var(--safe-bottom)) calc(10px + var(--safe-left)); }
+body:has(#playerDock.is-mini) { padding-bottom: calc(var(--dock-mini-height) + var(--safe-bottom)); }
+.toastStack { left: calc(0.75rem + var(--safe-left)); right: calc(0.75rem + var(--safe-right)); bottom: calc(0.75rem + var(--safe-bottom)); }
+body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height) + 12px + var(--safe-bottom)); }
+
+/* 動画のダイアログは画面の中央に出る。背の高い動画で上下いっぱいになったとき、ステータスバーとホームインジケーターに
+   かからないよう、安全領域の分だけ最大の高さと幅を減らす。 */
+.onlinePlayerDialog { width: calc(100% - 24px - var(--safe-left) - var(--safe-right)); max-height: calc(100dvh - 24px - var(--safe-top) - var(--safe-bottom)); }

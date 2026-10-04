@@ -2,12 +2,21 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- viewport-fit=cover: iPhone で画面の端（ホームインジケーターの帯）まで描き、余白は mobile.css の env(safe-area-inset-*) で取る。
+     PC には安全領域が無く env() は 0 なので、PC の表示は変わらない -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>YouTube Live Monitor</title>
 <!-- ホーム画面に追加したとき全画面のアプリとして開く（PWA）。manifest とアイコンは未ログインでも取れる（SecurityConfig の permitAll） -->
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-title" content="Live Monitor">
+<!-- manifest の display: standalone を読まない古い iOS でも、ホーム画面から開いたときにアプリとして開くため -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- ステータスバーは default（白地に黒い文字）にする。black-translucent は本文をステータスバーの下まで広げて文字を白にするので、
+     白いヘッダー（.masthead）の上では時刻や電池の表示が読めなくなる。default なら本文はステータスバーの下から始まり、
+     白い theme-color・ヘッダーと地続きに見える（上の余白は mobile.css でも env(safe-area-inset-top) で取っておく） -->
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="/icons/icon-512.png">
 <link rel="stylesheet" href="/css/style.css">
 <link rel="stylesheet" href="/css/studio.css">
