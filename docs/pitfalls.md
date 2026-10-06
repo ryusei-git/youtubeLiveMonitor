@@ -481,6 +481,26 @@ Web は応答を待たせない。`remove()` は止め終わりを `CompletableF
 「端末に保存」している利用者の yt-dlp（出力先は `data/device-downloads/<仕事ID>/`）まで止める
 （管理画面からの録画の停止 `StreamRecorder.stopRecording()` と同じ探し方）。
 
+### yt-dlp に yt-dlp-ejs が無いと、YouTube の形式が欠け、ログインした状態では取得できない（実際に発生した）
+
+2026-10-06、YouTube の録画が全滅した（#812）。Cookie なしでは `Sign in to confirm you’re not a bot`、
+ログインした状態の Cookie を渡すと `The page needs to be reloaded.` で失敗した（player_client を
+tv・web_safari・mweb に変えても、yt-dlp を nightly にしても同じ）。Cookie と関係なく、`yt-dlp -v` には
+`Signature solving failed` の警告が出ていた。
+
+**原因**: YouTube の JavaScript の暗号を解く部品 `yt-dlp-ejs` が入っていなかった。`pip install yt-dlp` だけでは
+入らない。ボット確認が厳しくなり Cookie が要るようになったのと重なり、2 つの原因が同時に効いていた。
+**解決には Cookie と yt-dlp-ejs の両方が要る**（どちらか片方では取れない）。
+
+**確かめ方**: `yt-dlp -v` の出力に `Signature solving failed` が出るなら、部品が無い。
+`--remote-components ejs:github` で部品を足して試し、Cookie ありで取れるなら原因はこれ
+（#812 では録画したい配信も一般の動画も取れた。Cookie なしではボット確認のまま）。
+
+**直し方**: `python3 -m pip install --user --break-system-packages "yt-dlp[default]"` で入れ直す
+（`[default]` で yt-dlp-ejs が入る）。更新も `"yt-dlp[default]"` で行う。
+新しい端末（Docker 化を含む）で yt-dlp を入れるときも同じにする。Cookie の置き方は README
+「YouTube の Cookie を置く」。
+
 ### エンティティを API に直接返さない
 
 `dto` 配下のレスポンス型に詰め替える。

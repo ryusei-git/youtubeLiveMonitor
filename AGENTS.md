@@ -185,6 +185,7 @@ gh api graphql -f query='{repository(owner:"ryusei-git",name:"youtubeLiveMonitor
 - 録画ファイルの配信は自前のストリーミング処理を書かない
 - ディスク使用量は DB ではなく実ファイルを走査して求める
 - 削除済みチャンネルの録画を消すときは録画中のプロセスを避ける
+- yt-dlp に yt-dlp-ejs が無いと、YouTube の形式が欠け、ログインした状態では取得できない（実際に発生した）
 
 **画面（HTML / CSS / JS を触るとき）**
 

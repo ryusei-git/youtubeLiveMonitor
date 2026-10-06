@@ -197,7 +197,15 @@ chmod 600 .env   # API キーや Webhook を同じ端末のほかのユーザー
 使うのであればインストール不要です。
 
 ```bash
-python3 -m pip install --user --break-system-packages yt-dlp
+python3 -m pip install --user --break-system-packages "yt-dlp[default]"
+```
+
+`[default]` を付けると、YouTube の JavaScript の暗号を解く部品 `yt-dlp-ejs` も入ります。無いと形式が欠け、
+ログインした状態の Cookie（後述「YouTube の Cookie を置く」）を渡しても取得できません
+（[落とし穴](docs/pitfalls.md)）。入ったかは、次の出力に `Signature solving failed` が出ないことで確かめます。
+
+```bash
+yt-dlp -v --simulate "https://www.youtube.com/watch?v=<動画ID>" 2>&1 | grep "Signature solving failed"
 ```
 
 #### yt-dlp の更新
@@ -205,7 +213,7 @@ python3 -m pip install --user --break-system-packages yt-dlp
 YouTube 側の変更で録画が失敗するようになったときは、まず yt-dlp を最新にします。
 
 ```bash
-python3 -m pip install -U --user --break-system-packages yt-dlp
+python3 -m pip install -U --user --break-system-packages "yt-dlp[default]"
 yt-dlp --version
 ```
 
