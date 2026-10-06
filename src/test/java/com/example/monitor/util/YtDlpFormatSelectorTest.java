@@ -17,7 +17,7 @@ class YtDlpFormatSelectorTest {
         @DisplayName("正常系：上限を指定するとその高さ以下に絞る指定を返す")
         void testMethod01() {
             assertThat(YtDlpFormatSelector.of(1080))
-                    .isEqualTo("bestvideo[height<=1080]+bestaudio/best[height<=1080]");
+                    .isEqualTo("bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best");
         }
 
         @Test

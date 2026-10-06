@@ -15,6 +15,7 @@ import com.example.monitor.exception.DeviceDownloadInProgressException;
 import com.example.monitor.exception.DeviceDownloadNotFoundException;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
+import com.example.monitor.platform.StreamPlatform;
 import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
@@ -67,6 +68,7 @@ class DeviceDownloadServiceTest {
     private static final String VIDEO_ID = "aqz-KE-bpKQ";
 
     @Mock private StreamPlatformRegistry streamPlatformRegistry;
+    @Mock private StreamPlatform streamPlatform;
     @Mock private VideoSourceProbe videoSourceProbe;
     @Mock private ProcessLauncher processLauncher;
     @Mock private RecordingSalvager recordingSalvager;
@@ -100,6 +102,8 @@ class DeviceDownloadServiceTest {
         // 完了待ちは別の仮想スレッドで動き、消費のタイミングがテストと無関係なので lenient にする（docs/testing.md）
         lenient().when(recordingSalvager.ensurePlayable(any())).thenReturn(SalvageOutcome.unavailable());
         lenient().when(currentAppUser.require()).thenReturn(alice);
+        // 画質の上限をプラットフォームで選ぶため、URL の担当を返す（platform() は null なので YouTube の並びになる）
+        lenient().when(streamPlatformRegistry.findByUrl(any())).thenReturn(streamPlatform);
     }
 
     @AfterEach

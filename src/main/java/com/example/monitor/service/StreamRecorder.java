@@ -4,6 +4,7 @@ import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.notification.DiscordNotifier;
+import com.example.monitor.platform.Platform;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.DiskSpaceUtils;
@@ -260,6 +261,14 @@ public class StreamRecorder {
     private String jsRuntime = "";
 
     /**
+     * Twitch の録画の最大の高さ（ピクセル。0 以下で上限なし）。理由は {@link YtDlpFormatSelector} を参照。
+     *
+     * <p>{@link MonitorProperties.RecordingProperties} に入れない理由は {@link #minFreeGb} と同じ。
+     */
+    @Value("${monitor.recording.twitch-max-height:720}")
+    private int twitchMaxHeight = 720;
+
+    /**
      * {@code yt-dlp} に {@code --cookies} で渡す Cookie ファイル（無ければ付けない）。
      * 理由は {@link YtDlpCookies} を参照。{@link #jsRuntime} と違い、コマンドを組み立てるときではなく
      * 起動する直前に付ける（{@link #withCookies(List)}）。
@@ -393,8 +402,8 @@ public class StreamRecorder {
                 return false;
             }
 
-            List<String> command = buildCommand(watchUrl, videoId, outputDirectory, true);
-            List<String> fallbackCommand = buildCommand(watchUrl, videoId, outputDirectory, false);
+            List<String> command = buildCommand(channel.getPlatform(), watchUrl, videoId, outputDirectory, true);
+            List<String> fallbackCommand = buildCommand(channel.getPlatform(), watchUrl, videoId, outputDirectory, false);
             Path outputFile = outputDirectory.resolve(videoId + ".mp4");
             String relativeFilePath = channel.getYoutubeChannelId() + "/" + videoId + ".mp4";
 
@@ -567,15 +576,18 @@ public class StreamRecorder {
      * 流していたときは 72,041 行中 71,647 行、1 日 10〜25MB）。ローテーションの無い録画ごとの
      * ログファイルへそのまま流すと、1 本で数十 MB になるため。
      *
+     * @param platform        録画対象のチャンネルのプラットフォーム（画質の上限を選ぶ。{@link YtDlpFormatSelector}）
      * @param watchUrl        録画対象の視聴 URL
      * @param videoId         録画対象の動画 ID
      * @param outputDirectory 保存先ディレクトリ
      * @param fromStart       {@code --live-from-start} を付けるなら {@code true}
      * @return {@code yt-dlp} 実行コマンド
      */
-    private List<String> buildCommand(String watchUrl, String videoId, Path outputDirectory, boolean fromStart) {
+    private List<String> buildCommand(Platform platform, String watchUrl, String videoId, Path outputDirectory,
+                                      boolean fromStart) {
         String outputTemplate = outputDirectory.resolve(videoId + ".%(ext)s").toString();
-        String formatSelector = YtDlpFormatSelector.of(monitorProperties.recording().maxHeight());
+        String formatSelector = YtDlpFormatSelector.of(platform, monitorProperties.recording().maxHeight(),
+                twitchMaxHeight);
 
         List<String> command = new ArrayList<>();
         command.add("yt-dlp");

@@ -163,6 +163,8 @@ monitor:
   recording:
     directory: ${MONITOR_RECORDING_DIRECTORY:recordings}
     max-height: ${MONITOR_RECORDING_MAX_HEIGHT:0}
+    # Twitch の録画・ダウンロードだけの画質の上限（ピクセル）。0 で上限なし（YtDlpFormatSelector）。
+    twitch-max-height: ${MONITOR_RECORDING_TWITCH_MAX_HEIGHT:720}
     # 空き容量（GB）がこれを下回っていれば録画を始めない（StreamRecorder）。0 で確認しない。
     min-free-gb: ${MONITOR_RECORDING_MIN_FREE_GB:20}
     # yt-dlp に --js-runtimes で渡す JavaScript のランタイム（例: node:/path/to/node）。空なら付けない（YtDlpJsRuntime）。
