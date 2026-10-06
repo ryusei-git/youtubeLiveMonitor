@@ -105,6 +105,7 @@ public class RecordingReconciler {
     private final ProcessLauncher processLauncher;
     private final VideoMetadataExtractor videoMetadataExtractor;
     private final RecordingSalvager recordingSalvager;
+    private final RecordingAudioExtractor recordingAudioExtractor;
 
     /**
      * 救済できなかった録画の主キーと、そのときのファイルの合計サイズ。
@@ -142,6 +143,14 @@ public class RecordingReconciler {
     private final Map<Long, Long> thumbnailFailedFileSizes = new ConcurrentHashMap<>();
 
     /**
+     * MP3 を作れなかった録画の ID と、そのときのファイルの合計サイズ。
+     *
+     * <p>音声の壊れた録画に、後始末のたび ffmpeg を掛け続けないための記憶。
+     * {@link #thumbnailFailedFileSizes} と同じく、サイズが変われば改めて試す。DB に持たせない理由も同じ。
+     */
+    private final Map<Long, Long> mp3FailedFileSizes = new ConcurrentHashMap<>();
+
+    /**
      * 後始末が実行中かどうか。{@code ffmpeg} が周期より長引いたときに、次の回を重ねないため
      * （仮想スレッドへ逃がすので {@code fixedDelay} だけでは重複を防げない）。
      */
@@ -162,6 +171,10 @@ public class RecordingReconciler {
      */
     @Value("${monitor.recording.cookies-file:}")
     private String cookiesFile = "";
+
+    /** 新しい録画の MP3 を自動で作るか（{@link #createMissingMp3s()}）。 */
+    @Value("${monitor.recording.mp3-enabled:true}")
+    private boolean mp3Enabled = true;
 
     /**
      * 後始末を仮想スレッドで始める。前回がまだ終わっていなければ見送る。
@@ -225,6 +238,7 @@ public class RecordingReconciler {
         }
 
         generateMissingThumbnails();
+        createMissingMp3s();
     }
 
     /**
@@ -389,6 +403,43 @@ public class RecordingReconciler {
             recordingHistoryService.updateMediaMetadata(recording.getId(), durationSeconds, thumbnailPath);
             log.info("録画の再生時間とサムネイルを生成しました: id={}, video={}, duration={}秒",
                     recording.getId(), recording.getVideoId(), durationSeconds);
+        }
+    }
+
+    /**
+     * 再生できる新しい録画（{@link Recording#autoAudio}）のうち、MP3 がまだ無いものを 1 本ずつ MP3 にする
+     * （{@link RecordingAudioExtractor}）。
+     *
+     * <p><b>録画中の録画がある間は作らない。</b>1 本ごとに確かめ、録画が始まっていれば残りは次の後始末に
+     * 回す。ffmpeg は {@code nice} で動かすが、それでも CPU とディスクを録画に譲るため
+     * （{@code SoundDetectionService} と同じ）。作れなかった録画は、ファイルのサイズが変わるまで試し直さない
+     * （{@link #mp3FailedFileSizes}）。同じ動画を扱うプロセスがあって見送ったものは覚えない（終われば作れる
+     * ため）。
+     */
+    private void createMissingMp3s() {
+        if (!mp3Enabled) {
+            return;
+        }
+        List<RecordingStatus> playableStatuses = List.of(RecordingStatus.COMPLETED, RecordingStatus.PARTIAL);
+        for (Recording recording
+                : recordingRepository.findByStatusInAndAutoAudioTrueAndAudioPathIsNull(playableStatuses)) {
+            if (recordingRepository.countByStatus(RecordingStatus.RECORDING) > 0) {
+                log.debug("録画中の録画があるため、MP3 の作成を次の後始末に回します");
+                return;
+            }
+            Long sizeWhenFailed = mp3FailedFileSizes.get(recording.getId());
+            if (sizeWhenFailed != null && sizeWhenFailed == recordingFileService.totalFileSizeFor(recording)) {
+                continue;
+            }
+
+            switch (recordingAudioExtractor.createMp3(recording)) {
+                case CREATED -> mp3FailedFileSizes.remove(recording.getId());
+                case FAILED -> mp3FailedFileSizes.put(
+                        recording.getId(), recordingFileService.totalFileSizeFor(recording));
+                case IN_USE -> {
+                    // 覚えない（メソッドの JavaDoc）
+                }
+            }
         }
     }
 }

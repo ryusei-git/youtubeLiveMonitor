@@ -32,6 +32,8 @@
  * @property {number|null} durationSeconds 再生時間。未取得なら null
  * @property {number} playCount 再生回数（全員の合計）
  * @property {string|null} thumbnailPath サムネイルの相対パス。未生成なら null
+ * @property {string|null} audioPath 音声だけの MP3 の相対パス。まだ作っていなければ null
+ *   （今の画面は使わない）
  * @property {"RECORDING"|"COMPLETED"|"PARTIAL"|"FAILED"} status 録画の状態
  * @property {string} startedAt 録画を開始した時刻（ISO形式）
  * @property {string|null} completedAt 完了・失敗した時刻。録画中は null
