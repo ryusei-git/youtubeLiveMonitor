@@ -254,6 +254,26 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
             RecordingStatus status, LocalDateTime since);
 
     /**
+     * 開始が指定時刻以降で、サイズが確定している録画のサイズを合計する。
+     *
+     * <p>ダッシュボードの「録画が止まるまでの見込み」で増え方を測るのに使う。サイズが {@code null} の録画
+     * （録画中・失敗）は数えない。削除した録画は行ごと無いので数に入らず、消している分を差し引いた実際の増え方になる。
+     *
+     * @param since 開始時刻の下限（この時刻を含む）
+     * @return 合計（バイト）。該当が無ければ 0
+     */
+    @Query("SELECT COALESCE(SUM(r.fileSizeBytes), 0) FROM Recording r WHERE r.startedAt >= :since AND r.fileSizeBytes IS NOT NULL")
+    long sumFileSizeBytesStartedSince(@Param("since") LocalDateTime since);
+
+    /**
+     * いちばん古い録画の開始日時を返す。稼働が 14 日に満たないとき、増え方を割る日数を決めるのに使う。
+     *
+     * @return 開始日時。録画が 1 件も無ければ {@code null}
+     */
+    @Query("SELECT MIN(r.startedAt) FROM Recording r")
+    LocalDateTime findEarliestStartedAt();
+
+    /**
      * チャンネルごとに、指定した状態の録画の件数を数える。
      *
      * <p>チャンネル一覧に件数を添えるために使う。チャンネルごとに問い合わせると
