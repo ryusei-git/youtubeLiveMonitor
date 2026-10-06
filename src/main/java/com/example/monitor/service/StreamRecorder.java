@@ -10,6 +10,7 @@ import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.FileNameUtils;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.RequestContext;
+import com.example.monitor.util.YtDlpCookies;
 import com.example.monitor.util.YtDlpExitWatch;
 import com.example.monitor.util.YtDlpExitWatch.ExitResult;
 import com.example.monitor.util.YtDlpFormatSelector;
@@ -258,6 +259,14 @@ public class StreamRecorder {
     @Value("${monitor.recording.js-runtime:}")
     private String jsRuntime = "";
 
+    /**
+     * {@code yt-dlp} に {@code --cookies} で渡す Cookie ファイル（無ければ付けない）。
+     * 理由は {@link YtDlpCookies} を参照。{@link #jsRuntime} と違い、コマンドを組み立てるときではなく
+     * 起動する直前に付ける（{@link #withCookies(List)}）。
+     */
+    @Value("${monitor.recording.cookies-file:}")
+    private String cookiesFile = "";
+
     /** 管理画面からの停止（{@link #stopRecording(Long)}）を受け付けた結果。 */
     public enum StopOutcome {
         /** 止め始めた。止め終わるまで最大 30 秒かかり、結果は録画一覧の状態で分かる。 */
@@ -391,7 +400,7 @@ public class StreamRecorder {
 
             Process process;
             try {
-                process = processLauncher.launch(command, YtDlpLogFile.of(videoId));
+                process = processLauncher.launch(withCookies(command), YtDlpLogFile.of(videoId));
             } catch (IOException e) {
                 log.error("録画プロセスの起動に失敗しました（yt-dlp が無いか、出力先のログファイルを作れない可能性があります）: "
                         + "channel={}, video={}", channel.getChannelName(), videoId, e);
@@ -587,6 +596,23 @@ public class StreamRecorder {
     }
 
     /**
+     * 起動する直前に、Cookie ファイルの写しを渡す引数（{@link YtDlpCookies}）を足す。
+     *
+     * <p>{@link #buildCommand} の中で付けないのは、録り直し用のコマンドを 1 回目の起動の時点で組み立てて
+     * おくため。その時点で写しを作ると、録り直すまで（何時間も後のことがある）どの yt-dlp も使わない写しに
+     * なり、{@link YtDlpCookies#deleteUnusedCopies} に消されて、録り直しだけがログインなしになる。
+     * 足す位置は {@code yt-dlp} の直後（URL より前に置けば、どこでも同じ意味になる）。
+     *
+     * @param command {@link #buildCommand} で組み立てたコマンド
+     * @return Cookie の引数を足したコマンド（付けないときは同じ中身）
+     */
+    private List<String> withCookies(List<String> command) {
+        List<String> result = new ArrayList<>(command);
+        result.addAll(1, YtDlpCookies.options(cookiesFile));
+        return result;
+    }
+
+    /**
      * 録画プロセスの終了を待って結果を履歴に記録する。再生できるファイルが何も残らなかったら、
      * {@code fallbackCommand} で「今の時点から」録り直す。1 回目の直後にその場で 1 回、それでも残らなければ
      * 巡回が「まだ配信中」と確かめるたびに（{@link #confirmStillLive(String)}）最大 {@link #MAX_LIVE_RETRIES} 回。
@@ -714,7 +740,7 @@ public class StreamRecorder {
                             retry, MAX_LIVE_RETRIES, channel.getChannelName(), videoId);
                 }
                 try {
-                    Process relaunched = processLauncher.launch(fallbackCommand, YtDlpLogFile.of(videoId));
+                    Process relaunched = processLauncher.launch(withCookies(fallbackCommand), YtDlpLogFile.of(videoId));
                     resumedMidway = true;
                     exit = awaitExit(relaunched, channel, videoId, outputFile.getParent());
                 } catch (IOException e) {
