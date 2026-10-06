@@ -4,6 +4,7 @@ import com.example.monitor.dto.DashboardResponse;
 import com.example.monitor.dto.RecordingFailureResponse;
 import com.example.monitor.dto.ResourceHistoryPoint;
 import com.example.monitor.dto.ResourceSnapshotResponse;
+import com.example.monitor.dto.StorageForecastResponse;
 import com.example.monitor.dto.StorageUsageResponse;
 import com.example.monitor.service.DashboardService;
 import com.example.monitor.service.ResourceMonitorService;
@@ -55,6 +56,19 @@ public class DashboardController {
     @GetMapping("/storage")
     public StorageUsageResponse getStorage() {
         return dashboardService.getStorageUsage();
+    }
+
+    /**
+     * 録画フォルダーの空きが、新しい録画を始めるしきい値を割るまでの見込みを返す。
+     *
+     * <p>{@link #getStorage()} と分けているのは、あちらがディレクトリの走査で重いのに対し、
+     * こちらは DB の集計とボリュームの空き容量を読むだけで軽く、別々に読み直せるようにするため。
+     *
+     * @return 見込み
+     */
+    @GetMapping("/storage-forecast")
+    public StorageForecastResponse getStorageForecast() {
+        return dashboardService.getStorageForecast();
     }
 
     /**

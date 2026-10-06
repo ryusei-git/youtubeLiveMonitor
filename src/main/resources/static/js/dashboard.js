@@ -153,6 +153,7 @@ async function loadRecordingFailures() {
  */
 async function loadServiceStorage() {
     const box = el("serviceStorage");
+    loadStorageForecast();
     try {
         /** @type {{totalBytes: number, items: Array<{key: string, label: string, path: string, bytes: number}>}} */
         const data = await apiGet("/api/dashboard/storage");
@@ -173,6 +174,43 @@ async function loadServiceStorage() {
         </div>`;
     } catch {
         box.innerHTML = '<p class="muted">取得できませんでした</p>';
+    }
+}
+
+/**
+ * 録画が止まる（空きが録画を始めるしきい値を割る）までの見込みと、その根拠を 1 行で出す。
+ *
+ * <p>空きが 0 になる時ではなく録画が止まる時を出すのは、利用者が知りたいのがそちらだから（#816）。
+ * 根拠を添えるのは、録画の多かった日が続いた直後などに見込みが極端になっても、理由を読めるようにするため。
+ * 容量の表と同じ時機に読む（loadServiceStorage から呼ぶ）。
+ */
+async function loadStorageForecast() {
+    const box = el("storageForecast");
+    try {
+        /** @type {{freeBytes: number|null, reserveBytes: number, dailyGrowthBytes: number, windowDays: number,
+         *   hoursUntilFull: number|null, fullAt: string|null, status: string}} */
+        const data = await apiGet("/api/dashboard/storage-forecast");
+        let headline;
+        if (data.status === "STOPPED") {
+            headline = "空きがしきい値を下回っているため、新しい録画が止まっています";
+        } else if (data.status === "NO_GROWTH") {
+            headline = "ディスクが埋まるまで: 見込みなし（録画が増えていません）";
+        } else if (data.status === "UNKNOWN" || data.hoursUntilFull == null || !data.fullAt) {
+            headline = "ディスクが埋まるまで: 空き容量を読めませんでした";
+        } else {
+            const days = Math.floor(data.hoursUntilFull / 24);
+            const fullAt = new Date(data.fullAt);
+            headline = `ディスクが埋まるまで: あと約 ${days} 日（${data.hoursUntilFull} 時間）・`
+                + `${fullAt.getMonth() + 1} 月 ${fullAt.getDate()} 日ごろ`;
+        }
+        const free = data.freeBytes == null ? "不明" : formatFileSize(data.freeBytes);
+        const basis = `空き ${free}・しきい値 ${formatFileSize(data.reserveBytes)}・`
+            + `1 日あたり ${formatFileSize(data.dailyGrowthBytes)} 増加（直近 ${data.windowDays} 日で計測）`;
+        const alert = data.status === "WARNING" || data.status === "STOPPED";
+        box.innerHTML = `<p class="${alert ? "error" : ""}"><strong>${escapeHtml(headline)}</strong></p>
+        <p class="muted">${escapeHtml(basis)}</p>`;
+    } catch {
+        box.innerHTML = '<p class="muted">見込みを取得できませんでした</p>';
     }
 }
 
