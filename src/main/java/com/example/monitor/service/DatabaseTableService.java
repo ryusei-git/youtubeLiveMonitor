@@ -167,6 +167,8 @@ public class DatabaseTableService {
                     Map.entry("DURATION_SECONDS", "再生時間（秒）"),
                     Map.entry("PLAY_COUNT", "再生回数（この画面での合計）"),
                     Map.entry("THUMBNAIL_PATH", "サムネイルのパス"),
+                    Map.entry("AUDIO_PATH", "MP3 のパス"),
+                    Map.entry("AUTO_AUDIO", "MP3 の自動作成の対象"),
                     Map.entry("STATUS", "状態"),
                     Map.entry("STARTED_AT", "開始日時"),
                     Map.entry("COMPLETED_AT", "完了日時")

@@ -172,6 +172,12 @@ monitor:
     # yt-dlp に --cookies で渡す Cookie ファイル（Netscape 形式）。ファイルがあるときだけ、その写しを渡す（YtDlpCookies）。
     # 置くだけで効くよう、既定の置き場所を決めている（data/ は本人だけが読める）。相対パスは作業ディレクトリ基準。
     cookies-file: ${MONITOR_YTDLP_COOKIES:data/youtube-cookies.txt}
+    # 録画の後始末（RecordingReconciler）で、新しい録画から音声だけの MP3 を同じフォルダーに作るか
+    # （RecordingAudioExtractor）。既存の録画は自動では作らない（CLI の recording mp3 <録画の番号> で作る。
+    # 理由は Recording.autoAudio）。
+    mp3-enabled: ${MONITOR_RECORDING_MP3_ENABLED:true}
+    # MP3 のビットレート（libmp3lame の CBR。ステレオのまま）。192k で 1 時間あたり約 86MB。
+    mp3-bitrate: ${MONITOR_RECORDING_MP3_BITRATE:192k}
 
   # 起動時に管理者が1人もいなければ、この値から初期管理者を作成する（AdminUserInitializer）。
   # 一度作成された後はこの値を変えても上書きされない（管理者が既に存在するため）。

@@ -94,8 +94,9 @@ YouTubeLiveMonitor/
 │   │   ├── StreamRecorder.java                # 配信の録画（yt-dlp を外部プロセスとして起動）
 │   │   ├── RecordingHistoryService.java      # 録画履歴の記録・検索
 │   │   ├── RecordingFileService.java         # 録画ファイルの削除・使用量集計
-│   │   ├── RecordingReconciler.java          # 録画状態の補正とサムネイルの後追い生成
+│   │   ├── RecordingReconciler.java          # 録画状態の補正とサムネイル・MP3 の後追い生成
 │   │   ├── VideoMetadataExtractor.java       # 録画ファイルからの再生時間・サムネイル抽出（ffprobe/ffmpeg）
+│   │   ├── RecordingAudioExtractor.java      # 録画から音声だけの MP3 を作る（ffmpeg）
 │   │   └── ProcessLauncher.java / DefaultProcessLauncher.java  # プロセス起動のテスト容易化用の窓口
 │   ├── entity/                               # DB のテーブルに対応する型
 │   ├── repository/                           # DB アクセス
@@ -760,6 +761,35 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
 - 失敗が 3 回たまった録画や、やり直したい録画は、`bin/api.sh POST "/api/recordings/<録画の番号>/sound-detection?kind=EAR_KISS"`
   で今すぐ検出します（202 が返り、終わるまで数十秒かかる。検出が走っている間は 409）。今の版で検出済みの録画をやり直すときは
   `&force=true` を付けます。やり直しても、答えのある候補は消えません。
+
+### 録画の音声（MP3）
+
+将来の音声だけの配信に備えて、録画から音声だけの MP3 を作り、録画と同じフォルダーに `<動画ID>.mp3`
+として置きます（#819）。画面ではまだ使いません。API の録画（`RecordingResponse`）の `audioPath` に
+パスが入ります（無ければ `null`）。
+
+- **自動で作るのは、この機能を入れた後の録画だけです。** 録画の後始末（`RecordingReconciler`。配信の
+  巡回と同じ間隔）が、完了・途中までの録画を 1 本ずつ MP3 にします。**録画中の録画がある間は作りません**
+  （1 本ごとに確かめます）。
+- 既存の録画は自動では作りません（全部で約 8.6GB になり、ディスクが足りなくなるため）。要る録画だけ
+  CLI で作ります:
+
+  ```bash
+  bin/monitor.sh recording mp3 23
+  ```
+
+  `23` は録画の番号（録画一覧の ID）です。終わるまで待ち、作った MP3 のパスと処理時間を出します。
+- ステレオのまま `libmp3lame` の CBR 192kbps（`MONITOR_RECORDING_MP3_BITRATE`）で、`nice -n 19 ffmpeg`
+  で作ります。1 時間の音声で約 86MB、処理は約 37 秒です（この端末で、1080p・約 2.9GB の 1 時間の
+  試験用の動画を、ほかに重い処理が無いときに測った値）。
+- 書きかけは `<動画ID>.mp3.part` に書き、元の録画の音声とほぼ同じ長さ（違いが 1% か 2 秒以内）の
+  ときだけ `.mp3` にします。作れなかった録画は、ログに `MP3 を作れませんでした` を出し、ファイルが
+  変わるかアプリを再起動するまで自動では試し直しません。ffmpeg の出力（エラー）は
+  `logs/yt-dlp/<動画ID>.log` に追記されます。
+- 録画を消すと MP3 も消えます。ディスク使用量（`/recordings.html`）にも含まれます。
+- 自動で作るのを止めるには、`.env` に `MONITOR_RECORDING_MP3_ENABLED=false` を書いて再起動します。
+  確認用の起動（`bin/preview.sh`・`bin/sandbox.sh`）では、録画の後始末ごと止まっているので
+  作りません。
 
 ### REST API
 
