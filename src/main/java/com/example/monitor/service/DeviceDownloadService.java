@@ -20,6 +20,7 @@ import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.ProcessTermination;
+import com.example.monitor.util.YtDlpCookies;
 import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -89,6 +90,13 @@ public class DeviceDownloadService {
     /** {@code yt-dlp} の {@code --js-runtimes}。{@link VideoDownloadService} と同じ設定を使う。 */
     @Value("${monitor.recording.js-runtime:}")
     private String jsRuntime = "";
+
+    /**
+     * {@code yt-dlp} に {@code --cookies} で渡す Cookie ファイル（無ければ付けない）。
+     * 理由は {@link YtDlpCookies} を参照。{@link #jsRuntime} と同じく、Spring を通さずに組み立てるテストでは空のまま。
+     */
+    @Value("${monitor.recording.cookies-file:}")
+    private String cookiesFile = "";
 
     /** 始めるのに必要な空き容量（GB）。録画・サービスへの保存と同じしきい値（#315）。 */
     @Value("${monitor.recording.min-free-gb:20}")
@@ -292,7 +300,7 @@ public class DeviceDownloadService {
             throw new IllegalStateException("一時フォルダーを作成できませんでした: " + job.directory());
         }
         List<String> command = VideoDownloadService.buildCommand(url, job.videoId, job.directory(),
-                jsRuntime, monitorProperties.recording().maxHeight());
+                jsRuntime, cookiesFile, monitorProperties.recording().maxHeight());
         try {
             job.process = processLauncher.launch(command, YtDlpLogFile.of(job.videoId));
         } catch (IOException e) {

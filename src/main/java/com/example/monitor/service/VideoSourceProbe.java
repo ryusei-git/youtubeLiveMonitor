@@ -1,6 +1,7 @@
 package com.example.monitor.service;
 
 import com.example.monitor.dto.VideoSource;
+import com.example.monitor.util.YtDlpCookies;
 import com.example.monitor.util.YtDlpJsRuntime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,13 @@ public class VideoSourceProbe {
     private String jsRuntime = "";
 
     /**
+     * {@code yt-dlp} に {@code --cookies} で渡す Cookie ファイル（無ければ付けない）。
+     * 理由は {@link YtDlpCookies} を参照。{@link #jsRuntime} と同じく、Spring を通さずに組み立てるテストでは空のまま。
+     */
+    @Value("${monitor.recording.cookies-file:}")
+    private String cookiesFile = "";
+
+    /**
      * URL から動画のメタデータを取得する。
      *
      * @param url ダウンロード対象の動画 URL
@@ -66,6 +74,7 @@ public class VideoSourceProbe {
         List<String> command = new ArrayList<>();
         command.add("yt-dlp");
         command.addAll(YtDlpJsRuntime.options(jsRuntime));
+        command.addAll(YtDlpCookies.options(cookiesFile));
         command.addAll(List.of(
                 // 警告文が標準出力に混ざると解析対象の行が特定しづらくなる
                 "--no-warnings",

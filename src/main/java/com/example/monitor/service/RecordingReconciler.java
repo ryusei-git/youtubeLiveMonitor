@@ -5,6 +5,7 @@ import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
 import com.example.monitor.service.RecordingSalvager.SalvageStatus;
+import com.example.monitor.util.YtDlpCookies;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -154,6 +155,15 @@ public class RecordingReconciler {
     private boolean schedulingEnabled = true;
 
     /**
+     * 録画・ダウンロードで {@code yt-dlp} に渡す Cookie ファイル。使い終わった写しを消すために読む。
+     *
+     * <p>写しを消すのを、ここ（OS のプロセスを見る定期の後始末）に置くのは、録画の yt-dlp がアプリの再起動を
+     * またいで動き続け、終了を待つスレッドでは消し損ねるため（{@link YtDlpCookies} 参照）。
+     */
+    @Value("${monitor.recording.cookies-file:}")
+    private String cookiesFile = "";
+
+    /**
      * 後始末を仮想スレッドで始める。前回がまだ終わっていなければ見送る。
      *
      * <p>周期は配信の巡回と同じ値にしている。以前は巡回のたびに呼んでいたので、補正が
@@ -167,6 +177,7 @@ public class RecordingReconciler {
         }
         Thread.startVirtualThread(() -> {
             try {
+                YtDlpCookies.deleteUnusedCopies(cookiesFile, processLauncher::isRunningWithCommandLineContaining);
                 reconcileOrphanedRecordings();
             } catch (RuntimeException e) {
                 log.error("録画の後始末に失敗しました。次回再試行します", e);

@@ -29,6 +29,7 @@ import com.example.monitor.util.RequestContext;
 import com.example.monitor.util.YtDlpExitWatch;
 import com.example.monitor.util.YtDlpExitWatch.ExitResult;
 import com.example.monitor.util.YtDlpFormatSelector;
+import com.example.monitor.util.YtDlpCookies;
 import com.example.monitor.util.YtDlpJsRuntime;
 import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
@@ -121,6 +122,13 @@ public class VideoDownloadService {
      */
     @Value("${monitor.recording.js-runtime:}")
     private String jsRuntime = "";
+
+    /**
+     * {@code yt-dlp} に {@code --cookies} で渡す Cookie ファイル（無ければ付けない）。
+     * 理由は {@link YtDlpCookies} を参照。{@link #jsRuntime} と同じく、Spring を通さずに組み立てるテストでは空のまま。
+     */
+    @Value("${monitor.recording.cookies-file:}")
+    private String cookiesFile = "";
 
     /**
      * ダウンロードを始めるのに必要な空き容量（GB）。自動録画（{@link StreamRecorder}）と同じ設定を使う。
@@ -448,7 +456,7 @@ public class VideoDownloadService {
 
         Process process;
         try {
-            process = processLauncher.launch(buildCommand(url, videoId, outputDirectory, jsRuntime,
+            process = processLauncher.launch(buildCommand(url, videoId, outputDirectory, jsRuntime, cookiesFile,
                     monitorProperties.recording().maxHeight()), YtDlpLogFile.of(videoId));
         } catch (IOException e) {
             throw new IllegalStateException(
@@ -507,15 +515,18 @@ public class VideoDownloadService {
      * @param videoId         動画 ID（出力ファイル名に使う）
      * @param outputDirectory 保存先ディレクトリ
      * @param jsRuntime       {@code --js-runtimes} に渡すランタイム（空なら付けない）
+     * @param cookiesFile     {@code --cookies} に写しを渡す Cookie ファイル（無ければ付けない。{@link YtDlpCookies}）。
+     *                        写しを作るので、起動の直前に呼ぶ
      * @param maxHeight       最大の高さ（{@link YtDlpFormatSelector#of(int)} に渡す）
      * @return {@code yt-dlp} 実行コマンド
      */
     static List<String> buildCommand(String url, String videoId, Path outputDirectory,
-                                     String jsRuntime, int maxHeight) {
+                                     String jsRuntime, String cookiesFile, int maxHeight) {
         String outputTemplate = outputDirectory.resolve(videoId + ".%(ext)s").toString();
         List<String> command = new ArrayList<>();
         command.add("yt-dlp");
         command.addAll(YtDlpJsRuntime.options(jsRuntime));
+        command.addAll(YtDlpCookies.options(cookiesFile));
         command.addAll(List.of(
                 "--no-part",
                 "--no-progress",
