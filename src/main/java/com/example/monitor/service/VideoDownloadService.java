@@ -131,6 +131,13 @@ public class VideoDownloadService {
     private String cookiesFile = "";
 
     /**
+     * Twitch の最大の高さ（ピクセル。0 以下で上限なし）。自動録画（{@link StreamRecorder}）と同じ設定を使う。
+     * 理由は {@link YtDlpFormatSelector} を参照。
+     */
+    @Value("${monitor.recording.twitch-max-height:720}")
+    private int twitchMaxHeight = 720;
+
+    /**
      * ダウンロードを始めるのに必要な空き容量（GB）。自動録画（{@link StreamRecorder}）と同じ設定を使う。
      * 録画と手動ダウンロードは同じボリュームに書くため、片方だけ確かめても満杯は防げない。
      * ダウンロード中も、録画と同じく {@link DiskSpaceUtils#reserveBytes(long)} を下限に見回り、割ったら止める（{@link YtDlpExitWatch}）。
@@ -457,7 +464,8 @@ public class VideoDownloadService {
         Process process;
         try {
             process = processLauncher.launch(buildCommand(url, videoId, outputDirectory, jsRuntime, cookiesFile,
-                    monitorProperties.recording().maxHeight()), YtDlpLogFile.of(videoId));
+                    YtDlpFormatSelector.of(platform.platform(), monitorProperties.recording().maxHeight(),
+                            twitchMaxHeight)), YtDlpLogFile.of(videoId));
         } catch (IOException e) {
             throw new IllegalStateException(
                     "yt-dlp を起動できませんでした（インストールされていないか、出力先のログファイルを作れない可能性があります）");
@@ -517,11 +525,11 @@ public class VideoDownloadService {
      * @param jsRuntime       {@code --js-runtimes} に渡すランタイム（空なら付けない）
      * @param cookiesFile     {@code --cookies} に写しを渡す Cookie ファイル（無ければ付けない。{@link YtDlpCookies}）。
      *                        写しを作るので、起動の直前に呼ぶ
-     * @param maxHeight       最大の高さ（{@link YtDlpFormatSelector#of(int)} に渡す）
+     * @param formatSelector  {@code -f} に渡す指定（{@link YtDlpFormatSelector}。上限はプラットフォームで変わる）
      * @return {@code yt-dlp} 実行コマンド
      */
     static List<String> buildCommand(String url, String videoId, Path outputDirectory,
-                                     String jsRuntime, String cookiesFile, int maxHeight) {
+                                     String jsRuntime, String cookiesFile, String formatSelector) {
         String outputTemplate = outputDirectory.resolve(videoId + ".%(ext)s").toString();
         List<String> command = new ArrayList<>();
         command.add("yt-dlp");
@@ -532,7 +540,7 @@ public class VideoDownloadService {
                 "--no-progress",
                 "--no-playlist",
                 "--merge-output-format", "mp4",
-                "-f", YtDlpFormatSelector.of(maxHeight),
+                "-f", formatSelector,
                 "-o", outputTemplate,
                 url));
         return command;

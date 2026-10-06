@@ -14,6 +14,7 @@ import com.example.monitor.exception.DeviceDownloadNotFoundException;
 import com.example.monitor.exception.InsufficientDiskSpaceException;
 import com.example.monitor.exception.LiveStreamDownloadRejectedException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
+import com.example.monitor.platform.Platform;
 import com.example.monitor.platform.StreamPlatformRegistry;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.service.RecordingSalvager.SalvageOutcome;
@@ -21,6 +22,7 @@ import com.example.monitor.service.RecordingSalvager.SalvageStatus;
 import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.ProcessTermination;
 import com.example.monitor.util.YtDlpCookies;
+import com.example.monitor.util.YtDlpFormatSelector;
 import com.example.monitor.util.YtDlpLogFile;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -98,6 +100,10 @@ public class DeviceDownloadService {
     @Value("${monitor.recording.cookies-file:}")
     private String cookiesFile = "";
 
+    /** Twitch の最大の高さ。{@link VideoDownloadService} と同じ設定を使う（理由は {@link YtDlpFormatSelector}）。 */
+    @Value("${monitor.recording.twitch-max-height:720}")
+    private int twitchMaxHeight = 720;
+
     /** 始めるのに必要な空き容量（GB）。録画・サービスへの保存と同じしきい値（#315）。 */
     @Value("${monitor.recording.min-free-gb:20}")
     private long minFreeGb = 0;
@@ -137,7 +143,7 @@ public class DeviceDownloadService {
             throw new InsufficientDiskSpaceException();
         }
         String url = rawUrl.trim();
-        streamPlatformRegistry.findByUrl(url);
+        Platform platform = streamPlatformRegistry.findByUrl(url).platform();
 
         // 情報の取得（数秒かかる）の前に枠を取る。後にすると、連打した 2 件がどちらも通る
         Job job = reserve(user.getId());
@@ -163,7 +169,7 @@ public class DeviceDownloadService {
                         recording.getId(), "/recordings/" + recording.getFilePath());
             }
 
-            launch(job, url);
+            launch(job, url, platform);
             started = true;
             audit(user, "DEVICE_DOWNLOAD", job.id, url, job.videoId);
             return job.toResponse();
@@ -290,17 +296,19 @@ public class DeviceDownloadService {
      * 一時フォルダーを作って {@code yt-dlp} を起動し、終了を仮想スレッドで待つ。
      *
      * @param job 仕事
-     * @param url 取得する URL
+     * @param url      取得する URL
+     * @param platform URL を担当するプラットフォーム（画質の上限を選ぶ）
      * @throws IllegalStateException フォルダーを作れない、または {@code yt-dlp} を起動できない場合
      */
-    private void launch(Job job, String url) {
+    private void launch(Job job, String url, Platform platform) {
         try {
             Files.createDirectories(job.directory());
         } catch (IOException e) {
             throw new IllegalStateException("一時フォルダーを作成できませんでした: " + job.directory());
         }
         List<String> command = VideoDownloadService.buildCommand(url, job.videoId, job.directory(),
-                jsRuntime, cookiesFile, monitorProperties.recording().maxHeight());
+                jsRuntime, cookiesFile,
+                YtDlpFormatSelector.of(platform, monitorProperties.recording().maxHeight(), twitchMaxHeight));
         try {
             job.process = processLauncher.launch(command, YtDlpLogFile.of(job.videoId));
         } catch (IOException e) {

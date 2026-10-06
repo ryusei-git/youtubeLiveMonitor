@@ -968,6 +968,11 @@ bin/api.sh PUT /api/admin/tables/CHANNELS/1 '{"LAST_NOTIFIED_VIDEO_ID":null}'
 どうしても容量を優先したい場合のみ `MONITOR_RECORDING_MAX_HEIGHT` に正の値（例: 1080）を
 設定すると解像度に上限がかかります。
 
+**Twitch だけは既定で 720p までに抑えます**（`MONITOR_RECORDING_TWITCH_MAX_HEIGHT=720`）。Twitch は配信者が
+送った映像のまま（ソース画質）で配られるため容量が大きくなりやすいからです。自動録画と URL 指定のダウンロード・
+端末保存の両方に効き、`0` にすると上限なしになります。どちらの上限でも、上限以下の形式が無い配信は
+録画を諦めずに最高画質で保存します。
+
 **空き容量が `MONITOR_RECORDING_MIN_FREE_GB`（既定 20GB）を下回ると、新しい録画・動画のダウンロード・端末保存を始めません。**
 録画を見送ったときは、ログに `空き容量がしきい値を下回っているため録画を始めません` が出て、管理者の Discord
 （`DISCORD_WEBHOOK_URL`）へ 1 度知らせます（空きが戻ってからまた下回ると、もう 1 度知らせます）。
