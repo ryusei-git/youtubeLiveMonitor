@@ -1,6 +1,43 @@
 // @ts-check
 // 画面固有の状態をグローバルへ漏らさないため、全体を即時実行関数で包む（audit.js と同じ）。
 // 各画面のスクリプトは <script> で読み込まれ、既定では common.js と同じスコープを共有するため。
+// 状態を持たない計算だけは、node のテスト（static-script.cjs）が名前で取り出せるよう外に置く。
+// すべての js を 1 つのスコープで型検査するので、名前はほかの js と重ならないよう system で始める。
+
+/**
+ * グラフの縦軸の上端にする、切りのよい数。目盛りの文字を「4.37 MB/s」のような半端な数に
+ * せず、一目で読めるようにするため。
+ * @param {number} value 系列の最大値（目盛りの単位に直した数）
+ * @returns {number} value 以上で最も小さい 1・2・5 × 10 の累乗。value が 0 以下なら 1
+ *                   （上端を 0 にすると、値を上端で割る縦位置が出せないため）
+ */
+function systemNiceMax(value) {
+    if (!(value > 0)) return 1;
+    const power = 10 ** Math.floor(Math.log10(value));
+    return ([1, 2, 5].find((m) => m * power >= value) ?? 10) * power;
+}
+
+/**
+ * グラフの時刻の目盛りを置く時刻。計測の時刻（秒まで半端）ではなく「21:00」「21:30」のような
+ * 切りのよい時刻に置き、目盛りから時刻を読み取りやすくするため。
+ * @param {number} startMillis 左端（ミリ秒）。ちょうど切りのよい時刻でも含めない
+ * @param {number} endMillis   右端（ミリ秒）
+ * @param {number} stepMinutes 間隔（分）。60 の約数
+ * @returns {number[]} 端末の時計で分が stepMinutes の倍数ちょうど（秒 0）になる時刻（ミリ秒）。
+ *                     古い順
+ */
+function systemTimeTicks(startMillis, endMillis, stepMinutes) {
+    const tick = new Date(startMillis);
+    tick.setMinutes(Math.floor(tick.getMinutes() / stepMinutes) * stepMinutes, 0, 0);
+    /** @type {number[]} */
+    const ticks = [];
+    while (tick.getTime() <= endMillis) {
+        if (tick.getTime() > startMillis) ticks.push(tick.getTime());
+        tick.setMinutes(tick.getMinutes() + stepMinutes);
+    }
+    return ticks;
+}
+
 (() => {
     /**
      * 左メニューのサービス 1 件（Java の {@code SystemProcessesResponse.ServiceStatus}）。
@@ -42,6 +79,38 @@
      * @property {number|null} percent   使用率（%）。計測できなければ null
      * @property {string}      amount    内訳に出す値
      */
+    /**
+     * {@code GET /api/dashboard/resources/history} の 1 点のうち、グラフで使う分（Java の
+     * {@code ResourceHistoryPoint}）。計測できなかった値は 0 でなく null で届く。
+     * @typedef {object} HistoryPoint
+     * @property {string}      at                           記録した時刻
+     * @property {number|null} systemCpuPercent             端末全体の CPU 使用率
+     * @property {number}      systemMemoryUsedPercent      端末全体のメモリ使用率
+     * @property {number|null} registeredCpuPercent         左メニューのサービスの CPU の合計
+     * @property {number}      registeredMemoryBytes        左メニューのサービスの実メモリの合計
+     * @property {number|null} diskFreeBytes                録画の保存先があるディスクの空き
+     * @property {number}      recordingsBytes              録画フォルダーの実ファイルの合計
+     * @property {number|null} networkReceiveBytesPerSecond 受信量（毎秒）
+     * @property {number|null} networkSendBytesPerSecond    送信量（毎秒）
+     */
+    /**
+     * 積み上げのグラフの 1 層。
+     * @typedef {object} ChartLayer
+     * @property {string}             label  吹き出しの名前
+     * @property {string}             color  面と末尾の点の色（CSS の値）
+     * @property {string}             edge   上端の線の色（CSS の値）
+     * @property {Array<number|null>} values 点ごとの使用率（%）。計測できなかった点は null
+     */
+    /**
+     * グラフの横軸と、その範囲に入る点。
+     * @typedef {object} ChartFrame
+     * @property {number}         start  左端（ミリ秒）
+     * @property {number}         end    右端（ミリ秒）
+     * @property {HistoryPoint[]} points 範囲の中の点（古い順）
+     * @property {number[]}       xs     点ごとの横位置（0〜1000）
+     */
+    /** @typedef {{x: number, text: string}} ChartPoint 吹き出しを出す 1 点（横位置 0〜1000・文） */
+    /** @typedef {{html: string, points: ChartPoint[]}} ChartView 描いたグラフと、その点 */
 
     /**
      * 最終更新を「更新できていません」に変えるまでの時間（ミリ秒）。10 秒ごとの読み直しが
@@ -92,8 +161,22 @@
      */
     const WARNING_PANEL = { cpu: "cpu", core: "cpu", memory: "memory", swap: "memory", disk: "disk" };
 
-    /** @type {Record<string, string>} 読み上げで、どの枠の注意かを言うための名前 */
-    const PANEL_OWNER = { cpu: "CPU の", memory: "メモリの", disk: "ディスクの" };
+    /** @type {Record<string, string>} 読み上げで、どの枠の注意・グラフかを言うための名前 */
+    const PANEL_OWNER = {
+        cpu: "CPU の", memory: "メモリの", disk: "ディスクの", network: "ネットワークの",
+    };
+
+    /** グラフを描く枠。HTML の id は {@code <key>Chart} */
+    const CHART_KEYS = ["cpu", "memory", "disk", "network"];
+
+    /**
+     * グラフの横軸の幅（ミリ秒）。記録の長さで幅を変えない。変えると、起動して数分の記録が
+     * 枠いっぱいに伸び、3 時間の推移と同じ形に見えるため（レビュー #22）。
+     */
+    const CHART_SPAN_MILLIS = 3 * 60 * 60 * 1000;
+
+    /** 吹き出しの区切り（全角の空白）。半角だけでは、名前と値の切れ目と見分けにくいため */
+    const TIP_SEPARATOR = "　";
 
     /**
      * CPU の注意の基準（%。サーバーの {@code CPU_WARNING_PERCENT} と同じ）。帯の印と、注意が
@@ -103,12 +186,20 @@
     /** メモリとディスクの注意の基準（%）。帯の印だけに使う */
     const USAGE_MARK = 90;
 
-    /** @type {HostResources | null} {@code /api/dashboard/resources} の応答。未読は null */
+    /** @type {HostResources | null} {@code /api/dashboard/resources} の応答。未読は null*/
     let resources = null;
     /** @type {Set<string>} 前回の描画で出ていた注意の key。新しく出た注意だけを読み上げるため */
     let shownWarningKeys = new Set();
     /** @type {HostProcesses | null} {@code /api/system/processes} の応答。未読なら null */
     let system = null;
+    /** @type {HistoryPoint[] | null} {@code /api/dashboard/resources/history} の応答。未読は null*/
+    let history = null;
+    /** 推移を読めたときの今の値の measuredAt。変わったときだけ読み直す（理由は loadHistory） */
+    let historyMeasuredAt = "";
+    /** @type {Record<string, string>} グラフごとに最後に描いた HTML。変わったときだけ描き直す */
+    const chartHtml = {};
+    /** @type {Record<string, ChartPoint[]>} グラフごとの点。マウスを重ねた位置に近い点を探すため */
+    const chartPoints = {};
     /** 2 つの API を両方読めた時刻（ミリ秒）。まだなら 0 */
     let lastSuccessAt = 0;
     /** 1 回でも読み込みを終えたか。最初の読み込みの最中は、まだ失敗とは言えないので警告しない */
@@ -144,8 +235,9 @@
     /**
      * 時刻を HH:mm（seconds が true なら HH:mm:ss）にする。日付を出さないのは、1 分ごとの
      * 計測の値を見る画面で、今日の値かを疑う場面が無いため。
-     * @param {string}  value   サーバーの日時（ISO 形式。時差なしの LocalDateTime）
-     * @param {boolean} [seconds] 秒まで出すか
+     * @param {string|number} value     サーバーの日時（ISO 形式。時差なしの LocalDateTime）か、
+     *                                  ミリ秒（グラフの目盛り）
+     * @param {boolean}       [seconds] 秒まで出すか
      * @returns {string} 整形した時刻
      */
     function formatClock(value, seconds = false) {
@@ -242,6 +334,17 @@
         if (max >= 1024 * 1024) return { size: 1024 * 1024, label: "MB/s", digits: 2 };
         if (max >= 1024) return { size: 1024, label: "KB/s", digits: 2 };
         return { size: 1, label: "B/s", digits: 0 };
+    }
+
+    /**
+     * 毎秒のバイト数を、並べる値の大きい方で決めた単位にそろえて書く（理由は rateUnit）。
+     * @param {Array<number|null>} values 毎秒のバイト数。計測できなかった値は null
+     * @returns {string[]} 単位付きの値。null は "-"
+     */
+    function formatRates(values) {
+        const unit = rateUnit(Math.max(0, ...values.map((bytes) => bytes ?? 0)));
+        return values.map((bytes) => (bytes === null
+            ? "-" : `${(bytes / unit.size).toFixed(unit.digits)} ${unit.label}`));
     }
 
     /**
@@ -422,12 +525,8 @@
     function networkHtml(r) {
         const receive = r ? r.system.networkReceiveBytesPerSecond : null;
         const send = r ? r.system.networkSendBytesPerSecond : null;
-        let values = ["-", "-"];
-        if (receive !== null && send !== null) {
-            const unit = rateUnit(Math.max(receive, send));
-            values = [receive, send]
-                .map((bytes) => `${(bytes / unit.size).toFixed(unit.digits)} ${unit.label}`);
-        }
+        const values = receive !== null && send !== null
+            ? formatRates([receive, send]) : ["-", "-"];
         const waiting = r && (receive === null || send === null)
             ? valueNote("次の計測を待っています") : "";
         return factsHtml([
@@ -510,6 +609,416 @@
     }
 
     /**
+     * @param {number} value 値
+     * @param {number} max   縦軸の上端の値
+     * @returns {number} 縦位置（0〜100。上端が 0）。範囲の外の値は上端・下端に止める。SVG は
+     *                   overflow: visible なので、止めないと線がグラフの外（時刻の文字の上）に出る
+     *                   （下限の設定がディスクの合計を超えると、録画の下限は負の % になる）
+     */
+    const yAt = (value, max) => 100 - Math.min(Math.max(value / max, 0), 1) * 100;
+
+    /**
+     * @param {number} at    時刻（ミリ秒）
+     * @param {number} start 左端の時刻（ミリ秒）
+     * @returns {number} 横位置（0〜1000）
+     */
+    const xAt = (at, start) => (at - start) / CHART_SPAN_MILLIS * 1000;
+
+    /**
+     * 横軸を、今の値を計測した時刻を右端、その 3 時間前を左端にして決め、範囲の外の点を捨てる。
+     * 記録の無い左側は詰めずに空け、再起動した位置（そこより前の推移は消えている）を見せる。
+     * @param {HistoryPoint[]} points     推移（古い順）
+     * @param {string}         measuredAt 今の値を計測した時刻
+     * @returns {ChartFrame} 横軸と範囲の中の点
+     */
+    function chartFrame(points, measuredAt) {
+        const end = new Date(measuredAt).getTime();
+        const start = end - CHART_SPAN_MILLIS;
+        const inRange = points.map((point) => ({ point, at: new Date(point.at).getTime() }))
+            .filter(({ at }) => at >= start && at <= end);
+        return {
+            start, end,
+            points: inRange.map(({ point }) => point),
+            xs: inRange.map(({ at }) => xAt(at, start)),
+        };
+    }
+
+    /**
+     * @param {number[]}           xs 横位置
+     * @param {Array<number|null>} ys 縦位置。null の点で線を切る（計測できなかった時間を 0 と
+     *                                読ませないため。レビュー #16）
+     * @returns {string} path の d
+     */
+    const linePath = (xs, ys) => ys.map((y, i) => {
+        if (y === null) return "";
+        return `${i > 0 && ys[i - 1] !== null ? "L" : "M"}${xs[i].toFixed(1)} ${y.toFixed(2)}`;
+    }).join("");
+
+    /**
+     * 基準の横の破線（注意の基準。レビュー #41。録画の下限。レビュー #20）。面の後に描き、面に
+     * 隠れないようにする。
+     * @param {number} y     縦位置（0〜100）
+     * @param {string} color 色（CSS の値）
+     * @param {string} dash  破線の刻み
+     * @returns {string} SVG の線
+     */
+    const refLine = (y, color, dash) => `<line x1="0" x2="1000" y1="${y.toFixed(2)}"`
+        + ` y2="${y.toFixed(2)}" style="stroke:${color}" stroke-dasharray="${dash}"`
+        + ' stroke-width="1" vector-effect="non-scaling-stroke"/>';
+
+    /**
+     * 系列の末尾の点。最後の値が null なら出さない（計測できなかった今の値を、点の位置で
+     * 読ませないため。レビュー #16）。
+     * @param {ChartFrame}  frame 横軸と範囲の中の点
+     * @param {number|null} value 末尾の縦の値（積み上げなら層の上端）
+     * @param {number}      max   縦軸の上端の値
+     * @param {string}      color 色（CSS の値）
+     * @returns {string} 点の HTML
+     */
+    function endDot(frame, value, max, color) {
+        if (value === null) return "";
+        const x = frame.xs[frame.xs.length - 1] / 10;
+        return `<span class="endDot" style="left:${x}%;top:${yAt(value, max)}%;`
+            + `background:${color}"></span>`;
+    }
+
+    /**
+     * @param {Array<number|null>} values 値
+     * @returns {number} 最大の値の位置。計測できた値が無ければ -1
+     */
+    function peakIndex(values) {
+        let peak = -1;
+        values.forEach((value, i) => {
+            if (value !== null && (peak < 0 || value > (values[peak] ?? 0))) peak = i;
+        });
+        return peak;
+    }
+
+    /**
+     * 線と面を伸び縮みする SVG（横 0〜1000・縦 0〜100）で描き、目盛りの文字を HTML で重ねる。
+     * 高さを決めて枠の幅いっぱいに伸ばしても、文字が潰れたり大きくなりすぎたりしないため
+     * （common.js の lineChart は図を丸ごと伸ばすので、文字も一緒に伸びる）。
+     *
+     * <p>時刻の文字は 1 時間ごとと両端の 2 つを持ち、CSS が画面の幅でどちらかを出す。狭い画面で
+     * 1 時間ごとの文字を並べると重なって読めないため。
+     *
+     * @param {ChartFrame} frame  横軸と範囲の中の点
+     * @param {string}     label  読み上げの名前（レビュー #52）
+     * @param {number}     max    縦軸の上端の値
+     * @param {Array<{value: number, text: string}>} ticks
+     *                            縦軸の目盛り。上端の値のものは、狭い画面でも出す
+     * @param {string}     svg    面・線・基準の線の SVG
+     * @param {string}     dots   末尾の点の HTML
+     * @param {(index: number) => string} tip
+     *                            点ごとの吹き出しの、時刻より後ろの文
+     * @returns {ChartView} 描いたグラフ
+     */
+    function chartShell(frame, label, max, ticks, svg, dots, tip) {
+        /** @type {(x: string, y: string, x2: string, y2: string) => string} */
+        const gridLine = (x, y, x2, y2) => `<line class="gridLine" x1="${x}" y1="${y}" x2="${x2}"`
+            + ` y2="${y2}" vector-effect="non-scaling-stroke"/>`;
+        const grid = systemTimeTicks(frame.start, frame.end, 30).map((at) => {
+            const x = xAt(at, frame.start).toFixed(1);
+            return gridLine(x, "0", x, "100");
+        }).join("") + gridLine("0", "0", "1000", "0") + gridLine("0", "100", "1000", "100");
+        const yTicks = ticks.map((tick) => (tick.value >= max
+            ? `<span class="yTick is-max">${escapeHtml(tick.text)}</span>`
+            : `<span class="yTick" style="top:${yAt(tick.value, max)}%">`
+                + `${escapeHtml(tick.text)}</span>`)).join("");
+        const xTicks = systemTimeTicks(frame.start, frame.end, 60)
+            .map((at) => `<span class="xTick" style="left:${xAt(at, frame.start) / 10}%">`
+                + `${formatClock(at)}</span>`).join("")
+            + `<span class="xTick is-edge" style="left:0">${formatClock(frame.start)}</span>`
+            + `<span class="xTick is-edge" style="right:0">${formatClock(frame.end)}</span>`;
+        return {
+            html: `<figure class="miniChart" role="img" aria-label="${escapeHtml(label)}">`
+                + '<div class="plot"><svg viewBox="0 0 1000 100" preserveAspectRatio="none"'
+                + ` aria-hidden="true">${grid}${svg}</svg>${yTicks}${dots}`
+                + '<span class="chartCursor" hidden></span>'
+                + '<span class="chartTip" aria-hidden="true" hidden></span></div>'
+                + `<div class="xTicks">${xTicks}</div></figure>`,
+            points: frame.xs.map((x, i) => ({
+                x, text: `${formatClock(frame.points[i].at)}${TIP_SEPARATOR}${tip(i)}`,
+            })),
+        };
+    }
+
+    /**
+     * @param {ChartFrame} frame 横軸と範囲の中の点
+     * @returns {string} 読み上げの名前の、期間の部分
+     */
+    const chartRange = (frame) => `${formatClock(frame.start)}〜${formatClock(frame.end)}`;
+
+    /**
+     * 積み上げた面のグラフ（CPU・メモリ・ディスク）。下から「サービス」（ディスクは「録画」）
+     * 「そのほか」と重ね、上端が全体になる。枠の帯と同じ色・同じ並びにし、今の値（帯）と
+     * 推移（面）を同じ読み方で読めるようにする。
+     *
+     * <p>どれか 1 層でも計測できなかった点は、全層を null にして面を切る。片方だけ描くと、
+     * 描いた層の上端を全体と読ませるため（レビュー #16）。
+     *
+     * @param {ChartFrame}   frame  横軸と範囲の中の点
+     * @param {string}       owner  読み上げの名前の頭（「CPU の」など）
+     * @param {ChartLayer[]} layers 下から重ねる層
+     * @param {number}       mark   注意の基準（%）。破線と目盛りの文字を出す
+     * @param {number|null}  limit  録画の下限（%）。目盛りの文字の無い破線を出す。無ければ null
+     * @returns {ChartView} 描いたグラフ
+     */
+    function areaChart(frame, owner, layers, mark, limit = null) {
+        const { xs } = frame;
+        const complete = xs.map((_, i) => layers.every((layer) => layer.values[i] !== null));
+        const values = layers.map((layer) => layer.values.map((v, i) => (complete[i] ? v : null)));
+        /** @type {Array<number|null>} */
+        let lower = xs.map(() => 0);
+        let svg = "";
+        let dots = "";
+        layers.forEach((layer, n) => {
+            const low = lower;
+            const upper = values[n].map((v, i) => {
+                const base = low[i];
+                return v === null || base === null ? null : base + v;
+            });
+            let area = "";
+            /** @type {Array<{x: string, top: string, bottom: string}>} */
+            let run = [];
+            const flush = () => {
+                if (run.length >= 2) {
+                    area += `M${run.map((p) => `${p.x} ${p.top}`).join(" L")}`
+                        + ` L${run.map((p) => `${p.x} ${p.bottom}`).reverse().join(" L")} Z`;
+                }
+                run = [];
+            };
+            upper.forEach((v, i) => {
+                const base = low[i];
+                if (v === null || base === null) {
+                    flush();
+                    return;
+                }
+                const x = xs[i].toFixed(1);
+                run.push({ x, top: yAt(v, 100).toFixed(2), bottom: yAt(base, 100).toFixed(2) });
+            });
+            flush();
+            const edge = linePath(xs, upper.map((v) => (v === null ? null : yAt(v, 100))));
+            svg += `<path d="${area}" style="fill:${layer.color};fill-opacity:.85"/>`
+                + `<path d="${edge}" fill="none" style="stroke:${layer.edge}" stroke-width="1"`
+                + ' stroke-linejoin="round" vector-effect="non-scaling-stroke"/>';
+            dots += endDot(frame, upper[upper.length - 1], 100, layer.color);
+            lower = upper;
+        });
+        svg += refLine(yAt(mark, 100), "var(--c-warning)", "4 3");
+        if (limit !== null) svg += refLine(yAt(limit, 100), "var(--c-error)", "2 2");
+
+        // 一番上の層の上端が全体
+        const peak = peakIndex(lower);
+        const latest = lower[lower.length - 1];
+        const parts = peak < 0 ? []
+            : [`最大 ${formatPercent(lower[peak])}（${formatClock(frame.points[peak].at)}）`];
+        parts.push(latest === null
+            ? "最新は 取得できませんでした" : `最新 ${formatPercent(latest)}`);
+        const ticks = [
+            { value: 0, text: "0%" },
+            { value: mark, text: `${mark}%` },
+            { value: 100, text: "100%" },
+        ];
+        /** @param {number} i 点の位置 @returns {string} 吹き出しの値 */
+        const tip = (i) => layers.map((layer, n) => `${layer.label} ${formatPercent(values[n][i])}`)
+            .join(TIP_SEPARATOR);
+        const label = `${owner}推移、${chartRange(frame)}。${parts.join("、")}`;
+        return chartShell(frame, label, 100, ticks, svg, dots, tip);
+    }
+
+    /**
+     * ネットワークの折れ線のグラフ。受信を実線・送信を破線にし、色だけでなく線の形でも見分け
+     * られるようにする（レビュー #42）。上端は 2 本の最大を枠の内訳と同じ単位に直して切り上げ、
+     * 小さい値も潰さずに描く。
+     * @param {ChartFrame} frame 横軸と範囲の中の点
+     * @returns {ChartView} 描いたグラフ
+     */
+    function rateChart(frame) {
+        const receive = frame.points.map((point) => point.networkReceiveBytesPerSecond);
+        const send = frame.points.map((point) => point.networkSendBytesPerSecond);
+        const peakBytes = Math.max(0, ...[...receive, ...send].map((bytes) => bytes ?? 0));
+        const unit = rateUnit(peakBytes);
+        const top = systemNiceMax(peakBytes / unit.size);
+        const max = top * unit.size;
+        /** @type {(values: Array<number|null>, color: string, dash: string) => string} */
+        const line = (values, color, dash) => {
+            const d = linePath(frame.xs, values.map((v) => (v === null ? null : yAt(v, max))));
+            return `<path d="${d}" fill="none" style="stroke:${color}" stroke-width="2"`
+                + ` stroke-dasharray="${dash}" stroke-linejoin="round"`
+                + ' vector-effect="non-scaling-stroke"/>';
+        };
+        const receiveColor = "var(--c-chart-receive)";
+        const sendColor = "var(--c-chart-send)";
+        const last = frame.points.length - 1;
+
+        const peak = peakIndex(receive);
+        const parts = peak < 0 ? [] : [`受信の最大 ${formatRates([receive[peak]])[0]}`
+            + `（${formatClock(frame.points[peak].at)}）`];
+        if (receive[last] === null || send[last] === null) {
+            parts.push("最新は 取得できませんでした");
+        } else {
+            const [latestReceive, latestSend] = formatRates([receive[last], send[last]]);
+            parts.push(`最新は受信 ${latestReceive}、送信 ${latestSend}`);
+        }
+        const label = `${PANEL_OWNER.network}推移、${chartRange(frame)}。${parts.join("、")}`;
+        const ticks = [{ value: 0, text: "0 B/s" }, { value: max, text: `${top} ${unit.label}` }];
+        const svg = line(receive, receiveColor, "none") + line(send, sendColor, "4 3");
+        const dots = endDot(frame, receive[last], max, receiveColor)
+            + endDot(frame, send[last], max, sendColor);
+        return chartShell(frame, label, max, ticks, svg, dots, (i) => {
+            const [r, s] = formatRates([receive[i], send[i]]);
+            return `受信 ${r}${TIP_SEPARATOR}送信 ${s}`;
+        });
+    }
+
+    /**
+     * 4 つの枠に直近 3 時間の推移を描く。推移を読めなかったときは前の推移で描く（右端は今の
+     * 計測の時刻なので、古い推移は左へ寄って、右に空きができる）。
+     *
+     * <p>描いた HTML が前と同じなら描き直さない。推移は 1 分に 1 回しか変わらないのに、10 秒ごとの
+     * 読み直しのたびに描き直すと、マウスを重ねて出した値がそのたびに消えるため。
+     */
+    function renderCharts() {
+        const r = resources;
+        /** @type {Record<string, ChartView>} */
+        let views = {};
+        let message = "";
+        if (!r || !history) {
+            message = settled ? "取得できませんでした" : "";
+        } else {
+            const frame = chartFrame(history, r.measuredAt);
+            if (frame.points.length < 2) {
+                message = "記録を集めています";
+            } else {
+                const memoryTotal = r.system.memoryTotalBytes;
+                const diskTotal = r.system.diskTotalBytes;
+                const service = "var(--c-chart-service)";
+                /** @type {(label: string, values: Array<number|null>) => ChartLayer} */
+                const serviceLayer = (label, values) => ({
+                    label, values, color: service, edge: service,
+                });
+                // 灰色は地の色に近いので、上端に濃い線を引いて輪郭を出す（レビュー #44）
+                /** @type {(values: Array<number|null>) => ChartLayer} */
+                const otherLayer = (values) => ({
+                    label: "そのほか", values, color: "var(--c-chart-other)",
+                    edge: "var(--c-border-input)",
+                });
+                const points = frame.points;
+                const cpuService = points.map((p) => p.registeredCpuPercent);
+                const memoryService = points
+                    .map((p) => p.registeredMemoryBytes / memoryTotal * 100);
+                const recordings = points.map((p) => (diskTotal === null
+                    ? null : p.recordingsBytes / diskTotal * 100));
+                // 設定 0 は空きを確かめない（録画を止めない）ので、下限の線を引かない（子 #826）
+                const reserve = r.diskOutlook.reserveBytes;
+                const limit = reserve > 0 && diskTotal !== null
+                    ? (diskTotal - reserve) / diskTotal * 100 : null;
+                views = {
+                    cpu: areaChart(frame, PANEL_OWNER.cpu, [
+                        serviceLayer("サービス", cpuService),
+                        // 全体とプロセスの測り方が違い、引くと負になりうるので 0 で止める
+                        otherLayer(points.map((p, i) => {
+                            const s = cpuService[i];
+                            return p.systemCpuPercent === null || s === null
+                                ? null : Math.max(p.systemCpuPercent - s, 0);
+                        })),
+                    ], CPU_MARK),
+                    memory: areaChart(frame, PANEL_OWNER.memory, [
+                        serviceLayer("サービス", memoryService),
+                        otherLayer(points.map((p, i) =>
+                            Math.max(p.systemMemoryUsedPercent - memoryService[i], 0))),
+                    ], USAGE_MARK),
+                    disk: areaChart(frame, PANEL_OWNER.disk, [
+                        serviceLayer("録画", recordings),
+                        otherLayer(points.map((p, i) => {
+                            const recording = recordings[i];
+                            const free = p.diskFreeBytes;
+                            if (diskTotal === null || free === null || recording === null) {
+                                return null;
+                            }
+                            const used = (diskTotal - free) / diskTotal * 100;
+                            return Math.max(used - recording, 0);
+                        })),
+                    ], USAGE_MARK, limit),
+                    network: rateChart(frame),
+                };
+            }
+        }
+        for (const key of CHART_KEYS) {
+            const view = views[key];
+            const html = view ? view.html : message && `<p class="chartEmpty">${message}</p>`;
+            chartPoints[key] = view ? view.points : [];
+            if (chartHtml[key] === html) continue;
+            el(`${key}Chart`).innerHTML = html;
+            chartHtml[key] = html;
+        }
+    }
+
+    /**
+     * @param {HTMLElement} box グラフの枠（{@code #<key>Chart}）
+     */
+    function hideChartCursor(box) {
+        for (const node of box.querySelectorAll(".chartCursor, .chartTip")) {
+            if (node instanceof HTMLElement) node.hidden = true;
+        }
+    }
+
+    /**
+     * マウスを重ねた（指で押した）位置に一番近い点の時刻と値を、縦線と吹き出しで出す
+     * （レビュー #23）。右寄りの点（60% より右）では吹き出しを縦線の左に出し、グラフの右へ
+     * はみ出させない。狭い画面では吹き出しが枠より広いので、画面の外へ出る分は内へずらす。
+     * @param {string}       key   グラフ（cpu・memory・disk・network）
+     * @param {PointerEvent} event 重ねた（押した）位置
+     */
+    function showChartCursor(key, event) {
+        const box = el(`${key}Chart`);
+        const plot = event.target instanceof Element ? event.target.closest(".plot") : null;
+        const points = chartPoints[key] ?? [];
+        const rect = plot ? plot.getBoundingClientRect() : null;
+        const x = rect ? (event.clientX - rect.left) / rect.width * 1000 : -1;
+        if (!plot || !points.length || x < 0 || x > 1000) {
+            hideChartCursor(box);
+            return;
+        }
+        const nearest = points.reduce((best, point) =>
+            (Math.abs(point.x - x) < Math.abs(best.x - x) ? point : best));
+        const cursor = query(".chartCursor", plot);
+        const tip = query(".chartTip", plot);
+        const left = nearest.x / 10;
+        const before = nearest.x > 600;
+        cursor.style.left = `${left}%`;
+        tip.textContent = nearest.text;
+        tip.style.left = before ? "auto" : `calc(${left}% + 6px)`;
+        tip.style.right = before ? `calc(${100 - left}% + 6px)` : "auto";
+        cursor.hidden = false;
+        tip.hidden = false;
+        const bounds = tip.getBoundingClientRect();
+        const shift = Math.max(bounds.right - (document.documentElement.clientWidth - 8), 0)
+            - Math.max(8 - bounds.left, 0);
+        if (shift !== 0) {
+            tip.style.left = `${tip.offsetLeft - shift}px`;
+            tip.style.right = "auto";
+        }
+    }
+
+    /**
+     * 今の値の measuredAt が、前に推移を読めたときから変わっていれば推移を読み直す。推移は
+     * 1 分ごとの記録でしか増えないので、24 時間分（最大 1440 件）を 10 秒ごとに読まないため。
+     * 失敗したら前の推移を残し、measuredAt を覚えないので次の読み直しでもう一度読む。
+     */
+    async function loadHistory() {
+        if (!resources || resources.measuredAt === historyMeasuredAt) return;
+        const measuredAt = resources.measuredAt;
+        try {
+            history = await apiGet("/api/dashboard/resources/history");
+            historyMeasuredAt = measuredAt;
+        } catch {
+            // 前の推移のまま描く（renderCharts）
+        }
+    }
+
+    /**
      * 計測の値と左メニューの状態を読み直す。片方だけ失敗したときは、読めた方だけ描く
      * （もう片方は前の値のまま）。最終更新の警告は、両方を読めた時刻から数える。
      *
@@ -535,10 +1044,12 @@
             if (resourcesResult.status === "fulfilled" && systemResult.status === "fulfilled") {
                 lastSuccessAt = Date.now();
             }
+            await loadHistory();
             settled = true;
             renderHeader();
             renderNav();
             renderResources();
+            renderCharts();
         } finally {
             refreshButton.innerHTML = icon;
             refreshButton.removeAttribute("aria-disabled");
@@ -636,6 +1147,27 @@
     // 狭い画面へ変わったときは、閉じた状態の inert を付ける
     narrow.addEventListener("change", () => setNavOpen(false));
     setNavOpen(false);
+
+    for (const key of CHART_KEYS) {
+        const box = el(`${key}Chart`);
+        box.addEventListener("pointermove", (event) => showChartCursor(key, event));
+        box.addEventListener("pointerdown", (event) => showChartCursor(key, event));
+        // 指は離した時点で pointerleave が届くので、押して出した値がすぐ消えないよう、
+        // マウスだけ消す。指で出した値は、下の pointerdown でグラフの外を押したときに消す
+        box.addEventListener("pointerleave", (event) => {
+            if (event.pointerType !== "touch") hideChartCursor(box);
+        });
+    }
+    /** @param {EventTarget|null} [keep] この要素を含むグラフの値だけは残す */
+    const hideChartCursors = (keep = null) => {
+        for (const key of CHART_KEYS) {
+            const box = el(`${key}Chart`);
+            if (!(keep instanceof Node && box.contains(keep))) hideChartCursor(box);
+        }
+    };
+    document.addEventListener("pointerdown", (event) => hideChartCursors(event.target));
+    // 画面の大きさが変わると、吹き出しの位置（画面の外へ出ないようずらした量）が合わなくなる
+    window.addEventListener("resize", () => hideChartCursors());
 
     refreshButton.addEventListener("click", () => refresh());
     renderResources();
