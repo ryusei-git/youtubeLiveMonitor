@@ -100,5 +100,12 @@ public enum AuditAction {
     NOTIFICATION_SETTING_CHANGE,
 
     /** アプリ設定（管理者向け）を変更した。 */
-    APP_SETTING_CHANGE
+    APP_SETTING_CHANGE,
+
+    /**
+     * 管理者が端末の状態の画面（/system.html）からプロセスの停止を受け付けた、または断った。
+     * 対象は PID。詳細にはプロセス名・子の数・断った理由だけを残し、コマンドラインは残さない
+     * （引数に秘密が入ることがあり、監査ログは後から消せないため）。
+     */
+    PROCESS_STOP
 }
