@@ -4,6 +4,7 @@ import com.example.monitor.config.MonitorProperties;
 import com.example.monitor.dto.ResourceHistoryPoint;
 import com.example.monitor.dto.ResourceSnapshotResponse;
 import com.example.monitor.dto.ResourceSnapshotResponse.ApplicationUsage;
+import com.example.monitor.dto.ResourceSnapshotResponse.DiskOutlook;
 import com.example.monitor.dto.ResourceSnapshotResponse.HelperUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.ProcessUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.RecorderUsage;
@@ -19,6 +20,7 @@ import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.ProcessWorkingDirectory;
 import com.example.monitor.util.RecordingPathUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import oshi.SystemInfo;
@@ -120,6 +122,30 @@ public class ResourceMonitorService {
      * 窓の端の切れ目や計測のずれで、1 コアに張り付いたプロセスも 95% 前後に出るため。
      */
     private static final double CORE_BUSY_RATIO = 0.9;
+
+    /**
+     * 録画を始めなくなるまでの見込みで、空きの減り方を見る長さ（分）。録画 1 本の始まりと終わりで
+     * 見込みが大きく揺れない長さにする。
+     */
+    private static final int DISK_OUTLOOK_WINDOW_MINUTES = 60;
+
+    /** 減り方を出すのに要る記録の長さ（分）。これより短いと 1 回の書き込みの山で見込みが振れる。 */
+    private static final int DISK_OUTLOOK_MIN_MINUTES = 10;
+
+    /**
+     * 録画を始めなくなるまでがこの時間（時）を切ったら注意にする。寝ている間・出かけている間に
+     * 録画が止まるのを、気付ける時間のうちに知らせるため。
+     */
+    private static final int DISK_HOURS_WARNING = 6;
+
+    /**
+     * 新しい録画を始めない空き容量のしきい値（GB）。{@code StreamRecorder} と同じ設定を読む。
+     *
+     * <p>final にしないのは {@code @RequiredArgsConstructor} のコンストラクタを変えないため（理由は
+     * {@code DashboardService} の同名フィールドと同じ）。
+     */
+    @Value("${monitor.recording.min-free-gb:20}")
+    private long minFreeGb = 0;
 
     private final RecordingRepository recordingRepository;
     private final MonitorProperties monitorProperties;
@@ -294,7 +320,7 @@ public class ResourceMonitorService {
         Map<Long, ProcessCpu> nextCpu = nextProcessCpu(processCpu, samples, windowMillis, cores);
         ServiceUsage service = serviceUsage(application, recorders, helpers);
         ResourceSnapshotResponse response = new ResourceSnapshotResponse(LocalDateTime.now(), system,
-                service, registeredUsage(service, userProcesses, nextCpu, os), recordingsBytes, List.of());
+                service, registeredUsage(service, userProcesses, nextCpu, os), recordingsBytes, null, List.of());
         return new Measurement(response, new Baseline(now, ticks, received, sent, tracked), nextCpu);
     }
 
@@ -531,17 +557,79 @@ public class ResourceMonitorService {
     }
 
     private ResourceSnapshotResponse withWarnings(ResourceSnapshotResponse measured) {
+        List<ResourceHistoryPoint> recent;
+        // 60 分前の点まで入るよう末尾 61 件だけを写す（全体は最大 1440 件あるので複製しない）
+        synchronized (history) {
+            recent = history.stream().skip(Math.max(0, history.size() - (DISK_OUTLOOK_WINDOW_MINUTES + 1L)))
+                    .toList();
+        }
+        DiskOutlook outlook = diskOutlook(measured.system().diskFreeBytes(), recent,
+                minFreeGb <= 0 ? 0 : minFreeGb * 1024L * 1024 * 1024);
         return new ResourceSnapshotResponse(measured.measuredAt(), measured.system(), measured.service(),
-                measured.registered(), measured.recordingsBytes(), warnings(measured.system()));
+                measured.registered(), measured.recordingsBytes(), outlook, warnings(measured.system(), outlook));
     }
 
-    private List<Warning> warnings(SystemUsage system) {
+    /**
+     * 直近の空きの減り方から、新しい録画を始めない空き（{@code reserveBytes}）に届くまでの
+     * 見込みを出す。
+     *
+     * <p>{@code DashboardService#forecastStorage} は DB の 14 日の値で日の単位に見込むので、
+     * 配信が重なって 1 日のうちに空きが尽きるときに間に合わない。こちらは推移の空きの実測で
+     * 時間の単位に見込む。減り方は記録の両端の差で出す（1 分ごとの差を平均しても両端の差と
+     * 同じになるため）。
+     *
+     * <p>1 時間を切っても {@code hoursLeft} を 1 にするのは、0 を「すでに下回っている」だけに使い、
+     * まだ下回っていないのに「新しい録画は始まりません」と知らせないため。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
+     *
+     * @param freeBytes    今の空き。読めなければ {@code null}
+     * @param history      推移（古い順）。空きを読めなかった点は飛ばす
+     * @param reserveBytes 新しい録画を始めない空き（バイト）。0 なら空きを確かめない設定
+     * @return 見込み
+     */
+    static DiskOutlook diskOutlook(Long freeBytes, List<ResourceHistoryPoint> history, long reserveBytes) {
+        if (freeBytes == null) return new DiskOutlook(reserveBytes, null, null);
+        List<ResourceHistoryPoint> known = history.stream().filter(p -> p.diskFreeBytes() != null).toList();
+        Long growth = null;
+        if (!known.isEmpty()) {
+            ResourceHistoryPoint newest = known.getLast();
+            LocalDateTime from = newest.at().minusMinutes(DISK_OUTLOOK_WINDOW_MINUTES);
+            ResourceHistoryPoint oldest = known.stream().filter(p -> !p.at().isBefore(from)).findFirst()
+                    .orElse(newest);
+            long seconds = Duration.between(oldest.at(), newest.at()).toSeconds();
+            if (seconds >= DISK_OUTLOOK_MIN_MINUTES * 60L) {
+                growth = (oldest.diskFreeBytes() - newest.diskFreeBytes()) * 3600 / seconds;
+            }
+        }
+        Long hoursLeft = null;
+        if (reserveBytes > 0 && freeBytes <= reserveBytes) {
+            hoursLeft = 0L;
+        } else if (reserveBytes > 0 && growth != null && growth > 0) {
+            hoursLeft = Math.max(1, (freeBytes - reserveBytes) / growth);
+        }
+        return new DiskOutlook(reserveBytes, growth, hoursLeft);
+    }
+
+    private List<Warning> warnings(SystemUsage system, DiskOutlook outlook) {
         List<ResourceHistoryPoint> recent;
         // 推移は最大 24 時間分（1440 件）あるので、全体は複製せずに末尾から目安の分数だけを取り出す
         synchronized (history) {
             recent = history.reversed().stream().limit(CPU_WARNING_MINUTES).toList();
         }
         List<Warning> warnings = new ArrayList<>(evaluateWarnings(system, recent));
+        // 10% の注意はそのまま残し、録画の下限に近いときの注意は disk がまだ無いときだけ足す。
+        // evaluateWarnings の disk は末尾なので、ここで足しても cpu・memory・swap・disk・core の
+        // 並びのまま
+        Long hoursLeft = outlook.hoursLeft();
+        if (hoursLeft != null && hoursLeft < DISK_HOURS_WARNING
+                && warnings.stream().noneMatch(warning -> warning.key().equals("disk"))) {
+            warnings.add(new Warning("disk", hoursLeft == 0
+                    ? "録画の保存先の空きが、録画を始めなくなる量（設定 %d GB）を下回っています。新しい録画は始まりません"
+                            .formatted(minFreeGb)
+                    : "録画の保存先の空きが、あと約 %d 時間で録画を始めなくなる量（設定 %d GB）に届きます"
+                            .formatted(hoursLeft, minFreeGb)));
+        }
         // 名前は注意を出すときだけ OSHI に聞く（1 件約 0.12MiB。全プロセス分を毎回引くと #201 の確保に戻る）
         Warning core = coreWarning(processCpu, pid -> {
             OSProcess process = systemInfo.getOperatingSystem().getProcess((int) pid);

@@ -19,6 +19,7 @@ import java.util.List;
  * @param recordingsBytes 録画フォルダーの実ファイルの合計。DB の fileSizeBytes の合計で代えない
  *                        （{@code docs/pitfalls.md}「ディスク使用量は DB ではなく実ファイルを
  *                        走査して求める」）
+ * @param diskOutlook     直近 1 時間の空きの減り方から見た、新しい録画を始めなくなるまでの見込み
  * @param warnings        目安を超えている項目。無ければ空
  */
 public record ResourceSnapshotResponse(
@@ -27,8 +28,31 @@ public record ResourceSnapshotResponse(
         ServiceUsage service,
         RegisteredUsage registered,
         long recordingsBytes,
+        DiskOutlook diskOutlook,
         List<Warning> warnings
 ) {
+
+    /**
+     * 録画の保存先の空きが、新しい録画を始めない量（{@code monitor.recording.min-free-gb}）に
+     * 届くまでの見込み。
+     *
+     * <p>{@code DashboardService#getStorageForecast()} の見込み（DB の 14 日の値で日の単位）
+     * とは別に持つ。こちらは直近 1 時間の空きの実測から時間の単位で見込み、配信が重なって急に
+     * 減るときにも間に合うように知らせる。分からない値は 0 にせず {@code null} にする
+     * （{@code docs/pitfalls.md}「「配信していない」と「判定できなかった」を必ず区別する」）。
+     *
+     * @param reserveBytes       新しい録画を始めない空き（設定の GB を 1024^3 で換算。
+     *                           {@code DashboardService} の見込みと同じ値）。設定が 0 なら 0
+     * @param growthBytesPerHour 直近 1 時間で空きが減った量（毎時）。記録が 10 分ぶん無い・
+     *                           空きが取れないときは {@code null}。減っていなければ 0 以下
+     * @param hoursLeft          空きが {@code reserveBytes} に届くまでの時間（切り捨て）。
+     *                           空きが {@code reserveBytes} より多い間は 1 以上で、0 は
+     *                           「すでに下回っている」ときだけ（減り方に関わらず 0）。
+     *                           減っていない・分からないときは {@code null}。
+     *                           {@code reserveBytes} が 0 なら常に {@code null}
+     *                           （設定 0 は空きを確かめないため）
+     */
+    public record DiskOutlook(long reserveBytes, Long growthBytesPerHour, Long hoursLeft) {}
 
     /**
      * 端末全体のリソース。
@@ -146,7 +170,9 @@ public record ResourceSnapshotResponse(
      * <p>並びは cpu・memory・swap・disk・core の順。
      *
      * @param key     画面が項目を見分けるための固定の識別子（{@code cpu} / {@code memory} / {@code swap} /
-     *                {@code disk} / {@code core}）
+     *                {@code disk} / {@code core}）。{@code disk} は「空きが 10% を
+     *                切った」か「6 時間以内に録画の下限（{@link DiskOutlook}）に届く
+     *                （すでに下回っているときを含む）」のどちらかで出る
      * @param message 表示する文言
      */
     public record Warning(String key, String message) {}
