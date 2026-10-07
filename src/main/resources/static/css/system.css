@@ -1,0 +1,385 @@
+/*
+ * 端末の状態の画面（/system.html）だけの見た目。AWS マネジメントコンソール（Cloudscape）風にする。
+ *
+ * style.css・studio.css を読まないのは、ほかの画面の見た目を変えずに、この画面だけを別の作りに
+ * するため（共有の CSS を直すと、ほかの 16 画面の見た目まで動く）。mobile.css も読まないので、
+ * 狭い画面の指定はこの中の @media に書く。色・角丸は Cloudscape の公開値。書体は読み込まない
+ * （CSP で外部のフォントを止めている）。端末にあればその書体、無ければ後ろの書体で出す。
+ */
+
+:root {
+    --c-text: #0f141a;
+    --c-text-secondary: #424650;
+    --c-text-inactive: #656871;
+    --c-border: #c6c6cd;
+    --c-border-soft: #dedee3;
+    --c-border-input: #8c8c94;
+    --c-surface: #ffffff;
+    --c-surface-hover: #f3f3f7;
+    --c-surface-muted: #f6f6f9;
+    --c-primary: #006ce0;
+    --c-primary-hover: #004a9e;
+    --c-primary-tint: #f0fbff;
+    --c-top: #232f3e;
+    --c-success: #00802f;
+    --c-error: #db0000;
+    --c-warning: #855900;
+    --c-warning-tint: #fffef0;
+    --c-chart-service: #688ae8;
+    --c-chart-other: #b4b4bb;
+    --c-chart-receive: #2ea597;
+    --c-chart-send: #8456ce;
+    --font: "Open Sans", "Noto Sans JP", "Helvetica Neue", Roboto, Arial, sans-serif;
+    --radius-container: 16px;
+    --radius-button: 20px;
+    --radius-input: 8px;
+    --top-h: 48px;
+}
+
+/* ---------- 基本 ---------- */
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font: 14px/20px var(--font);
+    color: var(--c-text);
+    background: var(--c-surface);
+    /* 10 秒ごとに書き換わる数字の幅をそろえ、桁が揺れて見えないようにする */
+    font-variant-numeric: tabular-nums;
+}
+
+a { color: var(--c-primary); font-weight: 700; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible { outline: 2px solid var(--c-primary); outline-offset: 2px; border-radius: 4px; }
+/* 帯の #232f3e の上では青い枠が見えないため白にする（13.57:1。レビュー #30） */
+.topNav :focus-visible { outline-color: #fff; }
+
+h1 { margin: 0; font-size: 24px; line-height: 30px; font-weight: 700; }
+h2 { margin: 0; font-size: 20px; line-height: 24px; font-weight: 700; }
+
+[hidden] { display: none !important; }
+
+/* 見た目は消して、読み上げには残す */
+.srOnly {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.icon { flex: none; width: 16px; height: 16px; }
+
+/* common.js の initStudioShell が差し込む「本文へ移動」。フォーカスが来たときだけ帯の下に出す */
+.skipLink {
+    position: fixed;
+    top: -80px;
+    left: 16px;
+    z-index: 100;
+    padding: 8px 12px;
+    background: var(--c-surface);
+    border: 2px solid var(--c-primary);
+    border-radius: var(--radius-input);
+}
+.skipLink:focus { top: calc(var(--top-h) + 8px); }
+
+/* ---------- 上の帯 ---------- */
+
+.topNav {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: var(--top-h);
+    padding: 0 20px;
+    color: #fff;
+    background: var(--c-top);
+}
+
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 700;
+}
+.brandIcon { flex: none; width: 22px; height: 22px; }
+
+.topButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    min-width: 32px;
+    padding: 0 8px;
+    color: #fff;
+    font: inherit;
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.topButton:hover { background: rgba(255, 255, 255, .12); }
+
+#navToggle { display: none; }
+
+/* ---------- 配置 ---------- */
+
+.layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+
+.sideNav {
+    position: sticky;
+    top: calc(var(--top-h) + env(safe-area-inset-top, 0px));
+    align-self: start;
+    height: calc(100dvh - var(--top-h) - env(safe-area-inset-top, 0px));
+    overflow-y: auto;
+    padding: 20px 12px;
+    background: var(--c-surface-muted);
+    border-right: 1px solid var(--c-border);
+}
+
+/* ---------- 左メニュー ---------- */
+
+.navGroup {
+    margin: 0 0 20px;
+    padding: 0;
+    list-style: none;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.navGroup > li + li { border-top: 1px solid var(--c-border-soft); }
+
+.navGroupLabel {
+    margin: 0 4px 8px;
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    color: var(--c-text-inactive);
+}
+
+.navItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 8px 12px;
+    color: var(--c-text);
+    font-weight: 400;
+}
+a.navItem:hover {
+    color: var(--c-primary);
+    background: var(--c-surface-hover);
+    text-decoration: none;
+}
+.navItem.is-active {
+    color: var(--c-primary);
+    font-weight: 700;
+    background: var(--c-primary-tint);
+    box-shadow: inset 3px 0 0 var(--c-primary);
+}
+
+.navName { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+/* 画面の無いサービスも名前の色は変えない。灰色にすると「停止済み」と読み違えるため
+   （レビュー #35） */
+.navStatus { flex: none; width: 14px; height: 14px; }
+.navStatus.is-running { color: var(--c-success); }
+.navStatus.is-stopped,
+.navStatus.is-unknown { color: var(--c-text-inactive); }
+
+.navExternal { flex: none; width: 12px; height: 12px; color: var(--c-text-inactive); }
+
+/* ---------- 本文 ---------- */
+
+main {
+    min-width: 0;
+    padding: 12px 40px 48px;
+    /* 「ダッシュボード」「端末の状態」を押して #mainContent へ移っても、見出しが帯に
+       隠れない（レビュー #53） */
+    scroll-margin-top: calc(var(--top-h) + env(safe-area-inset-top, 0px));
+}
+
+/* ---------- 見出し（レビュー #47・#57） ---------- */
+
+.pageHeader {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "title summary refresh";
+    align-items: end;
+    gap: 12px 24px;
+    margin: 2px 0 16px;
+}
+
+.headerTitle {
+    grid-area: title;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+}
+
+.summaryItems {
+    grid-area: summary;
+    justify-self: end;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 28px;
+    margin: 0;
+}
+/* 名前を太字・値を普通にする（Cloudscape の KeyValuePairs と同じ） */
+.summaryItems dt {
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    color: var(--c-text-secondary);
+}
+.summaryItems dd { margin: 0; font-weight: 400; white-space: nowrap; }
+
+#refreshButton { grid-area: refresh; }
+
+.is-stale { color: var(--c-warning); }
+.is-stale .icon { vertical-align: -3px; margin-right: 4px; }
+
+/* ---------- 「？」 ---------- */
+
+.help { position: relative; display: inline-flex; align-self: center; }
+.help > summary {
+    display: inline-flex;
+    color: var(--c-text-inactive);
+    border-radius: 50%;
+    list-style: none;
+    cursor: pointer;
+}
+.help > summary::-webkit-details-marker { display: none; }
+.help > summary:hover,
+.help[open] > summary { color: var(--c-primary); }
+
+.popoverBody {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 8px);
+    left: -12px;
+    width: max-content;
+    max-width: min(320px, calc(100vw - 48px));
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 20px;
+    color: var(--c-text);
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px 1px rgba(0, 7, 22, .12);
+}
+
+/* ---------- ボタン（Cloudscape の Button） ---------- */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 4px 20px;
+    font: inherit;
+    font-weight: 700;
+    white-space: nowrap;
+    color: var(--c-primary);
+    background: var(--c-surface);
+    border: 2px solid var(--c-primary);
+    border-radius: var(--radius-button);
+    cursor: pointer;
+}
+.btn:hover {
+    color: var(--c-primary-hover);
+    background: var(--c-primary-tint);
+    border-color: var(--c-primary-hover);
+}
+.btn.primary { color: #fff; background: var(--c-primary); }
+.btn.primary:hover { color: #fff; background: var(--c-primary-hover); }
+.btn.link { border-color: transparent; background: transparent; }
+.btn.iconOnly { min-width: 32px; padding: 4px 6px; }
+.btn:disabled,
+.btn[aria-disabled="true"] {
+    color: var(--c-text-inactive);
+    background: var(--c-surface);
+    border-color: var(--c-border);
+    cursor: default;
+}
+
+.spinner {
+    display: inline-block;
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------- 760px 以下（レビュー #31・#48） ---------- */
+
+@media (max-width: 760px) {
+    /* 押す場所を 40px 以上にする */
+    #navToggle { display: inline-flex; min-width: 40px; min-height: 40px; }
+
+    .layout { grid-template-columns: minmax(0, 1fr); }
+
+    /* 左メニューは帯の下に重ねて出す。閉じている間は影を残さない（画面の左端に線が見えるため） */
+    .sideNav {
+        position: fixed;
+        left: 0;
+        top: calc(var(--top-h) + env(safe-area-inset-top, 0px));
+        z-index: 35;
+        width: min(280px, 85vw);
+        transform: translateX(-100%);
+        transition: transform .2s;
+        box-shadow: none;
+    }
+    .sideNav.is-open { transform: none; box-shadow: 0 4px 20px rgba(0, 7, 22, .2); }
+
+    .navScrim {
+        position: fixed;
+        inset: calc(var(--top-h) + env(safe-area-inset-top, 0px)) 0 0 0;
+        z-index: 34;
+        background: rgba(35, 43, 55, .7);
+    }
+
+    main { padding: 12px 16px 40px; }
+
+    /* 見た目を変えずに、押せる範囲を 40px 以上にする */
+    .help > summary { padding: 12px; margin: -12px; }
+}
+
+/* ---------- 600px 以下（レビュー #47） ---------- */
+
+@media (max-width: 600px) {
+    /* 更新のボタンを「端末の状態」と同じ行の右端に残し、要約はその下に 2 列で並べる */
+    .pageHeader {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "title refresh" "summary summary";
+    }
+    .summaryItems {
+        display: grid;
+        grid-template-columns: repeat(2, auto);
+        justify-self: start;
+        gap: 4px 20px;
+    }
+}
