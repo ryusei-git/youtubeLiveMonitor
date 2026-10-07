@@ -388,6 +388,82 @@ main {
     white-space: nowrap;
 }
 
+/* ---------- 推移のグラフ（レビュー #16・#22・#23・#41・#45） ---------- */
+
+/* グラフを枠の下端に寄せ、同じ段の枠でグラフの位置をそろえる（レビュー #45）。値の下にグラフが
+   来る狭い枠では、内訳の行数の違いで余った高さがグラフの行にも配られるので、flex にして
+   margin-top: auto で下へ寄せる */
+.resourceChart { display: flex; flex-direction: column; min-width: 0; }
+.miniChart { min-width: 0; margin: auto 0 0; }
+
+/* 左の余白は縦軸の目盛りの文字を置く場所 */
+.plot { position: relative; height: 64px; margin: 6px 4px 0 56px; }
+@container panel (min-width: 440px) {
+    .plot { height: 92px; }
+}
+.plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+
+.gridLine { stroke: var(--c-border-soft); stroke-width: 1; }
+.yTick {
+    position: absolute;
+    right: calc(100% + 6px);
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--c-text-inactive);
+    white-space: nowrap;
+    transform: translateY(-50%);
+}
+/* 上端の文字は線の上に載せる。線の高さの中央に置くと、すぐ下の基準（90% は上端から 9px）の
+   文字と重なり、狭い画面（右上に置く）ではグラフの線に重なって読めないため */
+.yTick.is-max { top: 0; transform: translateY(-100%); }
+
+.xTicks {
+    position: relative;
+    height: 14px;
+    margin: 4px 4px 0 56px;
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--c-text-inactive);
+}
+.xTick { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+/* 両端の時刻は狭い画面だけで出す（左端は left: 0、右端は right: 0 を JS が書く） */
+.xTick.is-edge { display: none; transform: none; }
+
+.endDot {
+    position: absolute;
+    left: 100%;
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
+    border: 1.5px solid #fff;
+    border-radius: 50%;
+}
+
+.chartCursor {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-left: 1px solid var(--c-text-inactive);
+    pointer-events: none;
+}
+.chartTip {
+    position: absolute;
+    top: 0;
+    z-index: 5;
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 16px;
+    white-space: nowrap;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px 1px rgba(0, 7, 22, .12);
+    pointer-events: none;
+}
+
+.chartEmpty { margin: 0; color: var(--c-text-inactive); font-size: 12px; }
+
 /* ---------- 「？」 ---------- */
 
 .help { position: relative; display: inline-flex; align-self: center; }
@@ -540,4 +616,13 @@ main {
     .valueUnit,
     .valueNote { display: block; margin-left: 0; }
     .facts { gap: 0 8px; font-size: 12px; }
+
+    /* グラフは低くし、目盛りの文字は上端の 1 つと両端の時刻だけにする。左に目盛りの場所を取ると、
+       2 列に並べた狭い枠でグラフの幅が残らないため（レビュー #32） */
+    .plot { height: 40px; margin-left: 0; }
+    .xTicks { margin-left: 0; }
+    .yTick { display: none; }
+    .yTick.is-max { display: block; right: 0; }
+    .xTick:not(.is-edge) { display: none; }
+    .xTick.is-edge { display: block; }
 }
