@@ -464,6 +464,287 @@ main {
 
 .chartEmpty { margin: 0; color: var(--c-text-inactive); font-size: 12px; }
 
+/* ---------- プロセスの表（レビュー #3・#13・#27・#28・#36・#38・#47・#48・#58） ---------- */
+
+.containerHeader { padding: 16px 20px 4px; }
+/* 見出しの行はページの見出しと同じ並び（左に題、右に「ユーザー」と停止）にする */
+.containerHeader .pageHeader { margin: 0; }
+#stopButton { grid-area: refresh; }
+.counter { font-weight: 400; color: var(--c-text-secondary); }
+
+.tableTools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 16px;
+    margin-top: 16px;
+}
+.textFilter { position: relative; flex: 1 1 220px; max-width: 440px; }
+.textFilter .icon {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    color: var(--c-text-inactive);
+    pointer-events: none;
+}
+.textFilter input {
+    width: 100%;
+    height: 32px;
+    padding: 4px 12px 4px 34px;
+    font: inherit;
+    color: var(--c-text);
+    background: var(--c-surface);
+    border: 1px solid var(--c-border-input);
+    border-radius: var(--radius-input);
+}
+.textFilter input::placeholder { font-style: italic; color: var(--c-text-inactive); }
+
+.segmented {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    border: 2px solid var(--c-border-input);
+    border-radius: var(--radius-button);
+}
+.segmented button {
+    padding: 2px 14px;
+    font: inherit;
+    font-weight: 700;
+    white-space: nowrap;
+    color: var(--c-text-secondary);
+    background: none;
+    border: 0;
+    border-radius: 16px;
+    cursor: pointer;
+}
+.segmented button:hover { color: var(--c-text); background: var(--c-surface-hover); }
+.segmented button[aria-pressed="true"] { color: #fff; background: var(--c-primary); }
+
+/* 件数が出たり消えたりしても、道具の位置を動かさない */
+.filterCount { min-width: 6em; color: var(--c-text-inactive); white-space: nowrap; }
+
+.tableWrap { overflow-x: auto; padding: 8px 0 12px; }
+/* 横にはみ出しているときは右端に影を付け、続きがあることを見せる */
+.tableWrap.is-overflowing { box-shadow: inset -12px 0 8px -8px rgba(0, 7, 22, .18); }
+
+.table {
+    width: 100%;
+    min-width: 640px;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.colSelect { width: 44px; }
+.colPid,
+.colCpu { width: 80px; }
+.colMemory { width: 100px; }
+.colSeconds { width: 110px; }
+.colPorts { width: 120px; }
+
+.table th,
+.table td {
+    padding: 10px 12px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.table th {
+    position: relative;
+    font-weight: 700;
+    color: var(--c-text-secondary);
+    border-bottom: 1px solid var(--c-border);
+}
+.table th + th::before {
+    content: "";
+    position: absolute;
+    top: 25%;
+    left: 0;
+    height: 50%;
+    border-left: 1px solid var(--c-border);
+}
+.table td { border-bottom: 1px solid var(--c-border-soft); }
+.table tbody tr:last-child td { border-bottom: 0; }
+.table th:last-child,
+.table td:last-child { padding-right: 20px; }
+.table .num { text-align: right; }
+.table .selectCol { padding: 0; text-align: center; }
+.table input[type="radio"] {
+    margin: 0;
+    vertical-align: middle;
+    accent-color: var(--c-primary);
+    cursor: pointer;
+}
+.table tbody tr { cursor: pointer; }
+.table tbody tr:hover td { background: var(--c-surface-muted); }
+/* キーボードで行の中にいるときも、どの行かが分かるようにする（レビュー #28） */
+.table tbody tr:focus-within td { background: var(--c-surface-hover); }
+/* 選んだ行は淡い青と青い縁取り（Cloudscape の選択中の行） */
+.table tbody tr.is-selected td {
+    background: var(--c-primary-tint);
+    box-shadow: inset 0 2px 0 var(--c-primary), inset 0 -2px 0 var(--c-primary);
+}
+.table tbody tr.is-selected td:first-child {
+    box-shadow: inset 2px 0 0 var(--c-primary), inset 0 2px 0 var(--c-primary),
+        inset 0 -2px 0 var(--c-primary);
+}
+.table tbody tr.is-selected td:last-child {
+    box-shadow: inset -2px 0 0 var(--c-primary), inset 0 2px 0 var(--c-primary),
+        inset 0 -2px 0 var(--c-primary);
+}
+.table .muted { color: var(--c-text-secondary); }
+
+.sortHeader {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 0;
+    font: inherit;
+    font-weight: 700;
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+}
+.sortHeader .icon { width: 12px; height: 12px; color: var(--c-border-input); }
+th[aria-sort] .sortHeader,
+th[aria-sort] .sortHeader .icon { color: var(--c-text); }
+/* 少ない順は ▼ を回して ▲ にする（レビュー #39） */
+th[aria-sort="ascending"] .sortHeader .icon { transform: rotate(180deg); }
+
+.emptyRow td {
+    padding: 24px 20px;
+    text-align: center;
+    white-space: normal;
+    color: var(--c-text-inactive);
+}
+.emptyRow .spinner { margin-right: 6px; vertical-align: -1px; }
+.emptyActions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 12px; }
+
+/* 名前のセル。名前とサービスは末尾を … で切り、バッジは切らない */
+.nameCell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* 名前・サービス・バッジを、開閉のボタンの右の残りの幅に並べる（JS は、開閉のボタンを残したまま
+   ここだけ書き換える）。display: contents にすると、名前の max-width: 100% がボタンの分を含む
+   セルの幅になり、子のある行の名前が末尾の … を出さずにセルの右端で切れるため */
+.nameParts {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+}
+.procName,
+.procService { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.procService { color: var(--c-text-secondary); }
+/* 名前はサービス名より先には縮めない。バッジは縮まないので、狭い列（表が 640px のとき約 100px）
+   では名前が消えて、どのプロセスか分からなくなるため。収まらないバッジは右端で切れる */
+.procName { flex-shrink: 0; max-width: 100%; }
+.nameCell .badge,
+.nameCell .statusLamp { flex: none; }
+/* 開いた子の行は、頭の行の名前の位置まで字下げする */
+.table tr.is-member .nameCell { padding-left: 38px; }
+
+.expandButton {
+    position: relative;
+    flex: none;
+    min-width: 32px;
+    height: 20px;
+    padding: 0 6px;
+    font: inherit;
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 700;
+    color: var(--c-primary);
+    background: var(--c-surface);
+    border: 1px solid var(--c-primary);
+    border-radius: 10px;
+    cursor: pointer;
+}
+.expandButton:hover { background: var(--c-primary-tint); }
+.expandButton[aria-expanded="true"] { color: #fff; background: var(--c-primary); }
+
+.lockButton {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    vertical-align: middle;
+    color: var(--c-text-inactive);
+    background: none;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.lockButton:hover,
+.lockButton[aria-expanded="true"] { color: var(--c-primary); }
+/* 選べない理由の吹き出し。表は横に送れる（overflow）ので、absolute だと表の中で切れる。
+   fixed にして画面に対して置く（位置は JS が鍵の位置から決める） */
+.popoverBody.lockReason { position: fixed; text-align: left; white-space: normal; }
+
+.badge {
+    display: inline-block;
+    padding: 0 8px;
+    font-size: 12px;
+    line-height: 20px;
+    font-weight: 700;
+    color: #fff;
+    border-radius: 4px;
+}
+.badge.grey { background: var(--c-text-secondary); }
+.badge.warning { background: var(--c-warning); }
+
+/* 録画中のランプ（common.js の statusLamp が出す形）。状態は役割のバッジと見分けるため、
+   バッジにしない（レビュー #58） */
+.statusLamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--c-error);
+}
+.statusLamp .lamp {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--c-error);
+    box-shadow: 0 0 0 2px var(--c-surface), 0 0 0 3px var(--c-error);
+}
+
+/* ページ送りは表の下に置き、停止のボタンと行の距離を縮める（レビュー #36） */
+.pagination {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 2px;
+    padding: 0 20px 16px;
+}
+.pagination ol { display: flex; align-items: center; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.pagination button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 4px;
+    font: inherit;
+    color: var(--c-text-secondary);
+    background: none;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.pagination button:hover { color: var(--c-text); background: var(--c-surface-hover); }
+.pagination button[aria-current="true"] { font-weight: 700; color: var(--c-text); }
+.pagination button:disabled { color: var(--c-border); background: none; cursor: default; }
+.pagination .gap { padding: 0 2px; color: var(--c-text-inactive); }
+
 /* ---------- 「？」 ---------- */
 
 .help { position: relative; display: inline-flex; align-self: center; }
@@ -588,6 +869,14 @@ main {
 
     /* 見た目を変えずに、押せる範囲を 40px 以上にする */
     .help > summary { padding: 12px; margin: -12px; }
+
+    .pagination button { min-width: 36px; height: 36px; }
+    .segmented button { padding: 8px 16px; }
+    /* 行の高さ（40px）は変えずに、押せる範囲を 40px にする */
+    .sortHeader { min-height: 40px; margin: -10px 0; }
+    .lockButton::after,
+    .expandButton::after { content: ""; position: absolute; inset: -9px; }
+    .expandButton::after { inset: -11px -5px; }
 }
 
 /* ---------- 600px 以下（レビュー #47） ---------- */
@@ -625,4 +914,13 @@ main {
     .yTick.is-max { display: block; right: 0; }
     .xTick:not(.is-edge) { display: none; }
     .xTick.is-edge { display: block; }
+
+    /* 検索欄を縮めて、道具を 1 段に収める（レビュー #47） */
+    .tableTools { gap: 0 8px; }
+    .textFilter { flex: 1 1 0; min-width: 0; }
+    .segmented button { padding: 8px 12px; }
+    /* 件数を横に並べる幅は無い（並べると検索欄に文字を打つ幅が残らない）ので、検索欄の下の行へ
+       回す。検索語が無い間は高さを取らない */
+    .filterCount { flex-basis: 100%; min-width: 0; }
+    .filterCount:not(:empty) { margin-top: 4px; }
 }
