@@ -2035,7 +2035,7 @@ function linkField(url, label) {
 
 /** @type {Array<[string, string]>} 管理者画面の「ワークスペース」のメニュー。よく使う順に並べる。 */
 const adminNavigation = [
-    ["/index.html", "ダッシュボード"], ["/videos.html", "動画一覧"],
+    ["/index.html", "ダッシュボード"], ["/system.html", "端末の状態"], ["/videos.html", "動画一覧"],
     ["/channels.html", "登録済みチャンネル一覧"], ["/recordings.html", "アーカイブ一覧"],
     ["/notifications.html", "通知履歴"], ["/tables.html", "DB管理"]
 ];
@@ -2058,6 +2058,7 @@ const userNavigation = [
 const studioPages = {
     "videos.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "index.html": "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z",
+    "system.html": "M3 4h18v12H3z M8 21h8 M12 16v5",
     "channels.html": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6",
     "recordings.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "notifications.html": "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
