@@ -31,6 +31,7 @@
     <ul class="navGroup" id="serviceNav" aria-labelledby="serviceNavLabel"></ul>
   </nav>
   <main id="mainContent">
+    <div class="flashbar" id="flashbar" aria-live="polite"></div>
     <div class="pageHeader">
       <div class="headerTitle">
         <h1>端末の状態</h1>
@@ -194,6 +195,23 @@
     </section>
     <p class="srOnly" id="liveStatus" role="status"></p>
   </main>
+</div>
+<dialog class="modal" id="stopModal" aria-labelledby="modalTitle">
+  <div class="modalHeader">
+    <h2 id="modalTitle"></h2>
+    <button type="button" class="iconButton" id="modalClose" aria-label="閉じる">
+      <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+    </button>
+  </div>
+  <div class="modalBody" id="modalBody"></div>
+  <div class="modalFooter">
+    <button type="button" class="btn link" id="modalCancel" autofocus>キャンセル</button>
+    <button type="button" class="btn primary" id="modalConfirm"></button>
+  </div>
+</dialog>
+<div class="selectionBar" id="selectionBar" hidden>
+  <span id="selectionLabel"></span>
+  <button type="button" class="btn primary" id="selectionStop">停止</button>
 </div>
 <script src="/js/common.js"></script>
 <script src="/js/system.js"></script>

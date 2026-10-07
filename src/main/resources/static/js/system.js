@@ -75,6 +75,7 @@ function systemGroupRows(processes) {
      * @property {string} name メニューに出す名前
      * @property {string|null} url トップ画面の URL。無ければ null
      * @property {"RUNNING"|"STOPPED"|"UNKNOWN"} status 動いているか
+     * @property {string|null} launch 起動のしかた。無ければ null
      * @property {boolean} self この画面を動かしているサービス自身か
      */
     /**
@@ -86,6 +87,8 @@ function systemGroupRows(processes) {
      * @property {number} cores 論理コア数
      * @property {HubServiceStatus[]} services 左メニューのサービス。先頭はこのサービス自身
      * @property {HostProcess[]} processes 実行ユーザーのプロセス（PID の昇順）
+     * @property {ProcessStopJob[]} stops 画面から止めたプロセスの記録（途中のものと、終わって 10 分
+     *                                   以内のもの。新しい順）
      */
     /**
      * プロセス 1 つ（Java の {@code SystemProcessesResponse.ProcessRow}）。分からない値は null。
@@ -103,8 +106,68 @@ function systemGroupRows(processes) {
      * @property {number[]}              ports            待ち受けている TCP のポート（昇順）
      * @property {string|null}           service          どのサービスのプロセスか
      * @property {"SELF"|"SANDBOX"|null} role             この画面・確認用インスタンスの印
-     * @property {object|null}           recording        録画中なら、その録画
+     * @property {HostRecording|null}    recording        録画中なら、その録画
      * @property {string|null}           lockedReason     選べない理由
+     * @property {"STOPPING"|"KILLING"|null} stopState    止めている途中なら、その段階
+     */
+    /**
+     * 録画中のプロセスが録っている録画（Java の {@code SystemProcessesResponse.RecordingInfo}）。
+     * @typedef {object} HostRecording
+     * @property {number}      id          録画の ID
+     * @property {string|null} channelName チャンネル名。チャンネルを削除した録画などでは null
+     * @property {string}      videoTitle  配信タイトル
+     * @property {string}      startedAt   録画を始めた時刻
+     * @property {number}      fileBytes   ここまでの出力ファイルの大きさの合計
+     */
+    /**
+     * 画面から止めたプロセス 1 つの記録（Java の {@code SystemProcessesResponse.StopJob}）。
+     * @typedef {object} ProcessStopJob
+     * @property {number}      id         記録の番号
+     * @property {number}      pid        選んだプロセスの ID
+     * @property {number}      startTime  選んだプロセスの起動時刻（エポックミリ秒）
+     * @property {string}      name       選んだプロセスの名前
+     * @property {number}      children   一緒に止めた子孫の数
+     * @property {"STOPPING"|"KILLING"|"STOPPED"|"KILLED"|"FAILED"} state 今の段階
+     * @property {string|null} finishedAt 止め終わった時刻。途中なら null
+     * @property {number[]}    remaining  強制終了しても残ったプロセスの ID
+     */
+    /** @typedef {"success"|"info"|"warning"|"error"|"progress"} FlashKind お知らせの種類 */
+    /**
+     * お知らせ 1 件。
+     * @typedef {object} Flash
+     * @property {FlashKind}          kind  種類
+     * @property {string}             html  文の HTML
+     * @property {(() => void)|null}  retry 「もう一度」で呼ぶ処理。ボタンを出さないなら null
+     * @property {HTMLElement}        node  描いた要素
+     * @property {number}             timer 自動で消すタイマー。消さないなら 0
+     */
+    /**
+     * 結果を待っている停止 1 つ。
+     * @typedef {object} PendingStop
+     * @property {string}      flash お知らせの key
+     * @property {boolean}     own   この画面で止め始めたか。読み込む前から途中だった停止は、
+     *                               終わってもフォーカスを動かさない（キーボードの位置を勝手に
+     *                               変えないため）
+     * @property {string|null} next  終わったときにフォーカスを移す行の key。無ければ検索欄
+     * @property {number}      since 待ち始めた時刻（ミリ秒）。これより前に頼んだ一覧には記録が無い
+     *                               ことがあるので、記録が消えたとは見なさない
+     * @property {ProcessStopJob["state"]|null} state お知らせに出した段階。同じ段階なら出し直さない
+     *                               （✕ で消した進行中のお知らせが、読み直しのたびに戻らないため）
+     */
+    /**
+     * 止まるのを待っている録画 1 つ。
+     * @typedef {object} PendingRecording
+     * @property {string}      subject   お知らせに出す「「タイトル」の録画」の HTML
+     * @property {number}      startedAt 停止を頼んだ時刻（ミリ秒）
+     * @property {string|null} next      止まったときにフォーカスを移す行の key。無ければ検索欄
+     */
+    /**
+     * 確認ダイアログの中身。
+     * @typedef {object} StopModalContent
+     * @property {string} title       題
+     * @property {string} confirm     確定のボタンの文字
+     * @property {string} body        本文の HTML
+     * @property {string} describedBy aria-describedby に入れる id（本文にある方）
      */
     /**
      * 表の 1 行。同じ名前の子をたたんだまとまり（systemGroupRows）に、表に出す値を足したもの。
@@ -270,10 +333,63 @@ function systemGroupRows(processes) {
         + '<rect x="3" y="7" width="10" height="7.5" rx="1"/>'
         + '<path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
 
-    /** @param {string} path 線 @returns {string} ページ送りの前・次のアイコン */
-    const pageIcon = (path) => '<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor"'
+    /** @param {string} path 線 @returns {string} 線で描くアイコン（ページ送り・お知らせ） */
+    const lineIcon = (path) => '<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor"'
         + ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
         + `<path d="${path}"/></svg>`;
+
+    /** 丸の輪郭（お知らせのアイコンの外枠） */
+    const CIRCLE_PATH = "M8 1.5a6.5 6.5 0 1 1 0 13a6.5 6.5 0 1 1 0-13z";
+
+    /**
+     * お知らせと注意の種類ごとのアイコン。成功と失敗を色だけで見分けさせず、形も変える。
+     * @type {Record<FlashKind, string>}
+     */
+    const FLASH_ICON = {
+        success: lineIcon(`${CIRCLE_PATH}M5 8l2 2 4-4`),
+        info: lineIcon(`${CIRCLE_PATH}M8 7.5v4M8 4.8v.2`),
+        warning: WARNING_ICON,
+        error: lineIcon(`${CIRCLE_PATH}M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4`),
+        progress: '<span class="spinner" aria-hidden="true"></span>',
+    };
+
+    /** お知らせを閉じる ✕ */
+    const CLOSE_ICON = lineIcon("M4 4l8 8M12 4l-8 8");
+
+    /**
+     * 成功・情報・注意のお知らせを自動で消すまでの時間（ミリ秒）。失敗と進行中は消さない。
+     * 止まらなかったことや、まだ止めている途中であることを、読む前に消して見落とさせないため
+     * （レビュー #4）。
+     */
+    const FLASH_MILLIS = 60_000;
+
+    /**
+     * 並べるお知らせの数。超えたら、自動で消える種類の古いものから消す。続けて止めても結果を
+     * 1 件ずつ残しつつ、表を覆い隠すほど積まないため（レビュー #10）。
+     */
+    const FLASH_LIMIT = 3;
+
+    /** @type {Set<FlashKind>} 自動で消し、数が多いときに先に消すお知らせの種類 */
+    const TRANSIENT_FLASH = new Set(["success", "info", "warning"]);
+
+    /** ふだんの読み直しの間隔（ミリ秒）。計測は 1 分ごとなので、10 秒の遅れで出せば足りる */
+    const REFRESH_MILLIS = 10_000;
+
+    /**
+     * 止めている途中の読み直しの間隔（ミリ秒）。サーバーの一覧は 10 秒使い回すので読み直しは軽く、
+     * 停止の記録だけは毎回新しいため、10 秒待たずに結果を出せる。
+     */
+    const STOPPING_REFRESH_MILLIS = 2_000;
+
+    /**
+     * 録画の停止を頼んでから、止められなかったとみなすまでの時間（ミリ秒）。録画は止め終わるまで
+     * 最大 30 秒かかり（Java の {@code RecordingController#stopRecording}）、プロセスの一覧は
+     * さらに最大 10 秒古いので、その分を待ってから失敗と出す。
+     */
+    const RECORDING_STOP_MILLIS = 45_000;
+
+    /** @type {Record<"STOPPING"|"KILLING", string>} 止めている途中の行に出す文字 */
+    const STOP_STATUS_LABEL = { STOPPING: "停止中", KILLING: "強制終了中" };
 
     /** @type {HostResources | null} {@code /api/dashboard/resources} の応答。未読は null*/
     let resources = null;
@@ -331,6 +447,29 @@ function systemGroupRows(processes) {
      */
     const drawnHtml = new WeakMap();
 
+    // ---- 停止とお知らせの状態 ----
+    /** @type {Map<string, Flash>} お知らせ（key ごとに 1 件。並びは出した順） */
+    const flashes = new Map();
+    /** @type {Map<number, PendingStop>} 結果を待っている停止（停止の記録の id ごと） */
+    const pendingStops = new Map();
+    /** @type {Map<number, PendingRecording>} 止まるのを待っている録画（録画の id ごと） */
+    const pendingRecordings = new Map();
+    /**
+     * 読み込んだときに途中だった停止を拾ったか。拾うのは最初の 1 回だけにし、読み込む前に
+     * 終わっていた停止の結果は出さない（いま操作した結果と取り違えさせないため）
+     */
+    let stopsSeeded = false;
+    /** @type {HostProcess|null} 確認ダイアログで止めようとしているプロセス。開いていなければ null*/
+    let modalTarget = null;
+    /** @type {string[]} 確認ダイアログで止める範囲の key（選んだプロセスと子孫） */
+    let modalTree = [];
+    /** 確認ダイアログの背景で mousedown が起きたか（理由は stopModal の click） */
+    let pressedBackdrop = false;
+    /** 今の読み直しの間隔（ミリ秒） */
+    let pollMillis = REFRESH_MILLIS;
+    /** 今の読み直しを止める関数（startVisibleRefresh の戻り値） */
+    let stopPolling = () => {};
+
     const sideNav = el("sideNav");
     const navToggle = buttonEl("navToggle");
     const navScrim = el("navScrim");
@@ -341,6 +480,15 @@ function systemGroupRows(processes) {
     const rowsBox = el("processRows");
     const tableWrap = el("tableWrap");
     const pagination = el("pagination");
+    const flashbar = el("flashbar");
+    const stopModal = /** @type {HTMLDialogElement} */ (el("stopModal"));
+    const modalBody = el("modalBody");
+    const modalCancel = buttonEl("modalCancel");
+    const modalConfirm = buttonEl("modalConfirm");
+    const selectionBar = el("selectionBar");
+    const selectionStop = buttonEl("selectionStop");
+    /** 選んだ行の帯（#selectionBar）を画面の下に出す幅。system.css の @media と同じ値にする */
+    const barWidth = window.matchMedia("(max-width: 600px)");
     /** 左メニューを帯の下に重ねて開け閉めする幅。system.css の @media と同じ値にする */
     const narrow = window.matchMedia("(max-width: 760px)");
 
@@ -1234,7 +1382,9 @@ function systemGroupRows(processes) {
      *
      * <p>コマンドラインと作業フォルダーは title だけに入れ、常には出さない（名前が埋もれて行が
      * 読みにくくなるため。レビュー #3）。録画中は状態なので、役割のバッジと違う形（ランプ）にする
-     * （レビュー #58）。
+     * （レビュー #58）。止めている途中の印は名前のすぐ後ろに置き、行を読み直しても止めている最中
+     * であることが分かるようにする（サーバーが持つ状態なので、画面を読み込み直しても出る。
+     * レビュー #4）。
      *
      * @param {ProcessGroup} group 行
      * @param {number}       cores 論理コア数
@@ -1251,7 +1401,9 @@ function systemGroupRows(processes) {
         const roles = new Set(group.members.flatMap((p) => (p.role ? [ROLE_LABEL[p.role]] : [])));
         // 1 コア分（端末全体の 100 / cores %）の 9 割を使っていれば知らせる（レビュー #8）
         const busy = group.members.some((p) => p.cpuPercent !== null && p.cpuPercent >= 90 / cores);
-        return `<span class="procName" title="${title}">${escapeHtml(head.name)}</span>`
+        const stopping = head.stopState ? '<span class="status progress"><span class="spinner"'
+            + ` aria-hidden="true"></span>${STOP_STATUS_LABEL[head.stopState]}</span>` : "";
+        return `<span class="procName" title="${title}">${escapeHtml(head.name)}</span>${stopping}`
             + (service ? `<span class="procService">${escapeHtml(service)}</span>` : "")
             + [...roles].map((role) => `<span class="badge grey">${role}</span>`).join("")
             + (group.members.some((p) => p.recording) ? statusLamp("recording", "録画中") : "")
@@ -1284,11 +1436,13 @@ function systemGroupRows(processes) {
         const head = group.members[0];
         const cells = tr.cells;
         tr.classList.toggle("is-member", member);
+        // 止めている途中の行は選べなくする（同じものをもう一度止めさせない）
+        tr.classList.toggle("is-stopping", Boolean(head.stopState));
         setHtml(cells[0], head.lockedReason
             ? '<button type="button" class="lockButton" aria-label="選べない理由" aria-expanded="false">'
                 + `${LOCK_ICON}</button><div class="popoverBody lockReason" hidden>`
                 + `${escapeHtml(head.lockedReason)}</div>`
-            : '<input type="radio" name="process"'
+            : `<input type="radio" name="process"${head.stopState ? " disabled" : ""}`
                 + ` aria-label="${escapeHtml(head.name)}（PID ${head.pid}）を選ぶ">`);
         const expand = query(".expandButton", cells[1]);
         const children = group.members.length - 1;
@@ -1385,9 +1539,9 @@ function systemGroupRows(processes) {
                 + `${n === page ? ' aria-current="true"' : ""}>${n}</button></li>`;
         }).join("");
         setHtml(pagination, `<button type="button" data-page="${page - 1}" aria-label="前のページ"`
-            + `${page === 1 ? " disabled" : ""}>${pageIcon("M10 3L5 8l5 5")}</button><ol>${items}</ol>`
+            + `${page === 1 ? " disabled" : ""}>${lineIcon("M10 3L5 8l5 5")}</button><ol>${items}</ol>`
             + `<button type="button" data-page="${page + 1}" aria-label="次のページ"`
-            + `${page === pages ? " disabled" : ""}>${pageIcon("M6 3l5 5-5 5")}</button>`);
+            + `${page === pages ? " disabled" : ""}>${lineIcon("M6 3l5 5-5 5")}</button>`);
         if (!focused || pagination.contains(document.activeElement)) return;
         const next = [...pagination.querySelectorAll("button")]
             .find((button) => button.getAttribute("aria-label") === focused && !button.disabled)
@@ -1413,9 +1567,19 @@ function systemGroupRows(processes) {
      * 一覧のまま止めると、もう無いプロセスや PID を使い回した別のプロセスを選んでいることがある
      * ため。disabled でなく aria-disabled にするのは、フォーカスを置いたまま読み直しが来ても
      * 位置を失わないため（refresh の表示を更新と同じ）。
+     *
+     * <p>狭い画面では、行を選んでいる間だけ画面の下に帯（選んだ名前と停止）を出す。表を下へ送ると
+     * 上の停止のボタンが見えなくなり、選んでから押すまでが遠いため（レビュー #36）。
      */
     function renderStopButton() {
-        stopButton.setAttribute("aria-disabled", String(selected === null || isStale()));
+        const disabled = String(selected === null || isStale());
+        stopButton.setAttribute("aria-disabled", disabled);
+        selectionStop.setAttribute("aria-disabled", disabled);
+        const head = selected === null ? null : findProcess(selected);
+        const bar = head !== null && barWidth.matches;
+        selectionBar.hidden = !bar;
+        document.body.classList.toggle("has-selectionBar", bar);
+        if (head) el("selectionLabel").textContent = `${head.name}（PID ${head.pid}）`;
     }
 
     /** 選んだ行の印（淡い青と radio）だけを書き換える。表は作り直さない（レビュー #28） */
@@ -1512,12 +1676,482 @@ function systemGroupRows(processes) {
         else setHtml(rowsBox, emptyRowHtml());
         renderPagination(pages);
         scheduleFilterCount(filter ? `${shown.length} 件一致` : "");
-        if (!rows.some((row) => row.group.key === selected && !row.group.members[0].lockedReason)) {
+        if (!rows.some((row) => row.group.key === selected && !row.group.members[0].lockedReason
+            && !row.group.members[0].stopState)) {
             selected = null;
         }
         if (openLock && !openLock.isConnected) openLock = null;
         applySelection();
         markOverflow();
+    }
+
+    // ---- お知らせ（レビュー #4・#9・#10） ----
+
+    /**
+     * お知らせを出す。同じ key のお知らせは、位置を変えずに中身だけを置き換える。止めている途中の
+     * お知らせを結果に替えるとき、並びが動いて別の停止の結果と取り違えさせないため。中身が前と
+     * 同じなら書き換えない（2 秒ごとの読み直しのたびに、同じ文を読み上げ直さないため）。
+     * @param {string}             key     どの停止・録画のお知らせか
+     * @param {FlashKind}          kind    種類
+     * @param {string}             html    文の HTML（値は escapeHtml を通しておく）
+     * @param {(() => void)|null}  [retry] ボタン「もう一度」で呼ぶ処理。ボタンを出さないなら null
+     */
+    function showFlash(key, kind, html, retry = null) {
+        const current = flashes.get(key);
+        if (current && current.kind === kind && current.html === html) return;
+        if (current) window.clearTimeout(current.timer);
+        const node = current ? current.node : document.createElement("div");
+        flashes.set(key, {
+            kind, html, retry, node,
+            timer: TRANSIENT_FLASH.has(kind)
+                ? window.setTimeout(() => dismissFlash(key), FLASH_MILLIS) : 0,
+        });
+        node.className = `flash ${kind}`;
+        node.innerHTML = `${FLASH_ICON[kind]}<div class="flashText">${html}</div>`
+            + (retry ? '<button type="button" class="btn flashRetry">もう一度</button>' : "")
+            + '<button type="button" class="flashDismiss" aria-label="お知らせを閉じる">'
+            + `${CLOSE_ICON}</button>`;
+        if (!current) flashbar.append(node);
+        for (const [oldKey, old] of flashes) {
+            if (flashes.size <= FLASH_LIMIT) break;
+            if (oldKey !== key && TRANSIENT_FLASH.has(old.kind)) dismissFlash(oldKey);
+        }
+    }
+
+    /**
+     * お知らせを 1 件消す。✕ にフォーカスがあったときは、残ったお知らせの ✕ へ移し、続けて
+     * キーボードで消せるようにする。
+     * @param {string} key 消すお知らせの key
+     */
+    function dismissFlash(key) {
+        const flash = flashes.get(key);
+        if (!flash) return;
+        window.clearTimeout(flash.timer);
+        flashes.delete(key);
+        const focused = flash.node.contains(document.activeElement);
+        flash.node.remove();
+        const next = focused ? flashbar.querySelector(".flashDismiss") : null;
+        if (next instanceof HTMLElement) next.focus();
+    }
+
+    // ---- 停止 ----
+
+    /**
+     * @param {string} key プロセスの key（{@code ${pid}:${startTime}}）
+     * @returns {HostProcess|null} 今の一覧にあるそのプロセス。無ければ null
+     */
+    const findProcess = (key) => system?.processes.find((p) => processKey(p) === key) ?? null;
+
+    /**
+     * @param {HostProcess} head 選んだプロセス
+     * @returns {HostProcess[]} head の子孫（parentPid でたどる。サーバーが止める範囲と同じ）。親を
+     *                          先に並べる
+     */
+    function descendantsOf(head) {
+        /** @type {Map<number, HostProcess[]>} */
+        const children = new Map();
+        for (const p of system ? system.processes : []) {
+            const list = children.get(p.parentPid);
+            if (list) list.push(p);
+            else children.set(p.parentPid, [p]);
+        }
+        /** @type {HostProcess[]} */
+        const found = [];
+        const seen = new Set([head.pid]);
+        // 読み出しの時刻のずれで親子が輪になっていても止まるよう、たどったものは二度たどらない
+        for (let i = -1; i < found.length; i++) {
+            for (const child of children.get(i < 0 ? head.pid : found[i].pid) ?? []) {
+                if (seen.has(child.pid)) continue;
+                seen.add(child.pid);
+                found.push(child);
+            }
+        }
+        return found;
+    }
+
+    /**
+     * @param {number} id 録画の ID
+     * @returns {HostProcess|null} その録画のいちばん上のプロセス（yt-dlp）。無ければ null
+     */
+    function recordingRoot(id) {
+        const members = system ? system.processes.filter((p) => p.recording?.id === id) : [];
+        return members.find((p) => !members.some((m) => m.pid === p.parentPid)) ?? null;
+    }
+
+    /**
+     * @param {HostRecording} recording 録画
+     * @returns {string} 「「タイトル」の録画」。どの配信かを名前で示し、PID だけで録画を見分け
+     *                   させないため（レビュー #5）。タイトルが無ければチャンネル名で示す
+     */
+    function recordingSubject(recording) {
+        const name = recording.videoTitle || recording.channelName;
+        return name ? `「${name}」の録画` : "この録画";
+    }
+
+    /**
+     * @param {FlashKind} tone  info か warning
+     * @param {string[]}  lines 1 行ずつの HTML
+     * @returns {string} ダイアログの注意の HTML（{@code #modalAlert}）
+     */
+    const alertHtml = (tone, lines) => `<div class="alert ${tone}" id="modalAlert">${FLASH_ICON[tone]}`
+        + `<div>${lines.map((line) => `<p>${line}</p>`).join("")}</div></div>`;
+
+    /**
+     * @param {Array<[string, string, string?]>} items 名前・値の HTML・項目の class
+     * @returns {string} 「名前と値」の HTML（レビュー #57）
+     */
+    const kvHtml = (items) => `<dl class="kv">${items.map(([name, value, className]) =>
+        `<div${className ? ` class="${className}"` : ""}><dt>${escapeHtml(name)}</dt>`
+        + `<dd>${value}</dd></div>`).join("")}</dl>`;
+
+    /** @param {string|null} text 値 @returns {string} コードの体裁の HTML。無ければ "-" */
+    const codeHtml = (text) => (text ? `<code>${escapeHtml(text)}</code>` : "-");
+
+    /**
+     * 一緒に止まる子孫を、名前ごとの件数（多い順）と、開いて見る全件で出す。3 件で切ると、何が
+     * 止まるのかを確かめられないため（レビュー #12）。別のサービス・確認用インスタンスの子は、
+     * 止めると困るものなので先頭に置く。
+     * @param {HostProcess[]}               children 子孫
+     * @param {(p: HostProcess) => boolean} notable  先頭に置く子か
+     * @returns {string} 値の HTML
+     */
+    function childrenHtml(children, notable) {
+        if (!children.length) return "なし";
+        /** @type {Map<string, HostProcess[]>} */
+        const byName = new Map();
+        for (const p of children) byName.set(p.name, [...(byName.get(p.name) ?? []), p]);
+        const groups = [...byName.values()].sort((a, b) =>
+            Number(b.some(notable)) - Number(a.some(notable)) || b.length - a.length);
+        const summary = groups.map((members) => `${escapeHtml(members[0].name)} ${members.length} 件`)
+            .join("、");
+        const all = groups.flat().map((p) =>
+            `<li>${escapeHtml(p.name)}（<span class="nowrap">PID ${p.pid}</span>）</li>`).join("");
+        return `${summary}<details><summary>すべて表示</summary>`
+            + `<ul class="childList">${all}</ul></details>`;
+    }
+
+    /**
+     * ふつうのプロセスの確認ダイアログの中身。止まるもの（サービス・確認用インスタンス）と失うもの
+     * （保存していない内容）を、確定の前に注意として出す（レビュー #11）。確認用インスタンスは
+     * サービスに数えない（service が null）ので、service より先に見る。
+     * @param {HostProcess}   head     選んだプロセス
+     * @param {HostProcess[]} children 一緒に止まる子孫
+     * @returns {StopModalContent} 中身
+     */
+    function processModal(head, children) {
+        /** @type {(p: HostProcess) => boolean} 別のサービス・確認用インスタンスも止まる子か */
+        const other = (p) => p.role === "SANDBOX"
+            || (p.service !== null && p.service !== head.service);
+        /** @type {FlashKind} */
+        let tone = "warning";
+        /** @type {string[]} */
+        const lines = [];
+        if (head.role === "SANDBOX") {
+            tone = "info";
+            lines.push("確認用の YouTube Live Monitor です。止めても本番には影響しません。");
+        } else if (!head.service) {
+            lines.push("登録したサービスのプロセスではありません。停止すると、そのアプリで保存して"
+                + "いない内容が失われることがあります。");
+        } else {
+            lines.push(`${escapeHtml(head.service)}（PID ${head.pid}）が止まります。`
+                + "起動し直すまで使えません。");
+            const launch = system?.services.find((service) => service.name === head.service)?.launch;
+            if (launch) lines.push(`起動のしかた: ${codeHtml(launch)}`);
+        }
+        // サービスごとに、そのサービスのいちばん上のプロセスだけを挙げる（子まで並べると長くなる）
+        const byPid = new Map([head, ...children].map((p) => [p.pid, p]));
+        const others = children.filter((p) => other(p)
+            && (p.role === "SANDBOX" || byPid.get(p.parentPid)?.service !== p.service));
+        if (others.length) {
+            tone = "warning";
+            lines.push(...others.map((p) => (p.role === "SANDBOX"
+                ? `YouTube Live Monitor（確認用、PID ${p.pid}）も止まります`
+                : `${escapeHtml(p.service)}（PID ${p.pid}）も止まります`)));
+        }
+        const { cpu, memory } = toGroup([head, ...children]);
+        /** @type {Array<[string, string, string?]>} */
+        const items = [
+            ["プロセス", `${escapeHtml(head.name)}（<span class="nowrap">PID ${head.pid}</span>）`],
+        ];
+        if (head.service) items.push(["サービス", escapeHtml(head.service)]);
+        items.push(
+            ["CPU", escapeHtml(formatPercent(cpu))],
+            ["メモリ", escapeHtml(formatMegabytes(memory))],
+            ["コマンドライン", codeHtml(head.commandLine)],
+            ["作業フォルダー", codeHtml(head.workingDirectory)],
+            [`一緒に停止する子のプロセス（${children.length} 件）`, childrenHtml(children, other),
+                "is-wide"],
+        );
+        return {
+            title: `${head.name}（PID ${head.pid}）を停止しますか？`,
+            confirm: "停止",
+            describedBy: "modalAlert modalTarget",
+            body: alertHtml(tone, lines)
+                + '<p id="modalTarget">終了を要求し、10 秒たっても残っていれば強制終了します。</p>'
+                + kvHtml(items),
+        };
+    }
+
+    /**
+     * 録画のプロセスの確認ダイアログの中身。PID ではなく、どの配信の録画かで確かめさせる
+     * （レビュー #5）。止め方はアーカイブ一覧の「停止」と同じ（録画の停止の API）。PID で直接
+     * 止めると、録画の仕組みが「普通に終わった」と見て録り直すため。
+     * @param {HostProcess}   head      選んだプロセス（yt-dlp か、その子の ffmpeg）
+     * @param {HostRecording} recording その録画
+     * @returns {StopModalContent} 中身
+     */
+    function recordingModal(head, recording) {
+        const name = recording.videoTitle || recording.channelName;
+        const root = recordingRoot(recording.id) ?? head;
+        const lost = `${name ? escapeHtml(`「${name}」`) : "この配信"}の続きは録画されません。`
+            + "そこまでの内容は「途中まで」として残ります。";
+        return {
+            title: `${recordingSubject(recording)}を停止しますか？`,
+            confirm: "録画を停止",
+            describedBy: "modalAlert",
+            body: alertHtml("warning", [lost])
+                + kvHtml([
+                    ["チャンネル", escapeHtml(recording.channelName ?? "-")],
+                    ["配信タイトル", escapeHtml(recording.videoTitle || "-")],
+                    ["録画開始", formatClock(recording.startedAt)],
+                    ["ここまでのファイル", escapeHtml(formatFileSize(recording.fileBytes))],
+                    ["プロセス",
+                        `${escapeHtml(root.name)}（<span class="nowrap">PID ${root.pid}</span>）`],
+                ])
+                + '<p class="secondary">アーカイブ一覧の「停止」と同じ止め方です。</p>',
+        };
+    }
+
+    /**
+     * 確認ダイアログを開く。window.confirm を使わないのは、止める対象の名前・一緒に止まるもの・
+     * 失うものを並べられないため（レビュー #2・#11）。最初のフォーカスは「キャンセル」（autofocus）
+     * に置き、Enter の押し間違いで止めないようにする。
+     * @param {HostProcess} head 選んだプロセス
+     */
+    function openStopModal(head) {
+        const children = descendantsOf(head);
+        const content = head.recording
+            ? recordingModal(head, head.recording) : processModal(head, children);
+        modalTarget = head;
+        modalTree = [head, ...children].map(processKey);
+        el("modalTitle").textContent = content.title;
+        modalBody.innerHTML = content.body;
+        modalConfirm.textContent = content.confirm;
+        modalConfirm.disabled = false;
+        // 開くたびに本文が違うので、本文にある方の id を読ませる（レビュー #29）
+        stopModal.setAttribute("aria-describedby", content.describedBy);
+        stopModal.showModal();
+        adjustPolling();
+    }
+
+    /**
+     * 開いている間に読み直しで対象が無くなったら、止めるものが無いことを出し、確定を押せなくする。
+     * 無くなったものを止めに行かせないため（サーバーも起動時刻で断るが、押す前に分かる方がよい。
+     * レビュー #6）。
+     */
+    function markModalGone() {
+        modalTarget = null;
+        modalBody.innerHTML = '<p id="modalTarget">このプロセスはすでに終了しています</p>';
+        stopModal.setAttribute("aria-describedby", "modalTarget");
+        if (document.activeElement === modalConfirm) modalCancel.focus();
+        modalConfirm.disabled = true;
+    }
+
+    /**
+     * 選んだ行を確認ダイアログで止める。停止のボタンを押せない間は何もしない（理由は
+     * renderStopButton）。
+     */
+    function requestStop() {
+        if (stopButton.getAttribute("aria-disabled") === "true" || selected === null) return;
+        const head = findProcess(selected);
+        if (head) openStopModal(head);
+    }
+
+    /**
+     * @param {string[]} tree 止める範囲の key（先頭が選んだプロセス）
+     * @returns {string|null} 止める行の次の、選べる行の key。止める範囲の行は一緒に消えるので
+     *                        飛ばす。止める行が見えていなければ null
+     */
+    function nextRowKey(tree) {
+        const rows = [...rowsBox.querySelectorAll("tr[data-key]")]
+            .flatMap((tr) => (tr instanceof HTMLElement ? [tr] : []));
+        const at = rows.findIndex((tr) => tr.dataset.key === tree[0]);
+        if (at < 0) return null;
+        const next = rows.slice(at + 1).find((tr) => !tree.includes(tr.dataset.key ?? "")
+            && tr.querySelector('input[type="radio"]:not(:disabled)'));
+        return next?.dataset.key ?? null;
+    }
+
+    /**
+     * 止め終わったとき、フォーカスが停止のボタンか body にあれば、止めた行の次の行の radio
+     * （無ければ検索欄）へ移す。止めた行と一緒に radio が消えるとフォーカスがページの先頭へ戻り、
+     * キーボードで続けて選べなくなるため（レビュー #51）。ほかの場所にあれば、そこで操作して
+     * いるので動かさない。
+     * @param {string|null} next 移す先の行の key
+     */
+    function focusAfterStop(next) {
+        const active = document.activeElement;
+        if (active && active !== document.body && active !== stopButton
+            && active !== selectionStop) return;
+        const radio = next
+            ? rowsBox.querySelector(`tr[data-key="${next}"] input[type="radio"]:not(:disabled)`) : null;
+        (radio instanceof HTMLElement ? radio : filterInput).focus();
+    }
+
+    /**
+     * 「もう一度」。対象がまだ一覧にあれば確認ダイアログを開き直す（確かめずに止め直さない）。
+     * @param {string}                 flash お知らせの key
+     * @param {() => HostProcess|null} find  開き直す対象を今の一覧から探す処理
+     */
+    function retryStop(flash, find) {
+        const target = find();
+        if (target) openStopModal(target);
+        else showFlash(flash, "info", "すでに終了しています");
+    }
+
+    /**
+     * 停止の記録をお知らせに出し、終わっていれば待つのをやめる。
+     *
+     * <p>お知らせの key は止めたプロセス（PID と起動時刻）にする。確定を 2 回押した・2 つのタブで
+     * 止めたときはサーバーが同じ記録を返すので 1 件のままになり、続けて 2 つを止めたときは 2 件
+     * 並ぶ。「もう一度」で止め直した結果も同じ key なので、残っていたお知らせを置き換える。
+     *
+     * @param {ProcessStopJob} job 停止の記録
+     */
+    function showJob(job) {
+        const pending = pendingStops.get(job.id);
+        if (pending && pending.state === job.state) return;
+        if (pending) pending.state = job.state;
+        const key = `stop:${job.pid}:${job.startTime}`;
+        const target = escapeHtml(`${job.name}（PID ${job.pid}）`);
+        const all = job.children ? `${target}と子のプロセス ${job.children} 件` : target;
+        const at = job.finishedAt ? formatClock(job.finishedAt) : "";
+        if (job.state === "STOPPING") {
+            showFlash(key, "progress", `${target}を停止しています`);
+        } else if (job.state === "KILLING") {
+            showFlash(key, "progress", `${target}を強制終了しています`);
+        } else if (job.state === "STOPPED") {
+            showFlash(key, "success", `${at} に ${all}を停止しました。`);
+        } else if (job.state === "KILLED") {
+            showFlash(key, "warning",
+                `${at} に ${all}を強制終了しました。10 秒たっても終了しなかったためです。`);
+        } else {
+            showFlash(key, "error", `強制終了しても残っています（PID ${job.remaining.join("、")}）`,
+                () => retryStop(key, () => findProcess(`${job.pid}:${job.startTime}`)));
+        }
+        if (job.state === "STOPPING" || job.state === "KILLING") return;
+        pendingStops.delete(job.id);
+        if (pending?.own) focusAfterStop(pending.next);
+    }
+
+    /**
+     * ふつうのプロセスを止める。起動時刻を添え、選んだときと同じプロセスかをサーバーに確かめさせる
+     * （PID は使い回されるため。レビュー #14）。断られたら（すでに終了・選べない・録画）理由を赤の
+     * お知らせに出し、すぐ読み直して表を今の状態に合わせる。
+     * @param {HostProcess} head 止めるプロセス
+     * @param {string|null} next 止め終わったときにフォーカスを移す行の key
+     */
+    async function stopProcess(head, next) {
+        try {
+            /** @type {ProcessStopJob} */
+            const job = await apiPost(
+                `/api/system/processes/${head.pid}/stop?startTime=${head.startTime}`, {});
+            if (!pendingStops.has(job.id)) {
+                pendingStops.set(job.id, {
+                    flash: `stop:${job.pid}:${job.startTime}`, own: true, next,
+                    since: Date.now(), state: null,
+                });
+            }
+            showJob(job);
+        } catch (e) {
+            showFlash(`stop:${processKey(head)}`, "error", escapeHtml(errorMessage(e)));
+        }
+        adjustPolling();
+        refresh();
+    }
+
+    /**
+     * 録画を、アーカイブ一覧の「停止」と同じ API で止める（理由は recordingModal）。common.js の
+     * stopRecording は window.confirm で確かめ直すので使わない（このダイアログで確かめ済み）。
+     * 止まったかは、一覧からその録画のプロセスが消えたことで確かめる（この API は止め始めた時点で
+     * 返り、止まるまで待たないため）。
+     * @param {HostRecording} recording 止める録画
+     * @param {string|null}   next      止まったときにフォーカスを移す行の key
+     */
+    async function stopRecordingProcess(recording, next) {
+        const flash = `recording:${recording.id}`;
+        const subject = escapeHtml(recordingSubject(recording));
+        try {
+            await apiPost(`/api/recordings/${recording.id}/stop`, {});
+            pendingRecordings.set(recording.id, { subject, startedAt: Date.now(), next });
+            showFlash(flash, "progress", `${subject}を停止しています`);
+        } catch (e) {
+            showFlash(flash, "error", escapeHtml(errorMessage(e)),
+                () => retryStop(flash, () => recordingRoot(recording.id)));
+        }
+        adjustPolling();
+        refresh();
+    }
+
+    /**
+     * 読み直した一覧で、待っている停止と録画の結果を確かめる。
+     *
+     * <p>読み込んだときにすでに途中だった停止は、進行中のお知らせを出して結果を待つ（画面を
+     * 読み直しても、止めている最中だと分かるように。レビュー #4）。記録が無くなった停止
+     * （アプリの再起動で消えた）は、止まったとも止まらなかったとも言えないので、そう出す。
+     * ただし止め始める前に頼んだ一覧（自動の読み直しの途中で確定したとき）には記録がまだ無いので、
+     * 消えたとは見なさない。記録の番号はアプリの起動から振り直すので、PID と起動時刻でも確かめる。
+     *
+     * @param {number} requestedAt 一覧を頼んだ時刻（ミリ秒）
+     */
+    function checkStops(requestedAt) {
+        if (!system) return;
+        const current = system;
+        if (!stopsSeeded) {
+            stopsSeeded = true;
+            for (const job of current.stops) {
+                if (job.state !== "STOPPING" && job.state !== "KILLING") continue;
+                const flash = `stop:${job.pid}:${job.startTime}`;
+                pendingStops.set(job.id, { flash, own: false, next: null, since: 0, state: null });
+            }
+        }
+        for (const [id, pending] of pendingStops) {
+            const job = current.stops.find((candidate) => candidate.id === id
+                && `stop:${candidate.pid}:${candidate.startTime}` === pending.flash);
+            if (job) {
+                showJob(job);
+            } else if (requestedAt > pending.since) {
+                pendingStops.delete(id);
+                showFlash(pending.flash, "info", "停止の結果を確かめられませんでした");
+            }
+        }
+        for (const [id, pending] of pendingRecordings) {
+            const flash = `recording:${id}`;
+            if (!current.processes.some((p) => p.recording?.id === id)) {
+                pendingRecordings.delete(id);
+                showFlash(flash, "success", `${formatClock(Date.now())} に${pending.subject}を`
+                    + "停止しました。そこまでの内容は「途中まで」として残ります。");
+                focusAfterStop(pending.next);
+            } else if (Date.now() - pending.startedAt > RECORDING_STOP_MILLIS) {
+                pendingRecordings.delete(id);
+                showFlash(flash, "error", `${pending.subject}を停止できませんでした`,
+                    () => retryStop(flash, () => recordingRoot(id)));
+            }
+        }
+    }
+
+    /**
+     * 止めている途中（結果を待つ停止か録画がある間）と確認ダイアログを開いている間は 2 秒ごと、
+     * それ以外は 10 秒ごとに読み直す（理由は STOPPING_REFRESH_MILLIS）。ダイアログを開いている間も
+     * 速めるのは、その間に終わったプロセスを、確定を押す前に「すでに終了しています」と出すため。
+     */
+    function adjustPolling() {
+        const millis = pendingStops.size || pendingRecordings.size || stopModal.open
+            ? STOPPING_REFRESH_MILLIS : REFRESH_MILLIS;
+        if (millis === pollMillis) return;
+        stopPolling();
+        stopPolling = startVisibleRefresh(refresh, millis);
+        pollMillis = millis;
     }
 
     /**
@@ -1546,6 +2180,9 @@ function systemGroupRows(processes) {
      * ボタンにフォーカスを置いている人が、10 秒ごとの読み直しのたびに位置を失うため（押しても
      * loading の間は何もしないので、押せること自体は問題にならない）。
      *
+     * <p>選んでいたプロセスが一覧から消えていたら、選択を外してそう知らせる。黙って外すと、選んだ
+     * つもりのまま停止を押して何も起きない理由が分からないため（レビュー #6）。
+     *
      * @param {boolean} [resort] プロセスの表を並べ直すか。「表示を更新」を押したときだけ true にし、
      *                           10 秒ごとの読み直しでは並びを変えない（理由は order）。読み込みの
      *                           最中に押されたら、その読み込みを描くときに並べ直す
@@ -1557,13 +2194,22 @@ function systemGroupRows(processes) {
         const icon = refreshButton.innerHTML;
         refreshButton.setAttribute("aria-disabled", "true");
         refreshButton.innerHTML = '<span class="spinner" aria-hidden="true"></span>';
+        const requestedAt = Date.now();
         try {
             const [resourcesResult, systemResult] = await Promise.allSettled([
                 apiGet("/api/dashboard/resources"),
                 apiGet("/api/system/processes"),
             ]);
             if (resourcesResult.status === "fulfilled") resources = resourcesResult.value;
-            if (systemResult.status === "fulfilled") system = systemResult.value;
+            if (systemResult.status === "fulfilled") {
+                const before = selected === null ? null : findProcess(selected);
+                system = systemResult.value;
+                if (before && !findProcess(processKey(before))) {
+                    selected = null;
+                    showFlash(`gone:${processKey(before)}`, "info",
+                        escapeHtml(`選んでいた ${before.name}（PID ${before.pid}）は終了していました`));
+                }
+            }
             if (resourcesResult.status === "fulfilled" && systemResult.status === "fulfilled") {
                 lastSuccessAt = Date.now();
             }
@@ -1575,6 +2221,9 @@ function systemGroupRows(processes) {
             renderCharts();
             renderProcesses(resortRequested);
             resortRequested = false;
+            if (systemResult.status === "fulfilled") checkStops(requestedAt);
+            if (stopModal.open && modalTarget && !findProcess(processKey(modalTarget))) markModalGone();
+            adjustPolling();
         } finally {
             refreshButton.innerHTML = icon;
             refreshButton.removeAttribute("aria-disabled");
@@ -1643,7 +2292,8 @@ function systemGroupRows(processes) {
     window.addEventListener("resize", () => { for (const help of openHelps()) help.open = false; });
 
     document.addEventListener("keydown", (event) => {
-        if (event.key !== "Escape") return;
+        // ダイアログは Esc で自分で閉じる（cancel）。後ろの吹き出しやメニューまで一緒に閉じない
+        if (event.key !== "Escape" || stopModal.open) return;
         const helps = openHelps();
         if (openLock) {
             closeLock(true);
@@ -1771,13 +2421,23 @@ function systemGroupRows(processes) {
         if (!target.closest(".lockButton") && window.getSelection()?.toString()) return;
         const lock = row.querySelector(".lockButton");
         if (lock instanceof HTMLButtonElement) toggleLock(lock);
-        else select(selected === key ? null : key);
+        else if (!row.classList.contains("is-stopping")) select(selected === key ? null : key);
     });
     // radio は矢印のキーでも選べる。change で選び、行を作り直さないのでフォーカスも残る
     rowsBox.addEventListener("change", (event) => {
         const radio = event.target;
         const row = radio instanceof HTMLInputElement && radio.checked ? radio.closest("tr") : null;
         if (row?.dataset.key) select(row.dataset.key);
+    });
+    // 選んだ行の radio で Enter を押すと、上の停止のボタンまで Tab で戻らずに止められる
+    // （レビュー #36）
+    rowsBox.addEventListener("keydown", (event) => {
+        const radio = event.target;
+        if (event.key !== "Enter" || !(radio instanceof HTMLInputElement)
+            || radio.type !== "radio") return;
+        if (radio.closest("tr")?.dataset.key !== selected) return;
+        event.preventDefault();
+        requestStop();
     });
     // 選べない理由の吹き出しは、外を押す・画面が動く・Esc（keydown）で閉じる。吹き出しは画面に
     // 対して置くので、画面や表が動くと鍵から離れるため
@@ -1792,11 +2452,53 @@ function systemGroupRows(processes) {
         markOverflow();
     });
 
+    // ---- 停止の操作 ----
+    // 停止のボタンは aria-disabled の間も押せる（フォーカスを残すため）ので、requestStop で止める
+    stopButton.addEventListener("click", requestStop);
+    selectionStop.addEventListener("click", requestStop);
+    barWidth.addEventListener("change", renderStopButton);
+
+    modalConfirm.addEventListener("click", () => {
+        const head = modalTarget;
+        if (!head || modalConfirm.disabled) return;
+        const next = nextRowKey(modalTree);
+        stopModal.close();
+        // 止めている行を選んだままにしない（止まって消えたときに「終了していました」と出さない
+        // ため）
+        if (selected === processKey(head)) select(null);
+        if (head.recording) stopRecordingProcess(head.recording, next);
+        else stopProcess(head, next);
+    });
+    modalCancel.addEventListener("click", () => stopModal.close());
+    buttonEl("modalClose").addEventListener("click", () => stopModal.close());
+    stopModal.addEventListener("close", () => {
+        modalTarget = null;
+        adjustPolling();
+    });
+    // 背景を押して閉じるのは、押し始め（mousedown）と離した所（click）の両方が背景のときだけ。
+    // 中の文字を選ぼうとして外までドラッグしただけで閉じないため（レビュー #54）
+    stopModal.addEventListener("mousedown", (event) => {
+        pressedBackdrop = event.target === stopModal;
+    });
+    stopModal.addEventListener("click", (event) => {
+        if (pressedBackdrop && event.target === stopModal) stopModal.close();
+        pressedBackdrop = false;
+    });
+
+    flashbar.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const entry = target ? [...flashes].find(([, flash]) => flash.node.contains(target)) : undefined;
+        if (!target || !entry) return;
+        const [key, flash] = entry;
+        if (target.closest(".flashDismiss")) dismissFlash(key);
+        else if (target.closest(".flashRetry")) flash.retry?.();
+    });
+
     refreshButton.addEventListener("click", () => refresh(true));
     renderResources();
     renderProcesses();
     refresh();
-    startVisibleRefresh(refresh, 10_000);
+    stopPolling = startVisibleRefresh(refresh, REFRESH_MILLIS);
     // 応答が返らないまま読み込みが止まると（サーバーが固まったときなど）、refresh からは
     // renderHeader が呼ばれない。それでも古くなったことを出せるよう、別に見直す。
     // 隠れている間は見直さない。読まないので必ず古くなり、戻った瞬間に、読み直しが返るまで
