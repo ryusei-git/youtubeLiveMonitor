@@ -133,6 +133,65 @@
         </div>
       </section>
     </div>
+    <section class="container" id="processes" aria-labelledby="processTitle">
+      <div class="containerHeader">
+        <div class="pageHeader">
+          <div class="headerTitle">
+            <h2 id="processTitle">プロセス <span class="counter" id="processCounter"></span></h2>
+            <details class="help">
+              <summary aria-label="プロセスの説明">
+                <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.9 1.9 0 1 1 2.5 1.8c-.4.2-.7.5-.7 1v.4M8 11.3v.2"/></svg>
+              </summary>
+              <div class="popoverBody"><span id="processUserName">-</span> のプロセスだけを出します（root などのプロセスは出ません）。CPU は端末全体（<span id="processCores">-</span> コア）を 100% とした直近 1 分の平均で、メモリは実メモリです（共有している分を重ねて数えるため、合計は使用量より多くなります）。同じ名前の子のプロセスは親の行にまとめます。行を選んで「停止」を押すと、子のプロセスも一緒に停止します。選べない行は、停止するとこの画面や端末の画面も止まるプロセスです。</div>
+            </details>
+          </div>
+          <dl class="summaryItems">
+            <div>
+              <dt>ユーザー</dt>
+              <dd id="processUser">-</dd>
+            </div>
+          </dl>
+          <button type="button" class="btn" id="stopButton" aria-disabled="true">停止</button>
+        </div>
+        <div class="tableTools">
+          <div class="textFilter">
+            <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+            <input type="search" id="processFilter" placeholder="名前・PID・ポート・サービスで検索" aria-label="名前・PID・ポート・サービスで検索">
+          </div>
+          <div class="segmented" role="group" aria-label="表示するプロセス">
+            <button type="button" id="viewAll" aria-pressed="true">すべて</button>
+            <button type="button" id="viewServices" aria-pressed="false">サービス</button>
+          </div>
+          <span class="filterCount" id="filterCount" role="status"></span>
+        </div>
+      </div>
+      <div class="tableWrap" id="tableWrap">
+        <table class="table" id="processTable" aria-labelledby="processTitle">
+          <colgroup>
+            <col class="colSelect">
+            <col>
+            <col class="colPid">
+            <col class="colCpu">
+            <col class="colMemory">
+            <col class="colSeconds">
+            <col class="colPorts">
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="selectCol"><span class="srOnly">選択</span></th>
+              <th>名前</th>
+              <th class="num">PID</th>
+              <th class="num" data-sort="cpu" aria-sort="descending"><button type="button" class="sortHeader" aria-label="CPU で並べ替え">CPU<svg class="icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 6l4 4 4-4z"/></svg></button></th>
+              <th class="num" data-sort="memory"><button type="button" class="sortHeader" aria-label="メモリで並べ替え">メモリ<svg class="icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 6l4 4 4-4z"/></svg></button></th>
+              <th class="num" data-sort="seconds"><button type="button" class="sortHeader" aria-label="起動からで並べ替え">起動から<svg class="icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 6l4 4 4-4z"/></svg></button></th>
+              <th>ポート</th>
+            </tr>
+          </thead>
+          <tbody id="processRows"></tbody>
+        </table>
+      </div>
+      <nav class="pagination" id="pagination" aria-label="ページ"></nav>
+    </section>
     <p class="srOnly" id="liveStatus" role="status"></p>
   </main>
 </div>

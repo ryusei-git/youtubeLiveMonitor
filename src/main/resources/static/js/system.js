@@ -38,6 +38,36 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
     return ticks;
 }
 
+/**
+ * プロセスの表の行の分け方。同じ名前の子（chrome の下の chrome など）を親の行にたたむ。
+ *
+ * <p>いちばん上の親でまとめないのは、実行ユーザーのプロセスはほぼすべて systemd --user の子孫で、
+ * 全部が 1 行に集まって使えないため（レビュー #13）。名前が変わったところで行を分けるので、
+ * chrome の下の cat や、sh の下の sleep は別の行になる。
+ *
+ * @param {Array<{pid: number, parentPid: number, name: string}>} processes プロセス（行の並び順）
+ * @returns {Array<{head: number, members: number[]}>} 行ごとの、頭の PID と、たたむプロセスの PID
+ *          （先頭は head、残りは processes の順）。行は頭の processes の順
+ */
+function systemGroupRows(processes) {
+    const byPid = new Map(processes.map((p) => [p.pid, p]));
+    const heads = processes.map((p) => {
+        let current = p;
+        // 辿る回数に上限を置く。読み出しの時刻のずれで親子が輪になった一覧でも止まるように
+        for (let step = 0; step < processes.length; step++) {
+            const parent = byPid.get(current.parentPid);
+            if (!parent || parent === current || parent.name !== current.name) return current.pid;
+            current = parent;
+        }
+        return p.pid;
+    });
+    /** @type {Map<number, number[]>} */
+    const rows = new Map();
+    processes.forEach((p, i) => { if (heads[i] === p.pid) rows.set(p.pid, [p.pid]); });
+    processes.forEach((p, i) => { if (heads[i] !== p.pid) rows.get(heads[i])?.push(p.pid); });
+    return [...rows].map(([head, members]) => ({ head, members }));
+}
+
 (() => {
     /**
      * 左メニューのサービス 1 件（Java の {@code SystemProcessesResponse.ServiceStatus}）。
@@ -48,12 +78,50 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
      * @property {boolean} self この画面を動かしているサービス自身か
      */
     /**
-     * {@code GET /api/system/processes} の応答のうち、この画面の骨組みで使う分。
+     * {@code GET /api/system/processes} の応答のうち、この画面で使う分。
      * @typedef {object} HostProcesses
      * @property {string} hostName 端末名
      * @property {number} uptimeSeconds 端末の稼働時間（秒）
+     * @property {string|null} user 実行ユーザー。取れなければ null
+     * @property {number} cores 論理コア数
      * @property {HubServiceStatus[]} services 左メニューのサービス。先頭はこのサービス自身
+     * @property {HostProcess[]} processes 実行ユーザーのプロセス（PID の昇順）
      */
+    /**
+     * プロセス 1 つ（Java の {@code SystemProcessesResponse.ProcessRow}）。分からない値は null。
+     * @typedef {object} HostProcess
+     * @property {number}                pid              プロセス ID
+     * @property {number}                parentPid        親のプロセス ID
+     * @property {number}                startTime        起動時刻（エポックミリ秒）
+     * @property {string}                name             プロセス名
+     * @property {string|null}           commandLine      コマンドライン
+     * @property {string|null}           workingDirectory 作業フォルダー
+     * @property {number|null}           cpuPercent       直近 1 分の平均の CPU 使用率（端末全体が 100%）
+     * @property {number}                memoryBytes      実メモリ（RSS）
+     * @property {number}                upSeconds        起動からの秒数
+     * @property {number[]}              ports            待ち受けている TCP のポート（昇順）
+     * @property {string|null}           service          どのサービスのプロセスか
+     * @property {"SELF"|"SANDBOX"|null} role             この画面・確認用インスタンスの印
+     * @property {object|null}           recording        録画中なら、その録画
+     * @property {string|null}           lockedReason     選べない理由
+     */
+    /**
+     * 表の 1 行。同じ名前の子をたたんだまとまり（systemGroupRows）に、表に出す値を足したもの。
+     * 開いた子の行は、その子 1 つだけのまとまりにする。
+     * @typedef {object} ProcessGroup
+     * @property {string}        key     行の key（頭の {@code ${pid}:${startTime}}）
+     * @property {HostProcess[]} members 頭とたたんだ子（先頭が頭）
+     * @property {number|null}   cpu     CPU の合計。1 つでも分からなければ null
+     * @property {number}        memory  実メモリの合計
+     * @property {number}        seconds 頭の起動からの秒数
+     */
+    /**
+     * 描く 1 行。
+     * @typedef {object} ProcessRowView
+     * @property {ProcessGroup} group  行の値
+     * @property {boolean}      member 開いた子の行か
+     */
+    /** @typedef {"cpu"|"memory"|"seconds"} ProcessSort 並べ替えの列 */
     /**
      * {@code GET /api/dashboard/resources} の応答のうち、この画面で使う分（Java の
      * {@code ResourceSnapshotResponse}）。分からない値は 0 でなく null で届く。
@@ -186,6 +254,26 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
     /** メモリとディスクの注意の基準（%）。帯の印だけに使う */
     const USAGE_MARK = 90;
 
+    /** 表の 1 ページの行の数（開いた子の行は数えない） */
+    const PAGE_SIZE = 10;
+
+    /** @type {Record<"SELF"|"SANDBOX", string>} 役割のバッジの文字 */
+    const ROLE_LABEL = { SELF: "この画面", SANDBOX: "確認用" };
+
+    /** @type {Record<ProcessSort, (group: ProcessGroup) => number|null>} 並べ替えに使う値 */
+    const SORT_VALUE = { cpu: (g) => g.cpu, memory: (g) => g.memory, seconds: (g) => g.seconds };
+
+    /** 選べない行の鍵のアイコン */
+    const LOCK_ICON = '<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor"'
+        + ' stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">'
+        + '<rect x="3" y="7" width="10" height="7.5" rx="1"/>'
+        + '<path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
+
+    /** @param {string} path 線 @returns {string} ページ送りの前・次のアイコン */
+    const pageIcon = (path) => '<svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor"'
+        + ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + `<path d="${path}"/></svg>`;
+
     /** @type {HostResources | null} {@code /api/dashboard/resources} の応答。未読は null*/
     let resources = null;
     /** @type {Set<string>} 前回の描画で出ていた注意の key。新しく出た注意だけを読み上げるため */
@@ -209,11 +297,49 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
     /** 左メニューに最後に描いた HTML。変わったときだけ描き直す（理由は renderNav） */
     let lastNavHtml = "";
 
+    // ---- プロセスの表の状態 ----
+    /** @type {"all"|"services"} 出すプロセス（すべて・サービスだけ） */
+    let view = "all";
+    /** @type {ProcessSort} 並べ替えの列。開いた直後は CPU の多い順 */
+    let sort = "cpu";
+    /** @type {"desc"|"asc"} 並べ替えの向き */
+    let direction = "desc";
+    /** 検索語（前後の空白を除いたもの） */
+    let filter = "";
+    /** 今のページ（1 から） */
+    let page = 1;
+    /** @type {string|null} 選んだ行の key。選んでいなければ null */
+    let selected = null;
+    /**
+     * @type {string[]} 行の頭の key の並び。並べ直すのは見出しと「表示を更新」を押したときだけで、
+     * 10 秒ごとの読み直しでは変えない（読み直しのたびに行が動くと、押そうとした行が逃げるため。
+     * レビュー #6）
+     */
+    let order = [];
+    /** @type {Set<string>} 子の行を開いた行の key */
+    const expanded = new Set();
+    /** 「表示を更新」が押されたか。読み終えて描くときに並べ直す */
+    let resortRequested = false;
+    /** @type {HTMLButtonElement|null} 選べない理由の吹き出しを開いている鍵 */
+    let openLock = null;
+    /** 件数の書き換えを待つタイマー（理由は scheduleFilterCount） */
+    let filterCountTimer = 0;
+    /**
+     * @type {WeakMap<Element, string>} 要素ごとに最後に書いた HTML。同じ値を書き直すと、選んだ
+     * 文字やフォーカスが消えるため、変わったときだけ書く（setHtml）
+     */
+    const drawnHtml = new WeakMap();
+
     const sideNav = el("sideNav");
     const navToggle = buttonEl("navToggle");
     const navScrim = el("navScrim");
     const main = el("mainContent");
     const refreshButton = buttonEl("refreshButton");
+    const stopButton = buttonEl("stopButton");
+    const filterInput = inputEl("processFilter");
+    const rowsBox = el("processRows");
+    const tableWrap = el("tableWrap");
+    const pagination = el("pagination");
     /** 左メニューを帯の下に重ねて開け閉めする幅。system.css の @media と同じ値にする */
     const narrow = window.matchMedia("(max-width: 760px)");
 
@@ -246,6 +372,9 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
         return parts.map((n) => String(n).padStart(2, "0")).join(":");
     }
 
+    /** @returns {boolean} 「更新できていません」を出す間か（理由は STALE_MILLIS） */
+    const isStale = () => settled && (lastSuccessAt === 0 || Date.now() - lastSuccessAt > STALE_MILLIS);
+
     /**
      * 見出しの端末名・稼働時間・最終更新を描く。
      *
@@ -259,7 +388,7 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
         el("uptime").textContent = system ? formatElapsed(system.uptimeSeconds) : "-";
         const updatedAt = el("updatedAt");
         const measured = resources ? formatClock(resources.measuredAt, true) : "";
-        const stale = settled && (lastSuccessAt === 0 || Date.now() - lastSuccessAt > STALE_MILLIS);
+        const stale = isStale();
         updatedAt.classList.toggle("is-stale", stale);
         if (stale) {
             const message = measured ? `更新できていません · ${measured}` : "更新できていません";
@@ -1002,6 +1131,393 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
         }
     }
 
+    // ---- プロセスの表 ----
+
+    /**
+     * @param {HostProcess} p プロセス
+     * @returns {string} 行の key。PID は使い回されるので、起動時刻と組にして別のプロセスと見分ける
+     */
+    const processKey = (p) => `${p.pid}:${p.startTime}`;
+
+    /**
+     * @param {HostProcess[]} members 頭とたたんだ子（先頭が頭）
+     * @returns {ProcessGroup} 表の 1 行。CPU は 1 つでも分からなければ null にする。分からない値を
+     *                         0 とみなして足すと、実際より少ない合計を確かな値のように見せるため
+     */
+    function toGroup(members) {
+        return {
+            key: processKey(members[0]),
+            members,
+            cpu: members.some((p) => p.cpuPercent === null)
+                ? null : members.reduce((sum, p) => sum + (p.cpuPercent ?? 0), 0),
+            memory: members.reduce((sum, p) => sum + p.memoryBytes, 0),
+            seconds: members[0].upSeconds,
+        };
+    }
+
+    /**
+     * @param {HostProcess[]} processes プロセス
+     * @returns {ProcessGroup[]} 表の行（同じ名前の子をたたむ。理由は systemGroupRows）
+     */
+    function processGroups(processes) {
+        const byPid = new Map(processes.map((p) => [p.pid, p]));
+        return systemGroupRows(processes).map((row) =>
+            toGroup(row.members.map((pid) => /** @type {HostProcess} */ (byPid.get(pid)))));
+    }
+
+    /**
+     * 今の列と向きで並べる。値が同じなら PID の小さい順にし、並べるたびに順が入れ替わらないように
+     * する。分からない CPU（null）は向きによらず末尾に置く（0 とみなすと少ない順の先頭に並ぶため）。
+     * @param {ProcessGroup[]} groups 行
+     * @returns {ProcessGroup[]} 並べた行（新しい配列）
+     */
+    function sortGroups(groups) {
+        const value = SORT_VALUE[sort];
+        const sign = direction === "desc" ? -1 : 1;
+        return [...groups].sort((a, b) => {
+            const x = value(a);
+            const y = value(b);
+            if (x !== y) {
+                if (x === null) return 1;
+                if (y === null) return -1;
+                return (x - y) * sign;
+            }
+            return a.members[0].pid - b.members[0].pid;
+        });
+    }
+
+    /**
+     * 行の並び（order）を今の一覧に合わせる。並べ直さないときは、無くなった行を抜き、新しい行を
+     * 末尾に足すだけにする（理由は order）。新しい行どうしは今の列と向きで並べる。
+     * @param {ProcessGroup[]} groups 今の行
+     * @param {boolean}        resort 並べ直すか
+     */
+    function syncOrder(groups, resort) {
+        if (resort) {
+            order = sortGroups(groups).map((g) => g.key);
+            return;
+        }
+        const keys = new Set(groups.map((g) => g.key));
+        const kept = order.filter((key) => keys.has(key));
+        const known = new Set(kept);
+        order = [...kept, ...sortGroups(groups.filter((g) => !known.has(g.key))).map((g) => g.key)];
+    }
+
+    /**
+     * @param {HostProcess} p プロセス
+     * @returns {string} 検索で見る文字（小文字）。画面に出ている文字で探せるよう、役割のバッジと
+     *                   「録画中」も含める（レビュー #38）
+     */
+    const searchText = (p) => [p.name, String(p.pid), ...p.ports.map(String), p.service ?? "",
+        p.role ? ROLE_LABEL[p.role] : "", p.recording ? "録画中" : ""].join("\n").toLowerCase();
+
+    /**
+     * 中身の HTML が前に書いたものと違うときだけ書き換える（理由は drawnHtml）。
+     * @param {Element} node 書き換える要素
+     * @param {string}  html 中身の HTML
+     */
+    function setHtml(node, html) {
+        if (drawnHtml.get(node) === html) return;
+        node.innerHTML = html;
+        drawnHtml.set(node, html);
+    }
+
+    /**
+     * @param {number} bytes バイト数
+     * @returns {string} MB の数。表の中は単位を MB にそろえ、桁の違う数字を並べない（レビュー #21）
+     */
+    const formatMegabytes = (bytes) => `${Math.round(bytes / 1048576).toLocaleString("ja-JP")} MB`;
+
+    /**
+     * 名前のセルのうち、開閉のボタンより後ろ（名前・サービス・バッジ）の HTML。
+     *
+     * <p>コマンドラインと作業フォルダーは title だけに入れ、常には出さない（名前が埋もれて行が
+     * 読みにくくなるため。レビュー #3）。録画中は状態なので、役割のバッジと違う形（ランプ）にする
+     * （レビュー #58）。
+     *
+     * @param {ProcessGroup} group 行
+     * @param {number}       cores 論理コア数
+     * @returns {string} HTML
+     */
+    function namePartsHtml(group, cores) {
+        const head = group.members[0];
+        /** @type {string[]} */
+        const lines = [];
+        if (head.commandLine) lines.push(head.commandLine);
+        if (head.workingDirectory) lines.push(`作業フォルダー: ${head.workingDirectory}`);
+        const title = lines.length ? lines.map(escapeHtml).join("&#10;") : escapeHtml(head.name);
+        const service = group.members.find((p) => p.service)?.service;
+        const roles = new Set(group.members.flatMap((p) => (p.role ? [ROLE_LABEL[p.role]] : [])));
+        // 1 コア分（端末全体の 100 / cores %）の 9 割を使っていれば知らせる（レビュー #8）
+        const busy = group.members.some((p) => p.cpuPercent !== null && p.cpuPercent >= 90 / cores);
+        return `<span class="procName" title="${title}">${escapeHtml(head.name)}</span>`
+            + (service ? `<span class="procService">${escapeHtml(service)}</span>` : "")
+            + [...roles].map((role) => `<span class="badge grey">${role}</span>`).join("")
+            + (group.members.some((p) => p.recording) ? statusLamp("recording", "録画中") : "")
+            + (busy ? '<span class="badge warning">1 コアを使い切っています</span>' : "");
+    }
+
+    /**
+     * @param {string} key 行の key
+     * @returns {HTMLTableRowElement} 空の行（中身は updateRow が書く）
+     */
+    function createRow(key) {
+        const tr = document.createElement("tr");
+        tr.dataset.key = key;
+        tr.innerHTML = '<td class="selectCol"></td><td><div class="nameCell">'
+            + '<button type="button" class="expandButton" aria-expanded="false" hidden></button>'
+            + '<span class="nameParts"></span></div></td>'
+            + '<td class="num"></td>'.repeat(4) + "<td></td>";
+        return tr;
+    }
+
+    /**
+     * 行のセルの文字と属性を書き換える。変わったところだけを書くので、読み直しでもフォーカスや
+     * 選んだ文字が消えない（レビュー #28）。開閉のボタンは書き換えずに属性だけを変え、押した後も
+     * フォーカスが残るようにする。
+     * @param {HTMLTableRowElement} tr    行
+     * @param {ProcessRowView}      row   描く行
+     * @param {number}              cores 論理コア数
+     */
+    function updateRow(tr, { group, member }, cores) {
+        const head = group.members[0];
+        const cells = tr.cells;
+        tr.classList.toggle("is-member", member);
+        setHtml(cells[0], head.lockedReason
+            ? '<button type="button" class="lockButton" aria-label="選べない理由" aria-expanded="false">'
+                + `${LOCK_ICON}</button><div class="popoverBody lockReason" hidden>`
+                + `${escapeHtml(head.lockedReason)}</div>`
+            : '<input type="radio" name="process"'
+                + ` aria-label="${escapeHtml(head.name)}（PID ${head.pid}）を選ぶ">`);
+        const expand = query(".expandButton", cells[1]);
+        const children = group.members.length - 1;
+        expand.hidden = children === 0;
+        if (children) {
+            const open = expanded.has(group.key);
+            expand.setAttribute("aria-expanded", String(open));
+            expand.setAttribute("aria-label", `${head.name} の子のプロセス ${children} 件を表示`);
+            setHtml(expand, `${open ? "－" : "＋"}${children}`);
+        }
+        setHtml(query(".nameParts", cells[1]), namePartsHtml(group, cores));
+        setHtml(cells[2], String(head.pid));
+        setHtml(cells[3], escapeHtml(formatPercent(group.cpu)));
+        setHtml(cells[4], escapeHtml(formatMegabytes(group.memory)));
+        setHtml(cells[5], escapeHtml(formatElapsed(group.seconds)));
+        const ports = [...new Set(group.members.flatMap((p) => p.ports))]
+            .sort((a, b) => a - b).join(", ");
+        cells[6].title = ports;
+        setHtml(cells[6], ports || '<span class="muted">—</span>');
+    }
+
+    /**
+     * 見える行を、key で今の行と突き合わせて描く。tbody を作り直さず、無い行だけを作り、要らない
+     * 行を外し、並びが違う所だけを動かす。作り直すと、radio のフォーカスと選んだ文字が 10 秒ごとに
+     * 消えるため（レビュー #6・#28）。
+     * @param {ProcessRowView[]} rows  見える行（上から）
+     * @param {number}           cores 論理コア数
+     */
+    function drawRows(rows, cores) {
+        drawnHtml.delete(rowsBox);
+        const wanted = new Set(rows.map((row) => row.group.key));
+        /** @type {Map<string, HTMLTableRowElement>} */
+        const current = new Map();
+        for (const tr of [...rowsBox.children]) {
+            const key = tr instanceof HTMLTableRowElement ? tr.dataset.key : undefined;
+            if (tr instanceof HTMLTableRowElement && key && wanted.has(key)) current.set(key, tr);
+            else tr.remove();
+        }
+        let cursor = rowsBox.firstElementChild;
+        for (const row of rows) {
+            const tr = current.get(row.group.key) ?? createRow(row.group.key);
+            updateRow(tr, row, cores);
+            if (tr === cursor) cursor = cursor.nextElementSibling;
+            else rowsBox.insertBefore(tr, cursor);
+        }
+    }
+
+    /**
+     * 見える行が無いときの 1 行。空の表だけでは、読み込み中・失敗・一致なしを見分けられないので、
+     * 何も出ない理由と次にできること（検索を消す・すべてから探す・再試行）を出す（レビュー #7・#38）。
+     * @returns {string} tbody の HTML
+     */
+    function emptyRowHtml() {
+        /** @type {(text: string, actions?: Array<[string, string]>) => string} */
+        const row = (text, actions = []) => {
+            const buttons = actions.map(([action, label]) =>
+                `<button type="button" class="btn" data-action="${action}">${label}</button>`).join("");
+            return `<tr class="emptyRow"><td colspan="7">${text}`
+                + `${buttons ? `<div class="emptyActions">${buttons}</div>` : ""}</td></tr>`;
+        };
+        if (!system) {
+            return settled
+                ? row("プロセスの一覧を取得できませんでした", [["retry", "再試行"]])
+                : row('<span class="spinner" aria-hidden="true"></span>読み込んでいます');
+        }
+        const quoted = `「${escapeHtml(filter)}」`;
+        if (filter && view === "services") {
+            return row(`${quoted}に一致するプロセスは、サービスの中にありません`,
+                [["all", "すべてから探す"], ["clear", "検索を消す"]]);
+        }
+        if (filter) return row(`${quoted}に一致するプロセスはありません`, [["clear", "検索を消す"]]);
+        return row(view === "services"
+            ? "動いているサービスのプロセスはありません" : "プロセスはありません");
+    }
+
+    /**
+     * ページ送りを描く。描き直してもキーボードの位置を失わないよう、押したボタン（前・次・番号を
+     * aria-label で見分ける）へフォーカスを戻し、端で無効になったら今のページの番号へ移す
+     * （レビュー #50）。1 ページに収まるときは出さない。
+     * @param {number} pages ページの数
+     */
+    function renderPagination(pages) {
+        pagination.hidden = pages <= 1;
+        const active = document.activeElement;
+        const focused = active && pagination.contains(active) ? active.getAttribute("aria-label") : null;
+        const numbers = [...new Set([1, page - 1, page, page + 1, pages])]
+            .filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+        let previous = 0;
+        const items = numbers.map((n) => {
+            const gap = n - previous > 1 ? '<li class="gap" aria-hidden="true">…</li>' : "";
+            previous = n;
+            return `${gap}<li><button type="button" data-page="${n}" aria-label="${n} ページ目"`
+                + `${n === page ? ' aria-current="true"' : ""}>${n}</button></li>`;
+        }).join("");
+        setHtml(pagination, `<button type="button" data-page="${page - 1}" aria-label="前のページ"`
+            + `${page === 1 ? " disabled" : ""}>${pageIcon("M10 3L5 8l5 5")}</button><ol>${items}</ol>`
+            + `<button type="button" data-page="${page + 1}" aria-label="次のページ"`
+            + `${page === pages ? " disabled" : ""}>${pageIcon("M6 3l5 5-5 5")}</button>`);
+        if (!focused || pagination.contains(document.activeElement)) return;
+        const next = [...pagination.querySelectorAll("button")]
+            .find((button) => button.getAttribute("aria-label") === focused && !button.disabled)
+            ?? pagination.querySelector('button[aria-current="true"]');
+        if (next instanceof HTMLElement) next.focus();
+    }
+
+    /**
+     * 一致した件数を、入力が 300ms 止まってから書き換える。#filterCount は読み上げの領域なので、
+     * 1 文字ごとに書き換えると、入力のたびに件数が読み上げられるため。
+     * @param {string} text 件数の文。検索語が無ければ空
+     */
+    function scheduleFilterCount(text) {
+        window.clearTimeout(filterCountTimer);
+        filterCountTimer = window.setTimeout(() => {
+            const box = el("filterCount");
+            if (box.textContent !== text) box.textContent = text;
+        }, 300);
+    }
+
+    /**
+     * 停止のボタンを、行を選んでいて「更新できていません」でないときだけ押せるようにする。古い
+     * 一覧のまま止めると、もう無いプロセスや PID を使い回した別のプロセスを選んでいることがある
+     * ため。disabled でなく aria-disabled にするのは、フォーカスを置いたまま読み直しが来ても
+     * 位置を失わないため（refresh の表示を更新と同じ）。
+     */
+    function renderStopButton() {
+        stopButton.setAttribute("aria-disabled", String(selected === null || isStale()));
+    }
+
+    /** 選んだ行の印（淡い青と radio）だけを書き換える。表は作り直さない（レビュー #28） */
+    function applySelection() {
+        for (const tr of rowsBox.querySelectorAll("tr[data-key]")) {
+            if (!(tr instanceof HTMLTableRowElement)) continue;
+            const on = tr.dataset.key === selected;
+            tr.classList.toggle("is-selected", on);
+            const radio = tr.querySelector('input[type="radio"]');
+            if (radio instanceof HTMLInputElement) radio.checked = on;
+        }
+        renderStopButton();
+    }
+
+    /** @param {string|null} key 選ぶ行の key。外すなら null */
+    function select(key) {
+        closeLock();
+        selected = key;
+        applySelection();
+    }
+
+    /** @param {boolean} [restoreFocus] 閉じた後に鍵へフォーカスを戻すか（Esc で閉じたとき） */
+    function closeLock(restoreFocus = false) {
+        const lock = openLock;
+        openLock = null;
+        if (!lock || !lock.isConnected) return;
+        lock.setAttribute("aria-expanded", "false");
+        const body = lock.nextElementSibling;
+        if (body instanceof HTMLElement) body.hidden = true;
+        if (restoreFocus) lock.focus();
+    }
+
+    /**
+     * 選べない理由の吹き出しを開け閉めする。理由を常に出さず押したときだけにするのは、常に出す
+     * 文字を減らすため（レビュー #37）。開くときは選択を外す（選べない行を選んだように見せない）。
+     * 吹き出しは画面に対して置くので、鍵の位置から決め、画面の右と下へはみ出さないようにする。
+     * @param {HTMLButtonElement} lock 鍵
+     */
+    function toggleLock(lock) {
+        const wasOpen = openLock === lock;
+        select(null);
+        const body = lock.nextElementSibling;
+        if (wasOpen || !(body instanceof HTMLElement)) return;
+        openLock = lock;
+        lock.setAttribute("aria-expanded", "true");
+        body.hidden = false;
+        const rect = lock.getBoundingClientRect();
+        const right = document.documentElement.clientWidth - 16 - body.offsetWidth;
+        body.style.left = `${Math.max(16, Math.min(rect.left - 12, right))}px`;
+        const below = rect.bottom + 8;
+        body.style.top = `${below + body.offsetHeight > window.innerHeight
+            ? rect.top - 8 - body.offsetHeight : below}px`;
+    }
+
+    /** 表が横にはみ出しているときだけ、右端に影を付ける（続きがあることを見せるため） */
+    const markOverflow = () =>
+        tableWrap.classList.toggle("is-overflowing", tableWrap.scrollWidth > tableWrap.clientWidth);
+
+    /**
+     * プロセスの表を描く。並びは order のまま（resort のときだけ並べ直す）。
+     *
+     * <p>選んだ行が、検索・表示の切り替え・並べ替え・ページ送り・読み直しで見えなくなったら選択を
+     * 外す。見えない行が選ばれたまま停止を押せると、何を止めるのかが画面から分からないため
+     * （レビュー #2）。
+     *
+     * @param {boolean} [resort] 並べ直すか（見出しと「表示を更新」を押したとき）
+     */
+    function renderProcesses(resort = false) {
+        el("processUser").textContent = system?.user ?? "-";
+        el("processUserName").textContent = system?.user ?? "-";
+        el("processCores").textContent = system ? String(system.cores) : "-";
+        const groups = system ? processGroups(system.processes) : [];
+        el("processCounter").textContent = system ? `(${groups.length})` : "";
+        syncOrder(groups, resort);
+        const byKey = new Map(groups.map((g) => [g.key, g]));
+        for (const key of expanded) {
+            if (!byKey.has(key)) expanded.delete(key);
+        }
+        const needle = filter.toLowerCase();
+        const shown = order.flatMap((key) => {
+            const group = byKey.get(key);
+            return group && (view === "all" || group.members.some((p) => p.service !== null))
+                && (!needle || group.members.some((p) => searchText(p).includes(needle))) ? [group] : [];
+        });
+        const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+        page = Math.min(page, pages);
+        /** @type {ProcessRowView[]} */
+        const rows = shown.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).flatMap((group) => [
+            { group, member: false },
+            ...(expanded.has(group.key)
+                ? group.members.slice(1).map((p) => ({ group: toGroup([p]), member: true })) : []),
+        ]);
+        if (rows.length) drawRows(rows, system?.cores || 1);
+        else setHtml(rowsBox, emptyRowHtml());
+        renderPagination(pages);
+        scheduleFilterCount(filter ? `${shown.length} 件一致` : "");
+        if (!rows.some((row) => row.group.key === selected && !row.group.members[0].lockedReason)) {
+            selected = null;
+        }
+        if (openLock && !openLock.isConnected) openLock = null;
+        applySelection();
+        markOverflow();
+    }
+
     /**
      * 今の値の measuredAt が、前に推移を読めたときから変わっていれば推移を読み直す。推移は
      * 1 分ごとの記録でしか増えないので、24 時間分（最大 1440 件）を 10 秒ごとに読まないため。
@@ -1027,8 +1543,13 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
      * aria-disabled にする。disabled にするとフォーカスがボタンから外れ、キーボードで押した人や、
      * ボタンにフォーカスを置いている人が、10 秒ごとの読み直しのたびに位置を失うため（押しても
      * loading の間は何もしないので、押せること自体は問題にならない）。
+     *
+     * @param {boolean} [resort] プロセスの表を並べ直すか。「表示を更新」を押したときだけ true にし、
+     *                           10 秒ごとの読み直しでは並びを変えない（理由は order）。読み込みの
+     *                           最中に押されたら、その読み込みを描くときに並べ直す
      */
-    async function refresh() {
+    async function refresh(resort = false) {
+        if (resort) resortRequested = true;
         if (loading) return;
         loading = true;
         const icon = refreshButton.innerHTML;
@@ -1050,6 +1571,8 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
             renderNav();
             renderResources();
             renderCharts();
+            renderProcesses(resortRequested);
+            resortRequested = false;
         } finally {
             refreshButton.innerHTML = icon;
             refreshButton.removeAttribute("aria-disabled");
@@ -1120,7 +1643,9 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
     document.addEventListener("keydown", (event) => {
         if (event.key !== "Escape") return;
         const helps = openHelps();
-        if (helps.length) {
+        if (openLock) {
+            closeLock(true);
+        } else if (helps.length) {
             for (const help of helps) {
                 help.open = false;
                 query("summary", help).focus();
@@ -1169,8 +1694,105 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
     // 画面の大きさが変わると、吹き出しの位置（画面の外へ出ないようずらした量）が合わなくなる
     window.addEventListener("resize", () => hideChartCursors());
 
-    refreshButton.addEventListener("click", () => refresh());
+    // ---- プロセスの表の操作 ----
+    /** @type {HTMLElement[]} 並べ替えの見出し */
+    const sortHeaders = [...document.querySelectorAll("#processTable th[data-sort]")]
+        .flatMap((th) => (th instanceof HTMLElement ? [th] : []));
+    for (const th of sortHeaders) {
+        query(".sortHeader", th).addEventListener("click", () => {
+            // 同じ見出しなら向きを入れ替え、違う見出しなら多い順から（レビュー #39）
+            const key = /** @type {ProcessSort} */ (th.dataset.sort);
+            direction = key === sort && direction === "desc" ? "asc" : "desc";
+            sort = key;
+            for (const other of sortHeaders) {
+                if (other !== th) other.removeAttribute("aria-sort");
+            }
+            th.setAttribute("aria-sort", direction === "desc" ? "descending" : "ascending");
+            page = 1;
+            renderProcesses(true);
+        });
+    }
+
+    /** @param {"all"|"services"} next 出すプロセス */
+    function setView(next) {
+        view = next;
+        page = 1;
+        el("viewAll").setAttribute("aria-pressed", String(next === "all"));
+        el("viewServices").setAttribute("aria-pressed", String(next === "services"));
+        renderProcesses();
+    }
+    el("viewAll").addEventListener("click", () => setView("all"));
+    el("viewServices").addEventListener("click", () => setView("services"));
+
+    filterInput.addEventListener("input", () => {
+        filter = filterInput.value.trim();
+        page = 1;
+        renderProcesses();
+    });
+
+    pagination.addEventListener("click", (event) => {
+        const button = event.target instanceof Element ? event.target.closest("button[data-page]") : null;
+        if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+        page = Number(button.dataset.page);
+        renderProcesses();
+    });
+
+    rowsBox.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const action = target?.closest("button[data-action]");
+        if (action instanceof HTMLElement) {
+            // 押したボタンは描き直しで消えるので、次に使う場所へフォーカスを移す
+            if (action.dataset.action === "retry") {
+                refresh();
+            } else if (action.dataset.action === "all") {
+                setView("all");
+                el("viewAll").focus();
+            } else {
+                filterInput.value = "";
+                filter = "";
+                page = 1;
+                renderProcesses();
+                filterInput.focus();
+            }
+            return;
+        }
+        const row = target?.closest("tr[data-key]");
+        if (!target || !(row instanceof HTMLTableRowElement) || target.closest("input, .lockReason")) return;
+        const key = row.dataset.key ?? null;
+        if (key && target.closest(".expandButton")) {
+            if (expanded.has(key)) expanded.delete(key);
+            else expanded.add(key);
+            renderProcesses();
+            return;
+        }
+        // 文字を選んだ直後の click では、行の選択を変えない（PID などを写せるように。レビュー #28）
+        if (!target.closest(".lockButton") && window.getSelection()?.toString()) return;
+        const lock = row.querySelector(".lockButton");
+        if (lock instanceof HTMLButtonElement) toggleLock(lock);
+        else select(selected === key ? null : key);
+    });
+    // radio は矢印のキーでも選べる。change で選び、行を作り直さないのでフォーカスも残る
+    rowsBox.addEventListener("change", (event) => {
+        const radio = event.target;
+        const row = radio instanceof HTMLInputElement && radio.checked ? radio.closest("tr") : null;
+        if (row?.dataset.key) select(row.dataset.key);
+    });
+    // 選べない理由の吹き出しは、外を押す・画面が動く・Esc（keydown）で閉じる。吹き出しは画面に
+    // 対して置くので、画面や表が動くと鍵から離れるため
+    document.addEventListener("click", (event) => {
+        const row = openLock?.closest("tr");
+        if (row && !(event.target instanceof Node && row.contains(event.target))) closeLock();
+    });
+    window.addEventListener("scroll", () => closeLock(), { passive: true });
+    tableWrap.addEventListener("scroll", () => closeLock(), { passive: true });
+    window.addEventListener("resize", () => {
+        closeLock();
+        markOverflow();
+    });
+
+    refreshButton.addEventListener("click", () => refresh(true));
     renderResources();
+    renderProcesses();
     refresh();
     startVisibleRefresh(refresh, 10_000);
     // 応答が返らないまま読み込みが止まると（サーバーが固まったときなど）、refresh からは
@@ -1178,6 +1800,9 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
     // 隠れている間は見直さない。読まないので必ず古くなり、戻った瞬間に、読み直しが返るまで
     // 「更新できていません」が一瞬出るため
     window.setInterval(() => {
-        if (document.visibilityState === "visible") renderHeader();
+        if (document.visibilityState === "visible") {
+            renderHeader();
+            renderStopButton();
+        }
     }, 5_000);
 })();
