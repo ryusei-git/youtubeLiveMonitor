@@ -186,7 +186,7 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
     /** メモリとディスクの注意の基準（%）。帯の印だけに使う */
     const USAGE_MARK = 90;
 
-    /** @type {HostResources | null} {@code /api/dashboard/resources} の応答。未読は null */
+    /** @type {HostResources | null} {@code /api/dashboard/resources} の応答。未読は null*/
     let resources = null;
     /** @type {Set<string>} 前回の描画で出ていた注意の key。新しく出た注意だけを読み上げるため */
     let shownWarningKeys = new Set();
@@ -611,9 +611,11 @@ function systemTimeTicks(startMillis, endMillis, stepMinutes) {
     /**
      * @param {number} value 値
      * @param {number} max   縦軸の上端の値
-     * @returns {number} 縦位置（0〜100。上端が 0）。上端を超える値は上端に止める
+     * @returns {number} 縦位置（0〜100。上端が 0）。範囲の外の値は上端・下端に止める。SVG は
+     *                   overflow: visible なので、止めないと線がグラフの外（時刻の文字の上）に出る
+     *                   （下限の設定がディスクの合計を超えると、録画の下限は負の % になる）
      */
-    const yAt = (value, max) => 100 - Math.min(value / max, 1) * 100;
+    const yAt = (value, max) => 100 - Math.min(Math.max(value / max, 0), 1) * 100;
 
     /**
      * @param {number} at    時刻（ミリ秒）
