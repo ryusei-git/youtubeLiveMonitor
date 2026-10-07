@@ -233,16 +233,6 @@ async function loadStorageForecast() {
  */
 
 /**
- * CPU 使用率を表示用に整える。起動直後は前回の計測が無く null が返るため "-" にする。
- *
- * @param {number|null|undefined} percent 使用率
- * @returns {string} 表示用の文字列
- */
-function formatPercent(percent) {
-    return percent === null || percent === undefined ? "-" : `${percent.toFixed(1)}%`;
-}
-
-/**
  * 端末全体のカードを 1 枚作る。
  *
  * <p>注意の対象になっている値はカードごと警告の色にする。先頭の警告文を読まなくても、
