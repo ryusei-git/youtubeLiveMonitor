@@ -340,8 +340,8 @@ function formatFileSize(bytes) {
 }
 
 /**
- * 使用率を表示用に整える（小数 1 桁と %）。まだ測れていない値（null）は "-" にし、0% と読ませない。
- * ダッシュボードと端末の状態の画面で使う。
+ * 使用率を表示用に整える（小数 1 桁と %）。まだ測れていない値（null。起動直後は前回の計測が無い）は
+ * "-" にし、0% と読ませない。
  *
  * @param {number|null|undefined} percent 使用率
  * @returns {string} 表示用の文字列
@@ -2540,7 +2540,7 @@ function renderUpcomingStreams(streams, box = el("upcomingStreams"),
 
 /** 非表示中の定期通信を省き、戻ってきたときだけ最新の保存済み状態を読む。
  * @param {() => void} refresh
- * @param {number} [intervalMillis] 読み直す間隔（ミリ秒）。省くと 60 秒。端末の状態の画面は 10 秒
+ * @param {number} [intervalMillis] 読み直す間隔（ミリ秒）。省くと 60 秒
  * @returns {() => void} 止める関数。1 枚のページ（my.html）の画面はページを読み込み直さずに移るため、
  *   画面を離れるときに呼ばないと、離れた画面の読み直しが続く
  */
