@@ -50,7 +50,8 @@ public class SystemController {
      *
      * <p>止め終わるまで最大 15 秒かかるので待たず、受け付けたら 202 を返す（結果は一覧の
      * {@code stops} で分かる）。止められないときは例外にせず 409 を返す。画面の表示と今の状態の
-     * 食い違いで、サーバーの異常ではないため（{@code RecordingController#stopRecording} と同じ返し方）。
+     * 食い違いで、サーバーの異常ではないため（{@code RecordingController#stopRecording} と同じ
+     * 返し方）。
      *
      * <p>録画はこの API では止めず、{@code /api/recordings/{id}/stop} で止める。録り直しを止める印を
      * 立てないと、録画の仕組みが「普通に終わった」と見て今の時点から録り直すため。
