@@ -7,11 +7,14 @@ import org.junit.jupiter.api.Timeout;
 import org.mockito.InOrder;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -132,6 +135,104 @@ class ProcessTerminationTest {
             assertThat(interrupted).isTrue();
             verify(child).destroyForcibly();
             verify(root).destroyForcibly();
+        }
+    }
+
+    @Nested
+    @DisplayName("terminateTree()")
+    class TerminateTree {
+
+        @Test
+        @DisplayName("正常系：猶予内に全員終われば forced は false で、beforeKill を呼ばず SIGKILL も送らない")
+        void testMethod01() throws InterruptedException {
+            // モックの既定で onExit() は完了済み、isAlive() は false（すぐ終わったプロセス）
+            ProcessHandle parent = mock(ProcessHandle.class);
+            ProcessHandle child = mock(ProcessHandle.class);
+            Runnable beforeKill = mock(Runnable.class);
+
+            ProcessTermination.TreeResult result = ProcessTermination.terminateTree(List.of(parent, child),
+                    Duration.ofSeconds(10), Duration.ofSeconds(5), beforeKill);
+
+            assertThat(result.forced()).isFalse();
+            assertThat(result.remaining()).isEmpty();
+            verify(parent).destroy();
+            verify(child).destroy();
+            verify(beforeKill, never()).run();
+            verify(parent, never()).destroyForcibly();
+            verify(child, never()).destroyForcibly();
+        }
+
+        @Test
+        @Timeout(value = 5, unit = TimeUnit.SECONDS)
+        @DisplayName("正常系：猶予を過ぎて残ったものがあれば、beforeKill を 1 回呼んでから残りだけに SIGKILL を送る")
+        void testMethod02() throws InterruptedException {
+            ProcessHandle parent = mock(ProcessHandle.class);
+            ProcessHandle child = mock(ProcessHandle.class);
+            Runnable beforeKill = mock(Runnable.class);
+            // child だけが SIGTERM では終わらず、SIGKILL で終わる
+            AtomicBoolean childAlive = new AtomicBoolean(true);
+            CompletableFuture<ProcessHandle> childExit = new CompletableFuture<>();
+            when(child.onExit()).thenReturn(childExit);
+            when(child.isAlive()).thenAnswer(invocation -> childAlive.get());
+            when(child.destroyForcibly()).thenAnswer(invocation -> {
+                childAlive.set(false);
+                childExit.complete(child);
+                return true;
+            });
+
+            ProcessTermination.TreeResult result = ProcessTermination.terminateTree(List.of(parent, child),
+                    Duration.ofMillis(100), Duration.ofSeconds(1), beforeKill);
+
+            assertThat(result.forced()).isTrue();
+            assertThat(result.remaining()).isEmpty();
+            InOrder order = inOrder(child, beforeKill);
+            order.verify(child).destroy();
+            order.verify(beforeKill).run();
+            order.verify(child).destroyForcibly();
+            verify(beforeKill).run();
+            verify(parent, never()).destroyForcibly();
+        }
+
+        @Test
+        @Timeout(value = 5, unit = TimeUnit.SECONDS)
+        @DisplayName("異常系：SIGKILL の後も killWait を過ぎて残ったもの（D 状態など）は remaining に入る")
+        void testMethod03() throws InterruptedException {
+            ProcessHandle parent = mock(ProcessHandle.class);
+            ProcessHandle stuck = mock(ProcessHandle.class);
+            when(stuck.onExit()).thenReturn(new CompletableFuture<>());
+            when(stuck.isAlive()).thenReturn(true);
+
+            ProcessTermination.TreeResult result = ProcessTermination.terminateTree(List.of(parent, stuck),
+                    Duration.ofMillis(100), Duration.ofMillis(100), () -> { });
+
+            assertThat(result.forced()).isTrue();
+            assertThat(result.remaining()).containsExactly(stuck);
+            verify(stuck).destroyForcibly();
+            verify(parent, never()).destroyForcibly();
+        }
+
+        @Test
+        @Timeout(value = 5, unit = TimeUnit.SECONDS)
+        @DisplayName("異常系：待っている間に割り込まれたら、全員に SIGKILL を送って InterruptedException を投げる")
+        void testMethod04() {
+            ProcessHandle parent = mock(ProcessHandle.class);
+            ProcessHandle child = mock(ProcessHandle.class);
+            when(parent.onExit()).thenReturn(new CompletableFuture<>());
+            when(child.onExit()).thenReturn(new CompletableFuture<>());
+
+            Throwable thrown;
+            Thread.currentThread().interrupt();
+            try {
+                thrown = catchThrowable(() -> ProcessTermination.terminateTree(List.of(parent, child),
+                        Duration.ofSeconds(10), Duration.ofSeconds(5), () -> { }));
+            } finally {
+                // JUnit は同じスレッドで次のテストを走らせるので、割り込み状態を必ず消してから終える
+                Thread.interrupted();
+            }
+
+            assertThat(thrown).isInstanceOf(InterruptedException.class);
+            verify(parent).destroyForcibly();
+            verify(child).destroyForcibly();
         }
     }
 }
