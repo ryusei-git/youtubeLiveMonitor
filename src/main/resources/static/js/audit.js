@@ -32,6 +32,7 @@
         RECORDING_DELETE: "録画削除",
         NOTIFICATION_SETTING_CHANGE: "通知設定変更",
         APP_SETTING_CHANGE: "アプリ設定変更",
+        PROCESS_STOP: "プロセス停止",
     };
 
     /**
