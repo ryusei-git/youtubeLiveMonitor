@@ -59,6 +59,81 @@
         <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M12.5 1.5v3h-3"/></svg>
       </button>
     </div>
+    <div class="resourceGrid">
+      <section class="container resource" id="cpuPanel" aria-labelledby="cpuTitle">
+        <div class="resourceHeader">
+          <div class="headerTitle">
+            <h2 id="cpuTitle">CPU</h2>
+            <details class="help">
+              <summary aria-label="CPU の説明">
+                <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.9 1.9 0 1 1 2.5 1.8c-.4.2-.7.5-.7 1v.4M8 11.3v.2"/></svg>
+              </summary>
+              <div class="popoverBody">端末全体（<span id="cpuCores">-</span> コア）を 100% とした使用率で、直近 1 分の平均です。下の青い部分がサービス、上の灰色がそのほかのプロセスです。サービスは、左のメニューに並べたサービスのプロセスです。85% を超えた状態が 5 分続くか、1 つのプロセスが 1 コア分を 5 分以上使い続けると、枠を赤くして知らせます。</div>
+            </details>
+          </div>
+          <span class="statusIndicator" id="cpuStatus" hidden></span>
+        </div>
+        <div class="resourceBody">
+          <div class="resourceNow" id="cpuNow"></div>
+          <div class="resourceChart" id="cpuChart"></div>
+        </div>
+      </section>
+      <section class="container resource" id="memoryPanel" aria-labelledby="memoryTitle">
+        <div class="resourceHeader">
+          <div class="headerTitle">
+            <h2 id="memoryTitle">メモリ</h2>
+            <details class="help">
+              <summary aria-label="メモリの説明">
+                <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.9 1.9 0 1 1 2.5 1.8c-.4.2-.7.5-.7 1v.4M8 11.3v.2"/></svg>
+              </summary>
+              <div class="popoverBody">使用率は、使っている量（合計 − 空き）の割合です。下の青い部分がサービス、上の灰色がそのほかのプロセスです。サービスの値は各プロセスの実メモリの合計で、共有している分を重ねて数えるため、実際より多めに出ます。使用率が 90% を超えるか、スワップの使用が 50% を超えると、枠を赤くして知らせます。</div>
+            </details>
+          </div>
+          <span class="statusIndicator" id="memoryStatus" hidden></span>
+        </div>
+        <div class="resourceBody">
+          <div class="resourceNow" id="memoryNow"></div>
+          <div class="resourceChart" id="memoryChart"></div>
+        </div>
+      </section>
+      <section class="container resource" id="diskPanel" aria-labelledby="diskTitle">
+        <div class="resourceHeader">
+          <div class="headerTitle">
+            <h2 id="diskTitle">ディスク</h2>
+            <details class="help">
+              <summary aria-label="ディスクの説明">
+                <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.9 1.9 0 1 1 2.5 1.8c-.4.2-.7.5-.7 1v.4M8 11.3v.2"/></svg>
+              </summary>
+              <div class="popoverBody">録画の保存先（<span id="diskPath">-</span>）があるディスクです。下の青い部分が YouTube Live Monitor の録画、上の灰色がそのほかのファイルです。使用率が 90% を超えるか、あと 6 時間ほどで録画を始めなくなる空き（設定 <span id="diskReserve">-</span>）に届きそうになるか、すでに下回ると、枠を赤くして知らせます。</div>
+            </details>
+          </div>
+          <span class="statusIndicator" id="diskStatus" hidden></span>
+        </div>
+        <div class="resourceBody">
+          <div class="resourceNow" id="diskNow"></div>
+          <div class="resourceChart" id="diskChart"></div>
+        </div>
+      </section>
+      <section class="container resource" id="networkPanel" aria-labelledby="networkTitle">
+        <div class="resourceHeader">
+          <div class="headerTitle">
+            <h2 id="networkTitle">ネットワーク</h2>
+            <details class="help">
+              <summary aria-label="ネットワークの説明">
+                <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.5"/><path d="M6.2 6.3a1.9 1.9 0 1 1 2.5 1.8c-.4.2-.7.5-.7 1v.4M8 11.3v.2"/></svg>
+              </summary>
+              <div class="popoverBody">直近 1 分の平均です。枠を赤くする基準はありません。</div>
+            </details>
+          </div>
+          <span class="statusIndicator" id="networkStatus" hidden></span>
+        </div>
+        <div class="resourceBody">
+          <div class="resourceNow" id="networkNow"></div>
+          <div class="resourceChart" id="networkChart"></div>
+        </div>
+      </section>
+    </div>
+    <p class="srOnly" id="liveStatus" role="status"></p>
   </main>
 </div>
 <script src="/js/common.js"></script>

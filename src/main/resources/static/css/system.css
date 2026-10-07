@@ -251,6 +251,141 @@ main {
 .is-stale { color: var(--c-warning); }
 .is-stale .icon { vertical-align: -3px; margin-right: 4px; }
 
+/* ---------- 資源の枠（レビュー #15・#18・#33・#45） ---------- */
+
+.container {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--c-surface);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-container);
+    box-shadow: 0 1px 4px rgba(0, 7, 22, .06);
+}
+
+.resourceGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+/* 4 列は枠が 460px 以上取れる幅から（レビュー #45） */
+@media (min-width: 2250px) {
+    .resourceGrid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+/* 枠の幅で中の並びを変える（画面の幅では、左メニューの有無と列の数で枠の幅が決まらないため） */
+.resource { position: relative; container: panel / inline-size; }
+
+/* 狭い枠では注意の理由を次の行へ回す。回さないと見出しが 1 文字ずつ折り返されるため */
+.resourceHeader {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+    padding: 14px 20px 0;
+}
+.resourceHeader h2 { font-size: 18px; line-height: 22px; }
+
+.resourceBody {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 8px 20px 16px;
+}
+
+.resourceNow { min-width: 0; }
+
+/* 1280 幅でも値の右にグラフを置く（レビュー #46） */
+@container panel (min-width: 440px) {
+    .resourceBody { grid-template-columns: 210px minmax(0, 1fr); align-items: end; gap: 20px; }
+}
+
+.valueLarge {
+    font-size: 28px;
+    line-height: 34px;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    white-space: nowrap;
+}
+.valueUnit {
+    margin-left: 4px;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: 0;
+    color: var(--c-text-secondary);
+}
+/* 値が無い理由は文なので、大きな値の nowrap を外して折り返す */
+.valueNote {
+    margin-left: 6px;
+    font-size: 13px;
+    font-weight: 400;
+    white-space: normal;
+    color: var(--c-text-inactive);
+}
+/* 狭い枠では量と理由を値の下へ回し、枠からはみ出さないようにする（レビュー #33） */
+@container panel (max-width: 260px) {
+    .valueUnit,
+    .valueNote { display: block; margin-left: 0; }
+}
+.is-error { color: var(--c-error); }
+.is-pending { color: var(--c-warning); }
+
+/* 帯。印は基準の位置（レビュー #41）と録画の下限（レビュー #20） */
+.meterWrap { position: relative; margin-top: 8px; }
+.meter {
+    display: flex;
+    gap: 2px;
+    height: 8px;
+    overflow: hidden;
+    background: var(--c-surface-hover);
+    border-radius: 4px;
+}
+.seg.service,
+.marker.service { background: var(--c-chart-service); }
+/* 灰色は地の色に近いので、輪郭で長さを見せる（レビュー #44） */
+.seg.other,
+.marker.other { background: var(--c-chart-other); box-shadow: inset 0 0 0 1px var(--c-border-input); }
+.meterMark {
+    position: absolute;
+    top: -3px;
+    width: 0;
+    height: 14px;
+    border-left: 1px dashed var(--c-warning);
+}
+.meterMark.is-limit { border-left-color: var(--c-error); }
+
+/* 内訳（名前を普通・値を太字。レビュー #57） */
+.facts { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 8px 0 0; }
+.facts dt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--c-text-secondary);
+    font-weight: 400;
+}
+.facts dd { margin: 0; font-weight: 700; }
+.marker { flex: none; width: 10px; height: 10px; border-radius: 2px; }
+.lineMarker { flex: none; display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+.lineMarker.receive { background: var(--c-chart-receive); }
+.lineMarker.send {
+    background: repeating-linear-gradient(90deg, var(--c-chart-send) 0 4px, transparent 4px 7px);
+}
+
+/* 注意。2px に見せるが、枠の大きさは変えない（読み直しのたびに並びが動かないように） */
+.resource.is-warned { border-color: var(--c-error); box-shadow: 0 0 0 1px var(--c-error); }
+.statusIndicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 700;
+    color: var(--c-error);
+    white-space: nowrap;
+}
+
 /* ---------- 「？」 ---------- */
 
 .help { position: relative; display: inline-flex; align-self: center; }
@@ -281,6 +416,15 @@ main {
     border: 1px solid var(--c-border);
     border-radius: 8px;
     box-shadow: 0 4px 20px 1px rgba(0, 7, 22, .12);
+}
+/* 枠の「？」は値に重ねず、見出しの行の右へ開く（レビュー #49） */
+.resourceHeader .popoverBody { top: -12px; left: calc(100% + 8px); }
+/* 値の右にグラフの場所がある幅では、値の列（210px）の右から開く。「？」の右から開くと、値の列の
+   右側（単位の位置の量・帯・内訳）に重なるため。枠の右端を越えると隣の枠の値に重なるので、幅は
+   枠の中に収める */
+@container panel (min-width: 440px) {
+    .resourceHeader .help { position: static; }
+    .resourceHeader .popoverBody { top: 8px; left: 250px; right: 12px; width: auto; }
 }
 
 /* ---------- ボタン（Cloudscape の Button） ---------- */
@@ -382,4 +526,16 @@ main {
         justify-self: start;
         gap: 4px 20px;
     }
+
+    /* 4 枠を 2 列 2 段のまま詰め、要約を最初の画面に収める（レビュー #32） */
+    .resourceGrid { gap: 8px; }
+    .resourceHeader { padding: 10px 12px 0; }
+    .resourceHeader h2 { font-size: 16px; }
+    /* 枠の右には吹き出しを出す幅が無いので、見出しの下へ開く */
+    .resourceHeader .popoverBody { top: calc(100% + 8px); left: -12px; }
+    .resourceBody { padding: 6px 12px 12px; }
+    .valueLarge { font-size: 20px; line-height: 24px; }
+    .valueUnit,
+    .valueNote { display: block; margin-left: 0; }
+    .facts { gap: 0 8px; font-size: 12px; }
 }
