@@ -68,8 +68,9 @@ public record SystemProcessesResponse(
      * @param commandLine      コマンドライン。読めなければ {@code null}
      * @param workingDirectory 作業フォルダー。読めなければ {@code null}
      * @param cpuPercent       直近 1 分の平均の CPU 使用率（端末全体を 100% とした値）。直近の
-     *                         1 分ごとの記録の後に始まったプロセスは {@code null}。記録の窓の端の
-     *                         扱いで、実際より大きく（100% を超えて）出ることがある
+     *                         1 分ごとの記録の後に始まったプロセスは {@code null}。差を取る前回の
+     *                         記録が要るので、アプリの起動から 2 回目の記録までは {@code null}。
+     *                         記録の窓の端の扱いで、実際より大きく（100% を超えて）出ることがある
      * @param memoryBytes      実メモリ（RSS）。共有ライブラリなどの共有分を各プロセスで重ねて
      *                         数えるので、足し合わせると実際より大きくなる
      * @param upSeconds        起動からの経過時間（秒）
