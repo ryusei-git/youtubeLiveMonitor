@@ -96,7 +96,8 @@ function systemGroupRows(processes) {
      * @property {string}                name             プロセス名
      * @property {string|null}           commandLine      コマンドライン
      * @property {string|null}           workingDirectory 作業フォルダー
-     * @property {number|null}           cpuPercent       直近 1 分の平均の CPU 使用率（端末全体が 100%）
+     * @property {number|null}           cpuPercent       直近 1 分の平均の CPU 使用率（端末全体が
+     *                                                     100%）
      * @property {number}                memoryBytes      実メモリ（RSS）
      * @property {number}                upSeconds        起動からの秒数
      * @property {number[]}              ports            待ち受けている TCP のポート（昇順）
@@ -1337,7 +1338,8 @@ function systemGroupRows(processes) {
 
     /**
      * 見える行が無いときの 1 行。空の表だけでは、読み込み中・失敗・一致なしを見分けられないので、
-     * 何も出ない理由と次にできること（検索を消す・すべてから探す・再試行）を出す（レビュー #7・#38）。
+     * 何も出ない理由と次にできること（検索を消す・すべてから探す・再試行）を出す
+     * （レビュー #7・#38）。
      * @returns {string} tbody の HTML
      */
     function emptyRowHtml() {

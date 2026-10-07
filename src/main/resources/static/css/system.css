@@ -624,13 +624,22 @@ th[aria-sort="ascending"] .sortHeader .icon { transform: rotate(180deg); }
 
 /* 名前のセル。名前とサービスは末尾を … で切り、バッジは切らない */
 .nameCell { display: flex; align-items: center; gap: 6px; min-width: 0; }
-/* バッジ類を名前のセルの flex の並びに入れる（JS は、開閉のボタンを残したままここだけ書き換える） */
-.nameParts { display: contents; }
+/* 名前・サービス・バッジを、開閉のボタンの右の残りの幅に並べる（JS は、開閉のボタンを残したまま
+   ここだけ書き換える）。display: contents にすると、名前の max-width: 100% がボタンの分を含む
+   セルの幅になり、子のある行の名前が末尾の … を出さずにセルの右端で切れるため */
+.nameParts {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+}
 .procName,
 .procService { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .procService { color: var(--c-text-secondary); }
 /* 名前はサービス名より先には縮めない。バッジは縮まないので、狭い列（表が 640px のとき約 100px）
-   では名前が消えて、どのプロセスか分からなくなるため。収まらないバッジはセルの右端で切れる */
+   では名前が消えて、どのプロセスか分からなくなるため。収まらないバッジは右端で切れる */
 .procName { flex-shrink: 0; max-width: 100%; }
 .nameCell .badge,
 .nameCell .statusLamp { flex: none; }
