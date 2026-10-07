@@ -333,6 +333,10 @@ public class ResourceMonitorService {
             process.descendants().forEach(child -> pids.add(child.pid()));
         }
         pids.removeAll(counted);
+        // CPU を測ったプロセス（列挙した時点の実行ユーザーのもの）だけを数える。descendants() は
+        // 列挙の後に読み直すので、その間に始まった子やほかのユーザーの子も返し、それが 1 つでも
+        // あると測れたはずの合計まで null になるため。プロセスの表（実行ユーザーだけ）とも範囲がそろう
+        pids.retainAll(cpu.keySet());
 
         Double cpuPercent = service.cpuPercent();
         for (long pid : pids) {
