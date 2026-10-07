@@ -383,8 +383,8 @@ function systemGroupRows(processes) {
 
     /**
      * 録画の停止を頼んでから、止められなかったとみなすまでの時間（ミリ秒）。録画は止め終わるまで
-     * 最大 30 秒かかり（common.js の stopRecording）、プロセスの一覧はさらに最大 10 秒古いので、
-     * その分を待ってから失敗と出す。
+     * 最大 30 秒かかり（Java の {@code RecordingController#stopRecording}）、プロセスの一覧は
+     * さらに最大 10 秒古いので、その分を待ってから失敗と出す。
      */
     const RECORDING_STOP_MILLIS = 45_000;
 
