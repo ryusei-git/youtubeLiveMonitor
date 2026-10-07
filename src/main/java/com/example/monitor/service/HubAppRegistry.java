@@ -50,10 +50,14 @@ public class HubAppRegistry {
     private final List<HubApp> apps;
 
     /**
-     * @param appsFile 一覧のファイル（JSON）。相対パスはサービスの作業ディレクトリ基準
+     * 空（{@code .env} に {@code MONITOR_HUB_APPS_FILE=} とだけ書いた）は、ファイルが無いのと同じく並べない。
+     * {@code Path.of("")} は作業ディレクトリを指すので、そのまま読むと「ディレクトリです」の WARN が
+     * 起動のたびに出るため（{@code YtDlpCookies} も空は付けない）。
+     *
+     * @param appsFile 一覧のファイル（JSON）。相対パスはサービスの作業ディレクトリ基準。空なら並べない
      */
     public HubAppRegistry(@Value("${monitor.hub.apps-file:data/hub-apps.json}") String appsFile) {
-        this.apps = load(Path.of(appsFile));
+        this.apps = appsFile.isBlank() ? List.of() : load(Path.of(appsFile));
     }
 
     /**
