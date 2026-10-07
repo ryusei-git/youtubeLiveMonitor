@@ -27,16 +27,21 @@ import oshi.software.os.OperatingSystem;
 
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.LongFunction;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -101,6 +106,12 @@ public class ResourceMonitorService {
      */
     private static final long MIN_WINDOW_MILLIS = 1000;
 
+    /**
+     * 1 コア分の CPU のうち、この割合以上を使っていれば「使い切っている」とみなす。100% ちょうどにしないのは、
+     * 窓の端の切れ目や計測のずれで、1 コアに張り付いたプロセスも 95% 前後に出るため。
+     */
+    private static final double CORE_BUSY_RATIO = 0.9;
+
     private final RecordingRepository recordingRepository;
     private final MonitorProperties monitorProperties;
 
@@ -112,6 +123,12 @@ public class ResourceMonitorService {
 
     /** 直前の 1 分ごとの記録で測った値（注意を含む）。まだ記録していなければ {@code null}。 */
     private volatile ResourceSnapshotResponse latest;
+
+    /**
+     * 直前の 1 分ごとの記録で測った、実行ユーザーのプロセスごとの CPU（キーは PID）。読む側が途中で変わらないよう、
+     * 記録のたびに不変の Map を丸ごと差し替える。
+     */
+    private volatile Map<Long, ProcessCpu> processCpu = Map.of();
 
     /**
      * 今の値を返す。直前の 1 分ごとの記録の値なので最大 1 分古く、CPU 使用率とネットワーク量は
@@ -134,6 +151,8 @@ public class ResourceMonitorService {
     public synchronized void record() {
         Measurement measurement = measure(baseline);
         baseline = measurement.baseline();
+        // 1 コアを使い切るプロセスの注意（withWarnings）が今回の値を見るので、先に差し替える
+        processCpu = measurement.processCpu();
         SystemUsage system = measurement.response().system();
         ServiceUsage service = measurement.response().service();
         ResourceHistoryPoint point = new ResourceHistoryPoint(
@@ -150,6 +169,18 @@ public class ResourceMonitorService {
         }
         // CPU の注意は推移の末尾（今回の記録を含む）を見るので、推移に加えた後に判定する
         latest = withWarnings(measurement.response());
+    }
+
+    /**
+     * 実行ユーザーのプロセスごとの CPU を返す。直近の 1 分ごとの記録の値なので最大 1 分古い。
+     *
+     * <p>プロセスの表が CPU に使う。表の CPU を枠の「サービス」と同じ期間（直近 1 分の平均）・同じ計算に
+     * そろえるため、表を出すたびに測り直さずにこの値を使う。
+     *
+     * @return PID → CPU。起動直後でまだ記録していなければ空
+     */
+    public Map<Long, ProcessCpu> processCpu() {
+        return processCpu;
     }
 
     /**
@@ -223,9 +254,28 @@ public class ResourceMonitorService {
 
         List<HelperUsage> helpers = helperUsages(processes, self.getProcessID(), recorders, childrenByParent, cpu);
 
+        // プロセスごとの CPU は OSHI でなく ProcessHandle で数える。OSHI で全プロセスを列挙すると 1 回約 35〜45MiB を
+        // 確保する（#201）のに対し、ProcessHandle.info() は 1 回約 0.1MiB で済むため。対象を実行ユーザーに絞るのは、
+        // プロセスの表と同じ範囲にするため（ほかのユーザーの暴走は端末全体の 85% の注意で見る）。
+        Optional<String> user = ProcessHandle.current().info().user();
+        List<ProcessHandle> userProcesses = ProcessHandle.allProcesses()
+                .filter(process -> user.isPresent() && process.info().user().equals(user))
+                .toList();
+        List<CpuSample> samples = new ArrayList<>();
+        for (ProcessHandle process : userProcesses) {
+            // 列挙の途中で終わったプロセスは値が欠けるので飛ばす
+            ProcessHandle.Info info = process.info();
+            Optional<Instant> start = info.startInstant();
+            Optional<Duration> cpuTime = info.totalCpuDuration();
+            if (start.isEmpty() || cpuTime.isEmpty()) continue;
+            long startTime = start.get().toEpochMilli();
+            samples.add(new CpuSample(process.pid(), startTime, cpuTime.get().toMillis(), now - startTime));
+        }
+
         ResourceSnapshotResponse response = new ResourceSnapshotResponse(LocalDateTime.now(), system,
                 serviceUsage(application, recorders, helpers), List.of());
-        return new Measurement(response, new Baseline(now, ticks, received, sent, tracked));
+        return new Measurement(response, new Baseline(now, ticks, received, sent, tracked),
+                nextProcessCpu(processCpu, samples, windowMillis, cores));
     }
 
     /**
@@ -419,7 +469,82 @@ public class ResourceMonitorService {
         synchronized (history) {
             recent = history.reversed().stream().limit(CPU_WARNING_MINUTES).toList();
         }
-        return evaluateWarnings(system, recent);
+        List<Warning> warnings = new ArrayList<>(evaluateWarnings(system, recent));
+        // 名前は注意を出すときだけ OSHI に聞く（1 件約 0.12MiB。全プロセス分を毎回引くと #201 の確保に戻る）
+        Warning core = coreWarning(processCpu, pid -> {
+            OSProcess process = systemInfo.getOperatingSystem().getProcess((int) pid);
+            return process == null ? "名前不明" : process.getName();
+        });
+        if (core != null) warnings.add(core);
+        return warnings;
+    }
+
+    /**
+     * 1 つのプロセスが 1 コア分を使い切り続けていれば、注意にする。
+     *
+     * <p>端末全体の CPU の注意（85%）だけでは、1 本のスレッドが止まらなくなって 1 コアに張り付いても、
+     * 8 コアなら 12.5% ほどにしかならず気付けないため。一瞬の山で出ないよう、端末全体の注意と同じく
+     * {@code CPU_WARNING_MINUTES} 分続いたときだけ出す。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
+     *
+     * @param cpu    PID → CPU（{@link #processCpu()} の値）
+     * @param nameOf PID → 表示するプロセス名。注意を出すときの 1 件だけ引く
+     * @return 注意。続いて使い切っているプロセスが無ければ {@code null}
+     */
+    static Warning coreWarning(Map<Long, ProcessCpu> cpu, LongFunction<String> nameOf) {
+        List<Map.Entry<Long, ProcessCpu>> busy = cpu.entrySet().stream()
+                .filter(entry -> entry.getValue().busyMinutes() >= CPU_WARNING_MINUTES)
+                .sorted(Comparator.comparingInt((Map.Entry<Long, ProcessCpu> entry) -> entry.getValue().busyMinutes())
+                        .reversed().thenComparing(Map.Entry::getKey))
+                .toList();
+        if (busy.isEmpty()) return null;
+        long pid = busy.getFirst().getKey();
+        String others = busy.size() > 1 ? " ほか %d 件".formatted(busy.size() - 1) : "";
+        return new Warning("core", "1 つのプロセスが 1 コア分の CPU を %d 分以上使い続けています（%s、PID %d%s）"
+                .formatted(CPU_WARNING_MINUTES, nameOf.apply(pid), pid, others));
+    }
+
+    /**
+     * 今回の値と前回の記録から、実行ユーザーのプロセスごとの CPU を求める。
+     *
+     * <p>計算は {@code CpuMeter} と同じ（前回の記録との CPU 時間の差を経過時間とコア数で割る。前回の記録の後に
+     * 始まったプロセスは起動からの累計で割る）。どちらも {@code /proc} の utime+stime なので、「このサービス」の値と
+     * 足し引きできる。PID は使い回されるので、起動時刻も同じときだけ前回と同じプロセスとみなす。
+     * 間隔が {@code MIN_WINDOW_MILLIS} に満たなければ、使用率は「分からない」（{@code null}）にする（0 にしない）。
+     * 今回の値に無いプロセス（終わったもの）は載せないので、表は増え続けない。
+     *
+     * <p>テストから呼ぶため、パッケージプライベートにしている（{@code private} に戻さない）。
+     *
+     * @param prior        前回の記録の値（PID → CPU）。まだ記録していなければ空
+     * @param samples      今回の値
+     * @param windowMillis 前回の記録からの経過時間（ミリ秒）。前回が無ければ 0
+     * @param cores        論理コア数
+     * @return PID → CPU（不変）
+     */
+    static Map<Long, ProcessCpu> nextProcessCpu(Map<Long, ProcessCpu> prior, List<CpuSample> samples,
+                                                long windowMillis, int cores) {
+        Map<Long, ProcessCpu> next = new HashMap<>();
+        for (CpuSample sample : samples) {
+            ProcessCpu before = prior.get(sample.pid());
+            boolean same = before != null && before.startTime() == sample.startTime();
+            Double percent = null;
+            if (windowMillis >= MIN_WINDOW_MILLIS) {
+                long cpuMillis = sample.cpuMillis();
+                long elapsed;
+                if (same) {
+                    cpuMillis -= before.cpuMillis();
+                    elapsed = windowMillis;
+                } else {
+                    elapsed = Math.min(sample.upMillis(), windowMillis);
+                }
+                percent = elapsed <= 0 ? null : 100.0 * cpuMillis / elapsed / cores;
+            }
+            boolean busy = percent != null && percent >= CORE_BUSY_RATIO * 100 / cores;
+            int busyMinutes = !busy ? 0 : same ? before.busyMinutes() + 1 : 1;
+            next.put(sample.pid(), new ProcessCpu(sample.startTime(), sample.cpuMillis(), percent, busyMinutes));
+        }
+        return Map.copyOf(next);
     }
 
     /**
@@ -482,7 +607,28 @@ public class ResourceMonitorService {
     record Baseline(long timeMillis, long[] cpuTicks, long receivedBytes, long sentBytes,
                     Map<Integer, OSProcess> processes) {}
 
-    private record Measurement(ResourceSnapshotResponse response, Baseline baseline) {}
+    private record Measurement(ResourceSnapshotResponse response, Baseline baseline,
+                               Map<Long, ProcessCpu> processCpu) {}
+
+    /**
+     * 実行ユーザーのプロセス 1 つの、直近の 1 分ごとの記録での CPU 使用率（端末全体を 100% とした値）。
+     *
+     * @param startTime   起動時刻（エポックミリ秒）。PID の使い回しを見分けるため
+     * @param cpuMillis   起動からの CPU 時間の累計（ミリ秒）。次の記録で差を取るため
+     * @param percent     前回の記録からの CPU 使用率（%）。前回の記録が無い・間隔が短すぎるときは {@code null}
+     * @param busyMinutes 1 コア分を使い切っている記録が何回（何分）続いているか。使い切っていなければ 0
+     */
+    public record ProcessCpu(long startTime, long cpuMillis, Double percent, int busyMinutes) {}
+
+    /**
+     * 差を取るための、プロセス 1 つの 1 回分の値。テストから作るためパッケージプライベート。
+     *
+     * @param pid       プロセス ID
+     * @param startTime 起動時刻（エポックミリ秒。OSHI の {@code OSProcess.getStartTime()} と同じ値）
+     * @param cpuMillis 起動からの CPU 時間の累計（ミリ秒。utime+stime）
+     * @param upMillis  起動からの経過時間（ミリ秒）。前回の記録の後に始まったプロセスを起動からの累計で割るため
+     */
+    record CpuSample(long pid, long startTime, long cpuMillis, long upMillis) {}
 
     /**
      * プロセスの CPU 使用率を、前回の記録の時点からの CPU 時間の差で求める。

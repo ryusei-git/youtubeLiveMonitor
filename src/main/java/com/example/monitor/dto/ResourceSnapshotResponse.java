@@ -124,7 +124,10 @@ public record ResourceSnapshotResponse(
     /**
      * 目安を超えている項目。
      *
-     * @param key     画面が項目を見分けるための固定の識別子（{@code cpu} / {@code memory} / {@code swap} / {@code disk}）
+     * <p>並びは cpu・memory・swap・disk・core の順。
+     *
+     * @param key     画面が項目を見分けるための固定の識別子（{@code cpu} / {@code memory} / {@code swap} /
+     *                {@code disk} / {@code core}）
      * @param message 表示する文言
      */
     public record Warning(String key, String message) {}
