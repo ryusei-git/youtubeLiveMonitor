@@ -100,4 +100,70 @@ public final class ProcessTermination {
             return true;
         }
     }
+
+    /**
+     * {@link ProcessTermination#terminateTree} の結果。
+     *
+     * @param forced    SIGTERM の後 {@code grace} 待っても残ったものがあり、SIGKILL を送ったか
+     * @param remaining SIGKILL の後 {@code killWait} 待っても残っていたプロセス。ゾンビも入る
+     *                  （{@link ProcessHandle#isAlive()} はゾンビを生きているとみなす）
+     */
+    public record TreeResult(boolean forced, List<ProcessHandle> remaining) {
+    }
+
+    /**
+     * 呼び出し側が集めたプロセスの木を SIGTERM で止め、{@code grace} 待っても残ったものを SIGKILL で
+     * 止めて、{@code killWait} まで終わるのを待つ。
+     *
+     * <p><b>{@link #terminateTreeAndAwait} と分けているのは、次の 3 つのため。</b>
+     * <ul>
+     *   <li>木を呼び出し側から受け取るので、呼び出し側は止める前に集めた木から、止めに行った子の数を
+     *       正しく出せる（中で集めると、呼び出し側が数えた木と食い違うことがある）。</li>
+     *   <li>SIGKILL の後の待ちに上限がある。権限の無いプロセスや D 状態（I/O 待ちで止まらない）の
+     *       プロセスは SIGKILL でも終わらず、{@code terminateTreeAndAwait} の待ちは戻らなくなる。</li>
+     *   <li>SIGKILL を送る直前に {@code beforeKill} で知らせを受けられる（画面に「強制終了しています」
+     *       を出すため）。</li>
+     * </ul>
+     *
+     * <p><b>子孫は止める前に 1 回だけ集めて渡すこと。</b>親が先に死ぬと子は別の親へ付け替わるので、
+     * 止めた後に集め直すと、付け替わった孫を取りこぼす（{@code terminateTreeAndAwait} と同じ理由）。
+     *
+     * @param tree       止めるプロセス（子孫を含む）
+     * @param grace      SIGTERM の後、SIGKILL に切り替えるまで待つ時間（木全体の締め切り）
+     * @param killWait   SIGKILL の後、終わるのを待つ時間（木全体の締め切り）
+     * @param beforeKill SIGKILL を送る直前に 1 回だけ呼ぶ。SIGTERM だけで終われば呼ばない
+     * @return SIGKILL を送ったかと、最後まで残ったプロセス
+     * @throws InterruptedException 待っている間に割り込まれた場合（全員に SIGKILL を送ってから投げる）
+     */
+    public static TreeResult terminateTree(List<ProcessHandle> tree, Duration grace, Duration killWait,
+                                           Runnable beforeKill) throws InterruptedException {
+        tree.forEach(ProcessHandle::destroy);
+        try {
+            awaitAll(tree, grace);
+            List<ProcessHandle> alive = tree.stream().filter(ProcessHandle::isAlive).toList();
+            if (alive.isEmpty()) {
+                return new TreeResult(false, List.of());
+            }
+            beforeKill.run();
+            alive.forEach(ProcessHandle::destroyForcibly);
+            awaitAll(alive, killWait);
+            return new TreeResult(true, alive.stream().filter(ProcessHandle::isAlive).toList());
+        } catch (InterruptedException e) {
+            tree.forEach(ProcessHandle::destroyForcibly);
+            throw e;
+        }
+    }
+
+    /** {@code timeout} を全員で共有する締め切りにして、各プロセスが終わるのを待つ。 */
+    private static void awaitAll(List<ProcessHandle> handles, Duration timeout) throws InterruptedException {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        for (ProcessHandle h : handles) {
+            long remainingMillis = Math.max(0, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()));
+            try {
+                h.onExit().get(remainingMillis, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException | ExecutionException e) {
+                // 締め切りを過ぎたものは、呼び出し側が isAlive() で見分ける
+            }
+        }
+    }
 }
