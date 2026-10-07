@@ -18,6 +18,9 @@ import java.util.List;
  *                      読み取るため
  * @param services      左メニューのサービスの状態。先頭はこのサービス自身
  * @param processes     実行ユーザーのプロセス（PID の昇順）
+ * @param stops         画面から止めたプロセスの記録（新しい順。途中のものと、終わってから 10 分
+ *                      以内のもの、最大 20 件）。画面を読み直しても「停止中」と結果を出せるよう、
+ *                      サーバーで持つ
  */
 public record SystemProcessesResponse(
         LocalDateTime measuredAt,
@@ -26,7 +29,8 @@ public record SystemProcessesResponse(
         String user,
         int cores,
         List<ServiceStatus> services,
-        List<ProcessRow> processes
+        List<ProcessRow> processes,
+        List<StopJob> stops
 ) {
 
     /**
@@ -82,6 +86,9 @@ public record SystemProcessesResponse(
      * @param recording        録画中の yt-dlp とその子孫なら、その録画。でなければ {@code null}
      * @param lockedReason     止めてはいけない理由（画面で選べない理由として出す）。止めてよければ
      *                         {@code null}
+     * @param stopState        止めている途中の木に入っていれば {@link StopState#STOPPING} か
+     *                         {@link StopState#KILLING}、それ以外は {@code null}。止めている途中の
+     *                         プロセスを画面でもう一度選ばせないため
      */
     public record ProcessRow(
             int pid,
@@ -97,7 +104,8 @@ public record SystemProcessesResponse(
             String service,
             Role role,
             RecordingInfo recording,
-            String lockedReason
+            String lockedReason,
+            StopState stopState
     ) {
     }
 
@@ -120,5 +128,42 @@ public record SystemProcessesResponse(
      */
     public record RecordingInfo(long id, String channelName, String videoTitle, LocalDateTime startedAt,
                                 long fileBytes) {
+    }
+
+    /**
+     * 画面から止めたプロセスの状態。
+     *
+     * <p>「強制終了しても残った」を分けるのは、D 状態（I/O 待ちで止まらない）のプロセスは SIGKILL でも
+     * 終わらず、「止めた」と出すと残っていることに気付けないため。
+     */
+    public enum StopState {
+        /** SIGTERM を送り、終わるのを待っている。 */
+        STOPPING,
+        /** 10 秒たっても残っていたので、SIGKILL を送って終わるのを待っている。 */
+        KILLING,
+        /** SIGTERM で止まった。 */
+        STOPPED,
+        /** SIGKILL で止まった。 */
+        KILLED,
+        /** SIGKILL を送っても残った。 */
+        FAILED
+    }
+
+    /**
+     * 画面から止めたプロセス 1 つの記録。DB には残さず、メモリだけで持つ（再起動すると消える。
+     * 後から追えるのは監査ログとアプリのログ）。
+     *
+     * @param id         記録の番号（アプリの起動から振り直す）
+     * @param pid        選んだプロセスの ID
+     * @param startTime  選んだプロセスの起動時刻（エポックミリ秒）
+     * @param name       選んだプロセスの名前
+     * @param children   実際に止めに行った子孫の数（止める前に集めた木から数える）
+     * @param state      今の状態
+     * @param startedAt  止め始めた時刻
+     * @param finishedAt 止め終わった時刻。途中なら {@code null}
+     * @param remaining  {@link StopState#FAILED} のときに残ったプロセスの ID。それ以外は空
+     */
+    public record StopJob(long id, int pid, long startTime, String name, int children, StopState state,
+                          LocalDateTime startedAt, LocalDateTime finishedAt, List<Integer> remaining) {
     }
 }
