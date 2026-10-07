@@ -331,6 +331,8 @@ main {
     .valueUnit,
     .valueNote { display: block; margin-left: 0; }
 }
+/* ネットワークの理由は内訳の下の行なので、内訳の左端にそろえる */
+.facts + .valueNote { display: block; margin: 4px 0 0; }
 .is-error { color: var(--c-error); }
 .is-pending { color: var(--c-warning); }
 

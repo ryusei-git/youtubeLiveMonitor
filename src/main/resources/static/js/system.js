@@ -446,18 +446,20 @@
      */
     function shortReason(key, r) {
         const s = r.system;
+        // 空きは切り捨てる。四捨五入すると 9.96% が「空き 10.0%」になり、「10% を下回って
+        // います」の注意と食い違うため
+        /** @type {(bytes: number, total: number) => string} */
+        const free = (bytes, total) => `空き ${formatPercent(Math.floor(bytes / total * 1000) / 10)}`;
         if (key === "cpu") return "85% 超えが 5 分";
         if (key === "core") return "1 コアを 5 分使い切り";
-        if (key === "memory") {
-            return `空き ${formatPercent(s.memoryAvailableBytes / s.memoryTotalBytes * 100)}`;
-        }
+        if (key === "memory") return free(s.memoryAvailableBytes, s.memoryTotalBytes);
         // スワップは、この注意が出ている間だけ値を見せる（常に出す文字を減らすため。レビュー #17）
         if (key === "swap") return `スワップ ${(s.swapUsedBytes / s.swapTotalBytes * 100).toFixed(0)}%`;
         // disk は「空きが 10% 未満」と「録画の下限に近い・下回った」のどちらか。両方に当たるとき
         // サーバーは 10% の方だけを出すので、ここも 10% の方を先に見る
         if (s.diskTotalBytes !== null && s.diskFreeBytes !== null
             && s.diskFreeBytes < s.diskTotalBytes * 0.1) {
-            return `空き ${formatPercent(s.diskFreeBytes / s.diskTotalBytes * 100)}`;
+            return free(s.diskFreeBytes, s.diskTotalBytes);
         }
         const hoursLeft = r.diskOutlook.hoursLeft;
         return hoursLeft === 0 ? "録画を始めません" : `あと 約 ${hoursLeft} 時間`;
