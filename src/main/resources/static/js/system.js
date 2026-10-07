@@ -132,6 +132,22 @@
     }
 
     /**
+     * 相対の URL（{@code /index.html} など）を、開く先が分かるように絶対の URL にする。
+     * サーバーは URL の書き出しだけを確かめるので、{@code http://ryusei:99999/}（ポートの打ち間違い）
+     * のような解釈できない URL も届く。そのとき例外で左メニューの全件を描けなくならないよう、
+     * 書かれたままを返す。
+     * @param {string} url サービスの URL
+     * @returns {string} 絶対の URL。解釈できなければ url のまま
+     */
+    function absoluteUrl(url) {
+        try {
+            return new URL(url, location.href).href;
+        } catch {
+            return url;
+        }
+    }
+
+    /**
      * 左メニューのサービスを描く。
      *
      * <p>描いた HTML が前と同じなら描き直さない。10 秒ごとに描き直すと、キーボードでリンクに
@@ -151,7 +167,7 @@
                 return `<li><span class="navItem" title="${state.label} · 画面の無いサービスです">`
                     + `${icon}${name}</span></li>`;
             }
-            const title = `${state.label} · ${new URL(service.url, location.href).href} を開きます`;
+            const title = `${state.label} · ${absoluteUrl(service.url)} を開きます`;
             return `<li><a class="navItem" href="${escapeHtml(service.url)}" target="_blank"`
                 + ` rel="noopener noreferrer" title="${escapeHtml(title)}">`
                 + `${icon}${name}${EXTERNAL_ICON}</a></li>`;
@@ -291,6 +307,10 @@
     refresh();
     startVisibleRefresh(refresh, 10_000);
     // 応答が返らないまま読み込みが止まると（サーバーが固まったときなど）、refresh からは
-    // renderHeader が呼ばれない。それでも古くなったことを出せるよう、別に見直す
-    window.setInterval(renderHeader, 5_000);
+    // renderHeader が呼ばれない。それでも古くなったことを出せるよう、別に見直す。
+    // 隠れている間は見直さない。読まないので必ず古くなり、戻った瞬間に、読み直しが返るまで
+    // 「更新できていません」が一瞬出るため
+    window.setInterval(() => {
+        if (document.visibilityState === "visible") renderHeader();
+    }, 5_000);
 })();
