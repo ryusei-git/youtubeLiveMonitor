@@ -7,13 +7,16 @@ import com.example.monitor.dto.ResourceSnapshotResponse.ApplicationUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.HelperUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.ProcessUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.RecorderUsage;
+import com.example.monitor.dto.ResourceSnapshotResponse.RegisteredUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.ServiceUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.SystemUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.Warning;
 import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.repository.RecordingRepository;
+import com.example.monitor.util.DirectorySizeUtils;
 import com.example.monitor.util.DiskSpaceUtils;
+import com.example.monitor.util.ProcessWorkingDirectory;
 import com.example.monitor.util.RecordingPathUtils;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
@@ -62,6 +65,12 @@ import java.util.stream.Stream;
  * CPU の注意が出ているのに「このサービス」は低く見え、原因がこのサービスの外にあると読めてしまう。
  * 数えるのは 1 分ごとの記録の時点で動いているものだけで、記録と記録の間に始まって終わった短いもの
  * （サムネイルの ffmpeg など）は数えられない。
+ *
+ * <p>「このサービス」とは別に、登録したサービス全体（左のメニューに並べるもの）の合計も持つ。
+ * ほかのサービスのプロセスは、作業フォルダー（{@link ProcessWorkingDirectory}）が
+ * {@link HubAppRegistry} のフォルダーの中にあるかで見分ける。確認用インスタンス
+ * （{@code bin/sandbox.sh}・{@code bin/preview.sh}）は登録したフォルダーの外で動くので含めない。
+ * 止め忘れた確認用インスタンスを「サービスが重い」と読ませないため。
  *
  * <p>CLI では定期処理が動かず前回値が作られないので、Bean ごと作らない。
  */
@@ -114,6 +123,7 @@ public class ResourceMonitorService {
 
     private final RecordingRepository recordingRepository;
     private final MonitorProperties monitorProperties;
+    private final HubAppRegistry hubAppRegistry;
 
     private final SystemInfo systemInfo = new SystemInfo();
     private final Deque<ResourceHistoryPoint> history = new ArrayDeque<>();
@@ -162,7 +172,12 @@ public class ResourceMonitorService {
                 service.cpuPercent(),
                 service.memoryBytes(),
                 service.recorders().size(),
-                system.networkReceiveBytesPerSecond());
+                system.networkReceiveBytesPerSecond(),
+                system.networkSendBytesPerSecond(),
+                system.diskFreeBytes(),
+                measurement.response().recordingsBytes(),
+                measurement.response().registered().cpuPercent(),
+                measurement.response().registered().memoryBytes());
         synchronized (history) {
             if (history.size() == HISTORY_SIZE) history.removeFirst();
             history.addLast(point);
@@ -217,6 +232,10 @@ public class ResourceMonitorService {
 
         String diskPath = monitorProperties.recording().directory();
         DiskSpaceUtils.Capacity disk = DiskSpaceUtils.read(Path.of(diskPath));
+        // ponytail: 録画のファイル数に比例して重くなる（今は 113 ファイル・約 114GB で数 ms）。
+        // 重くなったら数分おきに測る。API（snapshot()）は直前の記録の値を返すので、
+        // 画面を開いても測り直さない。
+        long recordingsBytes = DirectorySizeUtils.sizeOf(Path.of(diskPath));
 
         SystemUsage system = new SystemUsage(
                 systemCpu, cores, load < 0 ? null : load,
@@ -272,10 +291,63 @@ public class ResourceMonitorService {
             samples.add(new CpuSample(process.pid(), startTime, cpuTime.get().toMillis(), now - startTime));
         }
 
+        Map<Long, ProcessCpu> nextCpu = nextProcessCpu(processCpu, samples, windowMillis, cores);
+        ServiceUsage service = serviceUsage(application, recorders, helpers);
         ResourceSnapshotResponse response = new ResourceSnapshotResponse(LocalDateTime.now(), system,
-                serviceUsage(application, recorders, helpers), List.of());
-        return new Measurement(response, new Baseline(now, ticks, received, sent, tracked),
-                nextProcessCpu(processCpu, samples, windowMillis, cores));
+                service, registeredUsage(service, userProcesses, nextCpu, os), recordingsBytes, List.of());
+        return new Measurement(response, new Baseline(now, ticks, received, sent, tracked), nextCpu);
+    }
+
+    /**
+     * 「このサービス」に、登録したほかのサービス（{@link HubAppRegistry}）のプロセスとその子孫を足す。
+     *
+     * <p>CPU は実行ユーザーのプロセスごとの値（{@link #processCpu()}）で足す。プロセスの表の
+     * サービスの行と同じ期間（直近 1 分の平均）・同じ計算にそろえ、表と枠の値を食い違わせないため。
+     * 値の無いプロセスが 1 つでもあれば合計は {@code null} にする（{@code add} の理由と同じ）。
+     * メモリは見分けた数件だけを OSHI に聞く（全プロセスを OSHI で引くと #201 の確保に戻るため）。
+     * 「このサービス」として数え済みのプロセスは、二重に数えないよう除く。作業フォルダーを読めない
+     * プロセスはどのサービスにも入れない（Windows では常に読めず、{@code service} と同じ値になる）。
+     *
+     * @param service       このサービスの値
+     * @param userProcesses 実行ユーザーのプロセス
+     * @param cpu           今回の記録での、実行ユーザーのプロセスごとの CPU（キーは PID）
+     * @param os            メモリを聞く OSHI
+     * @return 登録したサービス全体の値。登録したサービスが動いていなければ {@code service} と同じ値
+     */
+    private RegisteredUsage registeredUsage(ServiceUsage service, List<ProcessHandle> userProcesses,
+                                            Map<Long, ProcessCpu> cpu, OperatingSystem os) {
+        Set<Long> counted = new HashSet<>();
+        counted.add((long) service.application().pid());
+        for (RecorderUsage recorder : service.recorders()) {
+            counted.add((long) recorder.pid());
+            recorder.children().forEach(child -> counted.add((long) child.pid()));
+        }
+        for (HelperUsage helper : service.helpers()) {
+            counted.add((long) helper.pid());
+            helper.children().forEach(child -> counted.add((long) child.pid()));
+        }
+        Set<Long> pids = new HashSet<>();
+        for (ProcessHandle process : userProcesses) {
+            if (ProcessWorkingDirectory.of(process.pid()).flatMap(hubAppRegistry::appFor).isEmpty()) continue;
+            pids.add(process.pid());
+            process.descendants().forEach(child -> pids.add(child.pid()));
+        }
+        pids.removeAll(counted);
+        // CPU を測ったプロセス（列挙した時点の実行ユーザーのもの）だけを数える。descendants() は
+        // 列挙の後に読み直すので、その間に始まった子やほかのユーザーの子も返し、それが 1 つでも
+        // あると測れたはずの合計まで null になるため。プロセスの表（実行ユーザーだけ）とも範囲がそろう
+        pids.retainAll(cpu.keySet());
+
+        Double cpuPercent = service.cpuPercent();
+        for (long pid : pids) {
+            ProcessCpu usage = cpu.get(pid);
+            cpuPercent = add(cpuPercent, usage == null ? null : usage.percent());
+        }
+        long memoryBytes = service.memoryBytes();
+        for (OSProcess process : os.getProcesses(pids.stream().map(Long::intValue).toList())) {
+            memoryBytes += process.getResidentMemory();
+        }
+        return new RegisteredUsage(cpuPercent, memoryBytes);
     }
 
     /**
@@ -460,7 +532,7 @@ public class ResourceMonitorService {
 
     private ResourceSnapshotResponse withWarnings(ResourceSnapshotResponse measured) {
         return new ResourceSnapshotResponse(measured.measuredAt(), measured.system(), measured.service(),
-                warnings(measured.system()));
+                measured.registered(), measured.recordingsBytes(), warnings(measured.system()));
     }
 
     private List<Warning> warnings(SystemUsage system) {
