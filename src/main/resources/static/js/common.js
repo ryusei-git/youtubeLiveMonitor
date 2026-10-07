@@ -340,6 +340,17 @@ function formatFileSize(bytes) {
 }
 
 /**
+ * 使用率を表示用に整える（小数 1 桁と %）。まだ測れていない値（null。起動直後は前回の計測が無い）は
+ * "-" にし、0% と読ませない。
+ *
+ * @param {number|null|undefined} percent 使用率
+ * @returns {string} 表示用の文字列
+ */
+function formatPercent(percent) {
+    return percent === null || percent === undefined ? "-" : `${percent.toFixed(1)}%`;
+}
+
+/**
  * 秒数を「h:mm:ss」（1時間未満なら「m:ss」）に整形する。
  * 録画一覧のサムネイルと再生画面で共通して使う。
  *
@@ -2529,12 +2540,13 @@ function renderUpcomingStreams(streams, box = el("upcomingStreams"),
 
 /** 非表示中の定期通信を省き、戻ってきたときだけ最新の保存済み状態を読む。
  * @param {() => void} refresh
+ * @param {number} [intervalMillis] 読み直す間隔（ミリ秒）。省くと 60 秒
  * @returns {() => void} 止める関数。1 枚のページ（my.html）の画面はページを読み込み直さずに移るため、
  *   画面を離れるときに呼ばないと、離れた画面の読み直しが続く
  */
-function startVisibleRefresh(refresh) {
+function startVisibleRefresh(refresh, intervalMillis = 60_000) {
     const refreshIfVisible = () => { if (document.visibilityState === "visible") refresh(); };
-    const timer = window.setInterval(refreshIfVisible, 60_000);
+    const timer = window.setInterval(refreshIfVisible, intervalMillis);
     document.addEventListener("visibilitychange", refreshIfVisible);
     return () => {
         window.clearInterval(timer);
