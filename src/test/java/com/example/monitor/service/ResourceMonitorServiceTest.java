@@ -2,12 +2,15 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.ResourceHistoryPoint;
 import com.example.monitor.dto.ResourceSnapshotResponse.ApplicationUsage;
+import com.example.monitor.dto.ResourceSnapshotResponse.DiskOutlook;
 import com.example.monitor.dto.ResourceSnapshotResponse.HelperUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.ProcessUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.RecorderUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.ServiceUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.SystemUsage;
 import com.example.monitor.dto.ResourceSnapshotResponse.Warning;
+import com.example.monitor.service.ResourceMonitorService.CpuSample;
+import com.example.monitor.service.ResourceMonitorService.ProcessCpu;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -52,7 +55,8 @@ class ResourceMonitorServiceTest {
     /** 推移を新しい順に並べる。引数は端末全体の CPU 使用率（先頭が今回の記録）。 */
     private static List<ResourceHistoryPoint> recent(Double... systemCpuPercents) {
         return Arrays.stream(systemCpuPercents)
-                .map(cpu -> new ResourceHistoryPoint(LocalDateTime.now(), cpu, 50.0, null, 0L, 0, null, null, null, 0L, null, 0L))
+                .map(cpu -> new ResourceHistoryPoint(LocalDateTime.now(), cpu, 50.0, null, 0L, 0, null, null, null,
+                        0L, null, 0L))
                 .toList();
     }
 
@@ -583,6 +587,231 @@ class ResourceMonitorServiceTest {
 
             assertThat(result.cpuPercent()).isEqualTo(1.0);
             assertThat(result.memoryBytes()).isEqualTo(100L);
+        }
+    }
+
+    @Nested
+    @DisplayName("nextProcessCpu()")
+    class NextProcessCpu {
+
+        /** 1 分ごとの記録の間隔（ミリ秒）。 */
+        private static final long WINDOW = 60_000L;
+
+        @Test
+        @DisplayName("正常系：前回からの間隔が MIN_WINDOW_MILLIS（1 秒）未満なら、percent は null で busyMinutes は 0")
+        void testMethod01() {
+            Map<Long, ProcessCpu> prior = Map.of(100L, new ProcessCpu(1000L, 10_000L, 50.0, 3));
+
+            Map<Long, ProcessCpu> result = ResourceMonitorService.nextProcessCpu(prior,
+                    List.of(new CpuSample(100L, 1000L, 10_900L, 600_000L)), 999L, 4);
+
+            assertThat(result.get(100L)).isEqualTo(new ProcessCpu(1000L, 10_900L, null, 0));
+        }
+
+        @Test
+        @DisplayName("正常系：前回に同じ PID・同じ起動時刻があれば、CPU 時間の差を窓の長さとコア数で割る")
+        void testMethod02() {
+            Map<Long, ProcessCpu> prior = Map.of(100L, new ProcessCpu(1000L, 10_000L, null, 0));
+
+            Map<Long, ProcessCpu> result = ResourceMonitorService.nextProcessCpu(prior,
+                    List.of(new CpuSample(100L, 1000L, 70_000L, 600_000L)), WINDOW, 4);
+
+            // (70000 − 10000) ÷ 60000 ÷ 4 × 100。次の記録で差を取るため、cpuMillis は累計のまま残す
+            assertThat(result.get(100L).percent()).isCloseTo(25.0, within(1e-9));
+            assertThat(result.get(100L).cpuMillis()).isEqualTo(70_000L);
+        }
+
+        @Test
+        @DisplayName("正常系：PID が同じでも起動時刻が違えば別のプロセスとし、起動からの累計を min(起動からの時間, 窓) で割る")
+        void testMethod03() {
+            Map<Long, ProcessCpu> prior = Map.of(100L, new ProcessCpu(1000L, 50_000L, 10.0, 0));
+
+            Map<Long, ProcessCpu> result = ResourceMonitorService.nextProcessCpu(prior, List.of(
+                    // PID が使い回された（起動から 30 秒）
+                    new CpuSample(100L, 2000L, 3000L, 30_000L),
+                    // 前回の記録に無い古いプロセス（起動から 10 分）
+                    new CpuSample(200L, 3000L, 12_000L, 600_000L)), WINDOW, 2);
+
+            // 3000 ÷ 30000 ÷ 2 × 100（前回の 50000 は引かない）
+            assertThat(result.get(100L).percent()).isCloseTo(5.0, within(1e-9));
+            assertThat(result.get(100L).startTime()).isEqualTo(2000L);
+            // 12000 ÷ 60000 ÷ 2 × 100（起動からの時間が窓より長いので窓で割る）
+            assertThat(result.get(200L).percent()).isCloseTo(10.0, within(1e-9));
+        }
+
+        @Test
+        @DisplayName("正常系：1 コアの 90% 以上（4 コアなら 22.5% 以上）が続くと busyMinutes が 1 ずつ増え、下回ると 0 に戻る")
+        void testMethod04() {
+            // 1 回目：前回の記録に無いプロセスが 25%（窓 60000 のうち 60000 ミリ秒）
+            Map<Long, ProcessCpu> first = ResourceMonitorService.nextProcessCpu(Map.of(),
+                    List.of(new CpuSample(100L, 1000L, 60_000L, 600_000L)), WINDOW, 4);
+            // 2 回目：差が 54000 ミリ秒でちょうど 22.5%
+            Map<Long, ProcessCpu> second = ResourceMonitorService.nextProcessCpu(first,
+                    List.of(new CpuSample(100L, 1000L, 114_000L, 660_000L)), WINDOW, 4);
+            // 3 回目：差が 53000 ミリ秒で 22.5% を下回る
+            Map<Long, ProcessCpu> third = ResourceMonitorService.nextProcessCpu(second,
+                    List.of(new CpuSample(100L, 1000L, 167_000L, 720_000L)), WINDOW, 4);
+
+            assertThat(first.get(100L).busyMinutes()).isEqualTo(1);
+            assertThat(second.get(100L).percent()).isCloseTo(22.5, within(1e-9));
+            assertThat(second.get(100L).busyMinutes()).isEqualTo(2);
+            assertThat(third.get(100L).busyMinutes()).isZero();
+        }
+
+        @Test
+        @DisplayName("正常系：今回の値に無いプロセス（終わったもの）は結果に残らない")
+        void testMethod05() {
+            Map<Long, ProcessCpu> prior = Map.of(
+                    100L, new ProcessCpu(1000L, 10_000L, 25.0, 4),
+                    200L, new ProcessCpu(2000L, 20_000L, 25.0, 4));
+
+            Map<Long, ProcessCpu> result = ResourceMonitorService.nextProcessCpu(prior,
+                    List.of(new CpuSample(100L, 1000L, 20_000L, 600_000L)), WINDOW, 4);
+
+            assertThat(result).containsOnlyKeys(100L);
+        }
+    }
+
+    @Nested
+    @DisplayName("coreWarning()")
+    class CoreWarning {
+
+        @Test
+        @DisplayName("正常系：使い切っている記録が 5 回（5 分）続いていなければ null")
+        void testMethod01() {
+            Map<Long, ProcessCpu> cpu = Map.of(100L, new ProcessCpu(1000L, 0L, 25.0, 4));
+
+            assertThat(ResourceMonitorService.coreWarning(cpu, pid -> "yes")).isNull();
+        }
+
+        @Test
+        @DisplayName("異常系：5 回以上続けば key が core の注意になり、文言にプロセス名と PID が入る")
+        void testMethod02() {
+            Map<Long, ProcessCpu> cpu = Map.of(
+                    100L, new ProcessCpu(1000L, 0L, 25.0, 5),
+                    200L, new ProcessCpu(2000L, 0L, 1.0, 0));
+
+            Warning result = ResourceMonitorService.coreWarning(cpu, pid -> "yes");
+
+            assertThat(result).isEqualTo(new Warning("core",
+                    "1 つのプロセスが 1 コア分の CPU を 5 分以上使い続けています（yes、PID 100）"));
+        }
+
+        @Test
+        @DisplayName("異常系：2 つ当たれば、続いている回数の多い方の名前と「ほか 1 件」を出す")
+        void testMethod03() {
+            Map<Long, ProcessCpu> cpu = Map.of(
+                    100L, new ProcessCpu(1000L, 0L, 25.0, 6),
+                    200L, new ProcessCpu(2000L, 0L, 25.0, 9));
+
+            Warning result = ResourceMonitorService.coreWarning(cpu, pid -> pid == 200L ? "ffmpeg" : "yes");
+
+            assertThat(result.key()).isEqualTo("core");
+            assertThat(result.message()).endsWith("（ffmpeg、PID 200 ほか 1 件）");
+        }
+    }
+
+    @Nested
+    @DisplayName("diskOutlook()")
+    class DiskOutlookForecast {
+
+        private static final long GB = 1_000_000_000L;
+
+        private static final LocalDateTime BASE = LocalDateTime.of(2026, 10, 8, 12, 0);
+
+        /** 録画を始めない空き（設定 20GB の代わりに、計算を読みやすい 10 進の 20GB にする）。 */
+        private static final long RESERVE = 20 * GB;
+
+        /**
+         * BASE から {@code minutes} 分後の記録。見込みが見るのは時刻と空きだけなので、ほかは 0 か null に
+         * する。
+         */
+        private static ResourceHistoryPoint point(int minutes, Long diskFreeBytes) {
+            return new ResourceHistoryPoint(BASE.plusMinutes(minutes), null, 0.0, null, 0L, 0, null, null,
+                    diskFreeBytes, 0L, null, 0L);
+        }
+
+        @Test
+        @DisplayName("正常系：空きの分かる記録の間が 10 分未満なら、growth と hoursLeft は null")
+        void testMethod01() {
+            // 空きの分からない 30 分前の点は、記録の長さに数えない
+            List<ResourceHistoryPoint> history = List.of(point(-30, null), point(0, 103 * GB), point(9, 100 * GB));
+
+            DiskOutlook result = ResourceMonitorService.diskOutlook(100 * GB, history, RESERVE);
+
+            assertThat(result).isEqualTo(new DiskOutlook(RESERVE, null, null));
+        }
+
+        @Test
+        @DisplayName("正常系：60 分で空きが 3GB 減ると growth は毎時 3GB、hoursLeft は（空き − reserve）÷ growth の切り捨て")
+        void testMethod02() {
+            List<ResourceHistoryPoint> history = List.of(point(0, 103 * GB), point(60, 100 * GB));
+
+            DiskOutlook result = ResourceMonitorService.diskOutlook(100 * GB, history, RESERVE);
+
+            // (100GB − 20GB) ÷ 3GB = 26.6…
+            assertThat(result).isEqualTo(new DiskOutlook(RESERVE, 3 * GB, 26L));
+        }
+
+        @Test
+        @DisplayName("正常系：空きが reserve より多く、減っていなければ hoursLeft は null")
+        void testMethod03() {
+            List<ResourceHistoryPoint> history = List.of(point(0, 100 * GB), point(60, 101 * GB));
+
+            DiskOutlook result = ResourceMonitorService.diskOutlook(101 * GB, history, RESERVE);
+
+            assertThat(result).isEqualTo(new DiskOutlook(RESERVE, -GB, null));
+        }
+
+        @Test
+        @DisplayName("異常系：空きがすでに reserve 以下なら、減っていなくても hoursLeft は 0")
+        void testMethod04() {
+            List<ResourceHistoryPoint> history = List.of(point(0, RESERVE), point(60, RESERVE));
+
+            DiskOutlook result = ResourceMonitorService.diskOutlook(RESERVE, history, RESERVE);
+
+            assertThat(result).isEqualTo(new DiskOutlook(RESERVE, 0L, 0L));
+        }
+
+        @Test
+        @DisplayName("異常系：今の空きが分からない（null）なら reserve だけを持ち、ほかは null")
+        void testMethod05() {
+            List<ResourceHistoryPoint> history = List.of(point(0, 103 * GB), point(60, 100 * GB));
+
+            DiskOutlook result = ResourceMonitorService.diskOutlook(null, history, RESERVE);
+
+            assertThat(result).isEqualTo(new DiskOutlook(RESERVE, null, null));
+        }
+
+        @Test
+        @DisplayName("正常系：新しい点から 60 分より前の点は使わない（ちょうど 60 分前は使う）")
+        void testMethod06() {
+            List<ResourceHistoryPoint> history = List.of(point(-1, 500 * GB), point(0, 103 * GB), point(60, 100 * GB));
+
+            DiskOutlook result = ResourceMonitorService.diskOutlook(100 * GB, history, RESERVE);
+
+            assertThat(result.growthBytesPerHour()).isEqualTo(3 * GB);
+        }
+
+        @Test
+        @DisplayName("正常系：reserve が 0（設定 0 は空きを確かめない）なら、空きが減っていても hoursLeft は null")
+        void testMethod07() {
+            List<ResourceHistoryPoint> history = List.of(point(0, 103 * GB), point(60, 100 * GB));
+
+            DiskOutlook result = ResourceMonitorService.diskOutlook(100 * GB, history, 0L);
+
+            assertThat(result).isEqualTo(new DiskOutlook(0L, 3 * GB, null));
+        }
+
+        @Test
+        @DisplayName("異常系：空きが reserve より多く、1 時間たたずに届く減り方なら hoursLeft は 1（0 にしない）")
+        void testMethod08() {
+            List<ResourceHistoryPoint> history = List.of(point(0, 24 * GB), point(60, 21 * GB));
+
+            DiskOutlook result = ResourceMonitorService.diskOutlook(21 * GB, history, RESERVE);
+
+            // (21GB − 20GB) ÷ 3GB = 0.33… は 0 に切り捨てず 1 にする
+            assertThat(result).isEqualTo(new DiskOutlook(RESERVE, 3 * GB, 1L));
         }
     }
 }
