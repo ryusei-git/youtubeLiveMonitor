@@ -113,6 +113,13 @@ class LoginReturnPathTest {
         void testMethod13() {
             assertThat(LoginReturnPath.validate("/myx", true)).isNull();
         }
+
+        @Test
+        @DisplayName("正常系：端末の状態の画面（/system.html）は管理者ならそのまま返し、利用者なら null を返す")
+        void testMethod14() {
+            assertThat(LoginReturnPath.validate("/system.html", true)).isEqualTo("/system.html");
+            assertThat(LoginReturnPath.validate("/system.html", false)).isNull();
+        }
     }
 
     @Nested
@@ -130,6 +137,12 @@ class LoginReturnPathTest {
         void testMethod02() {
             assertThat(LoginReturnPath.isAdminPage("/my/archive")).isFalse();
             assertThat(LoginReturnPath.isAdminPage("/my-channels.html")).isFalse();
+        }
+
+        @Test
+        @DisplayName("正常系：端末の状態の画面（/system.html）は true を返す")
+        void testMethod03() {
+            assertThat(LoginReturnPath.isAdminPage("/system.html")).isTrue();
         }
     }
 }
