@@ -99,6 +99,29 @@ class LoginAttemptFilterTest {
             MockHttpServletResponse allowed = perform("known", "198.51.100.1", null, failureChain());
             assertThat(allowed.getStatus()).isEqualTo(302);
         }
+
+        @Test
+        @DisplayName("異常系：関所から来た要求の制限画面は、portal=adminでも利用者のログイン画面へ戻す")
+        void testMethod05() throws Exception {
+            for (int index = 0; index < 5; index++) perform("known", "198.51.100.1", null, failureChain());
+            FilterChain unreachable = (request, response) -> { throw new AssertionError("制限中に認証処理へ進んだ"); };
+
+            MockHttpServletRequest atGate = request("POST", "/api/auth/login", "known", "198.51.100.1", null);
+            atGate.setParameter("portal", "admin");
+            atGate.addHeader(FriendGate.HEADER, "1");
+            MockHttpServletResponse gateResponse = new MockHttpServletResponse();
+            filter.doFilter(atGate, gateResponse, unreachable);
+
+            MockHttpServletRequest atAdmin = request("POST", "/api/auth/login", "known", "198.51.100.1", null);
+            atAdmin.setParameter("portal", "admin");
+            MockHttpServletResponse adminResponse = new MockHttpServletResponse();
+            filter.doFilter(atAdmin, adminResponse, unreachable);
+
+            assertThat(gateResponse.getStatus()).isEqualTo(429);
+            assertThat(gateResponse.getContentAsString()).contains("href=\"/userLogin.html\"")
+                    .doesNotContain("adminLogin");
+            assertThat(adminResponse.getContentAsString()).contains("href=\"/adminLogin.html\"");
+        }
     }
 
     @Nested

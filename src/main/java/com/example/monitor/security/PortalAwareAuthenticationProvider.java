@@ -47,11 +47,16 @@ public class PortalAwareAuthenticationProvider implements AuthenticationProvider
      * 管理者用の画面から来た要求か。値が無い・不正なときは利用者用として扱い、
      * 管理者は明示的に管理者用の画面から来たときしか通さない。
      *
+     * <p>友人用の入口（{@link FriendGate}）から来た要求は、{@code portal} が何であっても利用者用として扱う。
+     * {@code portal} は送る側が自由に変えられるので、これが無いと関所からも {@code portal=admin} だけで管理者として入れる。
+     * 管理者はパスワード違いと同じ失敗になり、失敗の戻り先（{@link LoggingAuthenticationFailureHandler}）と
+     * 試行回数の制限の画面（{@link LoginAttemptFilter}）も利用者用になる。
+     *
      * @param request ログインの要求
-     * @return {@code portal=admin} なら true
+     * @return 友人用の入口から来ておらず、{@code portal=admin} なら true
      */
     static boolean isAdminPortal(HttpServletRequest request) {
-        return ADMIN_PORTAL.equals(request.getParameter("portal"));
+        return !FriendGate.matches(request) && ADMIN_PORTAL.equals(request.getParameter("portal"));
     }
 
     @Override

@@ -398,6 +398,12 @@ Actions から CI を手で実行（workflow_dispatch）して作り直します
 動かすと、リポジトリの `data/` に空の DB を作ってしまいます。DB の控えは運用側が毎晩、コンテナの中の H2
 （`/app/tools/h2.jar`。サービスと同じ版）で `BACKUP TO` して取ります。
 
+**友人用の入口**: 友人は管理者とは別の Tailscale の入口（運用側の関所。利用者の画面と API だけを通す）から使います。
+関所はアプリへ渡す要求に必ずヘッダ `X-YLM-Friend-Gate` を付け、アプリはこのヘッダの有る要求では管理者として扱いません
+（フォームのログイン・「ログインしたまま」の自動ログイン・既にあるセッションのどれも。`security/FriendGate`）。
+関所の IP は `SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES` に足します。足さないと `X-Forwarded-Proto` が無視されて
+ログイン後の転送が `http://` になり、ログイン試行の制限と監査ログの IP も全員が関所の IP になります。
+
 ## 使用方法
 
 ### 監視対象チャンネルの登録

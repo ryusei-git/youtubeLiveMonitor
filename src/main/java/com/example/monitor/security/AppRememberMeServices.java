@@ -11,6 +11,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.rememberme.InvalidCookieException;
+import org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationException;
 import org.springframework.security.web.authentication.rememberme.TokenBasedRememberMeServices;
 
 import java.time.LocalDateTime;
@@ -36,6 +37,8 @@ import java.time.LocalDateTime;
  *       （{@link LoggingAuthenticationFailureHandler} の記録と二重になる）、{@code autoLogin} の失敗は
  *       そもそも {@code onLoginFail} を通らない。さらに、壊れた Cookie を付けた要求は未ログインの誰でも
  *       送れるので、記録すると監査ログを際限なく増やせてしまう。</li>
+ *   <li><b>友人用の入口（{@link FriendGate}）では、管理者の Cookie で自動ログインしない。</b>
+ *       {@link #processAutoLoginCookie} で断り、Cookie も消す（理由はそのメソッドの説明にある）。</li>
  *   <li><b>同時に届いた複数の要求がそれぞれ自動ログインし、{@link AuditAction#LOGIN_SUCCESS} が数件並ぶことがある。</b>
  *       セッションが切れた直後に画面を開くと、画面と API の要求がまだセッションを持たないまま並んで届くため。
  *       どれも同じ端末・同じ利用者の正しい自動ログインなので、許容している。</li>
@@ -64,6 +67,31 @@ public class AppRememberMeServices extends TokenBasedRememberMeServices {
         super(key, userDetailsService, RememberMeTokenAlgorithm.SHA256);
         this.appUserRepository = appUserRepository;
         this.auditLogger = auditLogger;
+    }
+
+    /**
+     * Cookie の署名・期限・利用者を確かめたうえで、友人用の入口（{@link FriendGate}）から来た管理者の Cookie を断る。
+     *
+     * <p>自動ログインは {@link PortalAwareAuthenticationProvider}（フォームのログイン専用）を通らないので、
+     * ここで断らないと、管理者の Cookie を持つブラウザは関所からも管理者として入れる。
+     * {@link RememberMeAuthenticationException} を投げると、親の {@code autoLogin} がこの入口の Cookie を消して
+     * 未ログインのまま進める。{@link #createSuccessfulAuthentication} を通らないので、自動ログインの記録も残らない。
+     *
+     * @param tokens   Cookie を分解したもの
+     * @param request  自動ログインしようとしている要求
+     * @param response Cookie を消すときに使う応答
+     * @return Cookie の利用者
+     * @throws RememberMeAuthenticationException 友人用の入口から来た管理者の Cookie のとき
+     */
+    @Override
+    protected UserDetails processAutoLoginCookie(String[] tokens, HttpServletRequest request,
+                                                 HttpServletResponse response) {
+        UserDetails user = super.processAutoLoginCookie(tokens, request, response);
+        if (FriendGate.matches(request) && FriendGate.isAdmin(user.getAuthorities())) {
+            log.warn("友人用の入口で管理者の「ログインしたまま」の Cookie を断りました: user={}", user.getUsername());
+            throw new RememberMeAuthenticationException("友人用の入口では管理者として自動ログインしない");
+        }
+        return user;
     }
 
     /**
