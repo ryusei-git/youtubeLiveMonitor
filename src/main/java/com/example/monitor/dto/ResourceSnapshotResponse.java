@@ -15,10 +15,6 @@ import java.util.List;
  * @param system          端末全体
  * @param service         このサービス（アプリ本体・録画プロセス・アプリが起動したその他の外部
  *                        プロセス）
- * @param registered      登録したサービス全体（左のメニューに並べるもの）
- * @param recordingsBytes 録画フォルダーの実ファイルの合計。DB の fileSizeBytes の合計で代えない
- *                        （{@code docs/pitfalls.md}「ディスク使用量は DB ではなく実ファイルを
- *                        走査して求める」）
  * @param diskOutlook     直近 1 時間の空きの減り方から見た、新しい録画を始めなくなるまでの見込み
  * @param warnings        目安を超えている項目。無ければ空
  */
@@ -26,8 +22,6 @@ public record ResourceSnapshotResponse(
         LocalDateTime measuredAt,
         SystemUsage system,
         ServiceUsage service,
-        RegisteredUsage registered,
-        long recordingsBytes,
         DiskOutlook diskOutlook,
         List<Warning> warnings
 ) {
@@ -92,18 +86,6 @@ public record ResourceSnapshotResponse(
             Double cpuPercent, long memoryBytes,
             ApplicationUsage application, List<RecorderUsage> recorders, List<HelperUsage> helpers
     ) {}
-
-    /**
-     * 登録したサービス全体（左のメニューに並べるもの）のリソース。YouTube Live Monitor の分は
-     * {@code service} と同じ値で、そこに {@code HubAppRegistry} のサービスの分を足したもの。
-     *
-     * <p>確認用インスタンス（{@code bin/sandbox.sh}・{@code bin/preview.sh}）は含めない。
-     * 止め忘れた確認用インスタンスを「サービスが重い」と読ませないため。
-     *
-     * @param cpuPercent  CPU 使用率の合計。分からないプロセスが 1 つでもあれば {@code null}
-     * @param memoryBytes 実メモリの合計
-     */
-    public record RegisteredUsage(Double cpuPercent, long memoryBytes) {}
 
     /**
      * アプリ本体のリソース。

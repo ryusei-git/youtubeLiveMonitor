@@ -195,9 +195,6 @@ class SecurityConfigTest {
                 Arguments.of(HttpMethod.POST, "/api/downloads"),
                 Arguments.of(HttpMethod.POST, "/api/monitor/check"),
                 Arguments.of(HttpMethod.GET, "/api/dashboard"),
-                Arguments.of(HttpMethod.GET, "/system.html"),
-                Arguments.of(HttpMethod.GET, "/api/system/processes"),
-                Arguments.of(HttpMethod.POST, "/api/system/processes/1/stop?startTime=0"),
                 Arguments.of(HttpMethod.POST, "/api/discover/run"));
     }
 

@@ -183,8 +183,3 @@ monitor:
     # 「ログインしたままにする」の Cookie に署名する鍵（SecurityConfig・RememberMeKeyFile）。
     # 無ければ起動時に作る。消して再起動すると、全員の「ログインしたまま」が無効になる。
     remember-me-key-file: ${MONITOR_REMEMBER_ME_KEY_FILE:data/remember-me.key}
-
-  hub:
-    # ダッシュボード（/system.html）の左のメニューに並べる、ほかのサービスの一覧（JSON。HubAppRegistry）。
-    # 端末ごとに違う値なのでリポジトリに入れない。置くだけで効くよう既定の置き場所を決めている。無ければ並べない。
-    apps-file: ${MONITOR_HUB_APPS_FILE:data/hub-apps.json}

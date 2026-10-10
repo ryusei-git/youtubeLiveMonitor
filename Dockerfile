@@ -18,7 +18,8 @@ RUN --mount=type=cache,target=/root/.gradle ./gradlew --no-daemon -q bootJar \
  && mkdir -p /out && cp build/libs/*.jar /out/app.jar
 
 # テストした版（ci.yml の temurin 21）と同じ JRE。Ubuntu 24.04 系なので UID 1000 の ubuntu ユーザーがいる
-# （「端末の状態」の画面はプロセスの持ち主をユーザー名で比べるので、名前の無い UID だと一覧が空になる）
+# （1 コアを使い切るプロセスの注意（ResourceMonitorService）はプロセスの持ち主をユーザー名で比べるので、
+#   名前の無い UID だと対象が空になり、注意が出なくなる）
 FROM eclipse-temurin:21-jre-noble
 
 # deno は yt-dlp-ejs が YouTube の JS を解くのに使う（yt-dlp が既定で探すのは deno だけ。docs/pitfalls.md）。版と sha256 を固定する

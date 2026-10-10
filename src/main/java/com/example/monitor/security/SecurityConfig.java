@@ -327,8 +327,6 @@ public class SecurityConfig {
                 .requestMatchers("/api/monitor/**", "/api/dashboard/**").hasRole("ADMIN")
                 // 新人発掘の「今すぐ 1 巡」は検索の回数を使うので管理者だけ（#488）。利用者の発掘は /api/my/discover
                 .requestMatchers("/api/discover/**").hasRole("ADMIN")
-                // 端末の状態の画面と API。プロセスを止められるので管理者だけ
-                .requestMatchers("/system.html", "/api/system/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .formLogin(form -> form
                 .loginPage("/userLogin.html")
