@@ -2087,9 +2087,11 @@ const studioPages = {
  * @param {boolean} admin 管理者ならtrue
  */
 function renderNavigationForViewer(admin) {
-    viewerIsAdmin = admin;
     const nav = document.querySelector(".globalnav .shell");
+    // メニューの無い画面（ログイン・招待・再設定）は管理者の画面ではない。ここで管理者扱いにすると、
+    // ログイン切れの戻り先が管理者のログイン画面になり、友人用の入口では開けない（loginPagePath）
     if (!nav) return;
+    viewerIsAdmin = admin;
     const logout = nav.querySelector(".navLogout");
     const page = location.pathname === "/player.html" ? "/recordings.html" : location.pathname;
     /** @param {Array<[string, string]>} entries */

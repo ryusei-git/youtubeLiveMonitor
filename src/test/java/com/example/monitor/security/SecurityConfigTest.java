@@ -133,6 +133,15 @@ class SecurityConfigTest {
 
     /** フォームでログインする。rememberMe なら「ログインしたままにする」、adminPortal なら管理者用の画面から送る。 */
     private MvcResult login(String username, String password, boolean rememberMe, boolean adminPortal) throws Exception {
+        return login(username, password, rememberMe, adminPortal, null);
+    }
+
+    /**
+     * フォームでログインする。friendGate が null でなければ、友人用の入口（関所）を通ったものとして
+     * {@link FriendGate#HEADER} をその値で付ける。
+     */
+    private MvcResult login(String username, String password, boolean rememberMe, boolean adminPortal,
+                            String friendGate) throws Exception {
         RequestBuilder form = SecurityMockMvcRequestBuilders.formLogin("/api/auth/login")
                 .user(username).password(password);
         return mockMvc.perform(context -> {
@@ -142,6 +151,9 @@ class SecurityConfigTest {
             }
             if (adminPortal) {
                 request.addParameter("portal", "admin");
+            }
+            if (friendGate != null) {
+                request.addHeader(FriendGate.HEADER, friendGate);
             }
             return request;
         }).andReturn();
@@ -455,6 +467,120 @@ class SecurityConfigTest {
 
             assertThat(result.getResponse().getStatus()).isEqualTo(302);
             assertThat(result.getResponse().getHeader("Location")).isEqualTo("/adminLogin.html?error");
+        }
+    }
+
+    @Nested
+    @DisplayName("友人用の入口（関所）")
+    class FriendGateAccess {
+
+        /** 自動ログインの記録（LOGIN_SUCCESS のうち補足が自動ログインのもの）の件数。 */
+        private long autoLogins(String username) {
+            return auditLogs(username, AuditAction.LOGIN_SUCCESS).stream()
+                    .filter(log -> AppRememberMeServices.AUTO_LOGIN_DETAIL.equals(log.getDetail()))
+                    .count();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"1", "", "admin", "0"})
+        @DisplayName("異常系：関所から来た管理者はportal=adminでも正しいパスワードでログインできず、利用者のログイン画面に?error付きで戻される")
+        void testMethod01(String headerValue) throws Exception {
+            createUser("t861-gate-admin-login", Role.ADMIN);
+            int failuresBefore = auditLogs("t861-gate-admin-login", AuditAction.LOGIN_FAILURE).size();
+
+            MvcResult result = login("t861-gate-admin-login", T04_PASSWORD, true, true, headerValue);
+
+            assertThat(result.getResponse().getStatus()).isEqualTo(302);
+            assertThat(result.getResponse().getHeader("Location")).isEqualTo("/userLogin.html?error");
+            // 「ログインしたまま」を選んでいても Cookie は出ない（失敗のときに付くのは消すための Max-Age=0 だけ）
+            assertThat(result.getResponse().getCookie(REMEMBER_ME)).extracting(Cookie::getMaxAge).isEqualTo(0);
+            assertThat(auditLogs("t861-gate-admin-login", AuditAction.LOGIN_FAILURE)).hasSize(failuresBefore + 1);
+        }
+
+        @Test
+        @DisplayName("異常系：関所から来た管理者はportalを送らなくてもログインできない")
+        void testMethod02() throws Exception {
+            createUser("t861-gate-admin-noportal", Role.ADMIN);
+
+            MvcResult result = login("t861-gate-admin-noportal", T04_PASSWORD, false, false, "1");
+
+            assertThat(result.getResponse().getHeader("Location")).isEqualTo("/userLogin.html?error");
+        }
+
+        @Test
+        @DisplayName("正常系：一般利用者は関所からログインでき、利用者のAPIを使える")
+        void testMethod03() throws Exception {
+            createUser("t861-gate-user", Role.USER);
+
+            MvcResult result = login("t861-gate-user", T04_PASSWORD, false, false, "1");
+
+            assertThat(result.getResponse().getHeader("Location")).isEqualTo("/my");
+            MockHttpSession session = (MockHttpSession) result.getRequest().getSession(false);
+            mockMvc.perform(get("/api/my/channels").session(session).header(FriendGate.HEADER, "1"))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("正常系：一般利用者の「ログインしたまま」のCookieは関所でも使える")
+        void testMethod04() throws Exception {
+            createUser("t861-gate-user-rm", Role.USER);
+            Cookie cookie = login("t861-gate-user-rm", T04_PASSWORD, true, false, "1").getResponse().getCookie(REMEMBER_ME);
+            assertThat(cookie).isNotNull();
+
+            mockMvc.perform(get("/api/my/channels").cookie(cookie).header(FriendGate.HEADER, "1"))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("異常系：管理者の「ログインしたまま」のCookieは関所では401になって消され、自動ログインの記録も残らない")
+        void testMethod05() throws Exception {
+            createUser("t861-gate-admin-rm", Role.ADMIN);
+            Cookie cookie = login("t861-gate-admin-rm", T04_PASSWORD, true, true).getResponse().getCookie(REMEMBER_ME);
+            assertThat(cookie).isNotNull();
+            long autoLoginsBefore = autoLogins("t861-gate-admin-rm");
+
+            MvcResult denied = mockMvc.perform(get("/api/admin/tables").cookie(cookie).header(FriendGate.HEADER, "1"))
+                    .andExpect(status().isUnauthorized())
+                    .andReturn();
+            Cookie cancelled = denied.getResponse().getCookie(REMEMBER_ME);
+            assertThat(cancelled).isNotNull();
+            assertThat(cancelled.getMaxAge()).isZero();
+            // 利用者の画面でも管理者としては入れない（ログイン画面へ）
+            mockMvc.perform(get("/my").cookie(cookie).header(FriendGate.HEADER, "1"))
+                    .andExpect(status().isFound())
+                    .andExpect(redirectedUrl("/userLogin.html"));
+            assertThat(autoLogins("t861-gate-admin-rm")).isEqualTo(autoLoginsBefore);
+
+            // 関所を通らない要求（管理者の入口）では今までどおり使える
+            mockMvc.perform(get("/api/admin/tables").cookie(cookie)).andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("異常系：管理者のセッションは関所では401になり、無効になる")
+        void testMethod06() throws Exception {
+            createUser("t861-gate-admin-session", Role.ADMIN);
+            MvcResult loggedIn = login("t861-gate-admin-session", T04_PASSWORD, false, true);
+            MockHttpSession session = (MockHttpSession) loggedIn.getRequest().getSession(false);
+            mockMvc.perform(get("/api/admin/tables").session(session)).andExpect(status().isOk());
+
+            mockMvc.perform(get("/api/admin/tables").session(session).header(FriendGate.HEADER, "1"))
+                    .andExpect(status().isUnauthorized());
+
+            assertThat(session.isInvalid()).isTrue();
+        }
+
+        @Test
+        @DisplayName("異常系：管理者のセッションで関所から画面を開くと、利用者のログイン画面へ戻される")
+        void testMethod07() throws Exception {
+            createUser("t861-gate-admin-page", Role.ADMIN);
+            MvcResult loggedIn = login("t861-gate-admin-page", T04_PASSWORD, false, true);
+            MockHttpSession session = (MockHttpSession) loggedIn.getRequest().getSession(false);
+
+            mockMvc.perform(get("/my").session(session).header(FriendGate.HEADER, "1"))
+                    .andExpect(status().isFound())
+                    .andExpect(redirectedUrl("/userLogin.html"));
+
+            assertThat(session.isInvalid()).isTrue();
         }
     }
 
