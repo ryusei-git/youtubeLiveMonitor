@@ -93,4 +93,17 @@ public class ActiveVideoJobs {
     public boolean isActive(String videoId) {
         return reservedVideoIds.contains(videoId);
     }
+
+    /**
+     * 予約が 1 つでもあるか（録画・サービスへの保存・後始末の詰め替えのどれかが動いているか）を返す。
+     *
+     * <p>運用側の反映（コンテナの作り直し）が録画中を見送るための目印として、{@code /api/health} が使う（#856）。
+     * Docker ではコンテナを止めると yt-dlp も一緒に止まる（systemd の {@code KillMode=process} のような逃げ道が無い）ので、
+     * 外から「今止めてよいか」を知る手段が要る。状態を見るだけなので、{@link #isActive(String)} と同じく書き換えの判断には使わない。
+     *
+     * @return 予約が 1 つでもあれば {@code true}
+     */
+    public boolean hasAny() {
+        return !reservedVideoIds.isEmpty();
+    }
 }

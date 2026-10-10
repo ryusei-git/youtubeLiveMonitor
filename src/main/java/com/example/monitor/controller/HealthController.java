@@ -1,6 +1,7 @@
 package com.example.monitor.controller;
 
 import com.example.monitor.config.MonitorProperties;
+import com.example.monitor.service.ActiveVideoJobs;
 import com.example.monitor.service.PollingStatusTracker;
 import com.example.monitor.service.UptimeTracker;
 import lombok.RequiredArgsConstructor;
@@ -15,13 +16,14 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 
 /**
- * 巡回が回っているかを返す API（#243）。外の見張り（cron・{@code bin/service.sh status}）が叩く。
+ * 巡回が回っているかを返す API（#243）。外の見張り（cron・{@code bin/service.sh status}・Uptime Kuma）が叩く。
+ * Docker で動かすときは、運用側の反映（{@code server-stacks} の {@code deploy.sh} の guard）も録画中かを見るために叩く（#856）。
  *
  * <p>巡回が固まる・例外で抜け続けても、ポートは開いたままなので外からは区別できない。
  * そこで {@link PollingStatusTracker} の「最後に巡回が最後まで回った時刻」の古さで判定する。
  * 見るのは「巡回が回っているか」だけで、YouTube に届くか（検知の失敗）はダッシュボードの警告が受け持つ。
  *
- * <p><b>ログイン無しで読める</b>ので、返すのは状態と経過秒だけにする。チャンネル名・件数・パスなどは入れない。
+ * <p><b>ログイン無しで読める</b>ので、返すのは状態・経過秒・録画中かの真偽だけにする。チャンネル名・件数・パスなどは入れない。
  * ここから巡回を起動しない（起動の経路を増やすと排他を通す必要が出る。{@code docs/pitfalls.md}）。
  */
 @RestController
@@ -38,6 +40,7 @@ public class HealthController {
     private final PollingStatusTracker pollingStatusTracker;
     private final UptimeTracker uptimeTracker;
     private final MonitorProperties monitorProperties;
+    private final ActiveVideoJobs activeVideoJobs;
 
     /** 確認用の起動（{@code bin/preview.sh}）はわざと巡回しないので、止まっていても異常としない。 */
     @Value("${monitor.scheduling.enabled:true}")
@@ -50,7 +53,7 @@ public class HealthController {
      * 見張りが {@code curl -f} の成否だけで判定できるように、止まっているときは HTTP の状態で返す。
      * まだ 1 巡もしていないときは起動時刻を基準にし、起動直後から固まっている場合も {@code STALE} にする。
      *
-     * @return 状態と、最後に巡回が最後まで回ってからの経過秒（まだ 1 巡もしていなければ {@code null}）
+     * @return 状態と、最後に巡回が最後まで回ってからの経過秒（まだ 1 巡もしていなければ {@code null}）と、録画中か
      */
     @GetMapping
     public ResponseEntity<HealthResponse> health() {
@@ -58,25 +61,31 @@ public class HealthController {
         LocalDateTime now = LocalDateTime.now();
         Long secondsSinceLastPoll = lastSucceededAt == null
                 ? null : Duration.between(lastSucceededAt, now).getSeconds();
+        boolean recording = activeVideoJobs.hasAny();
         if (!schedulingEnabled) {
-            return ResponseEntity.ok(new HealthResponse("DISABLED", secondsSinceLastPoll));
+            return ResponseEntity.ok(new HealthResponse("DISABLED", secondsSinceLastPoll, recording));
         }
         LocalDateTime base = lastSucceededAt != null ? lastSucceededAt : uptimeTracker.getStartedAt();
         long threshold = (long) STALE_INTERVAL_MULTIPLIER * monitorProperties.youtube().intervalSeconds();
         if (Duration.between(base, now).getSeconds() > threshold) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(new HealthResponse("STALE", secondsSinceLastPoll));
+                    .body(new HealthResponse("STALE", secondsSinceLastPoll, recording));
         }
         String status = lastSucceededAt == null ? "STARTING" : "UP";
-        return ResponseEntity.ok(new HealthResponse(status, secondsSinceLastPoll));
+        return ResponseEntity.ok(new HealthResponse(status, secondsSinceLastPoll, recording));
     }
 
     /**
-     * ヘルスの応答。ログイン無しで読めるので、この 2 項目より増やさない。
+     * ヘルスの応答。ログイン無しで読めるので、この 3 項目より増やさない。
+     *
+     * <p>{@code recording} は、反映（コンテナの作り直し）で録画を切らないための目印（#856）。運用側の guard は本文に
+     * {@code "recording":true} があれば反映を見送る。真偽 1 つだけで、何をいくつ録っているかは出さない。
+     * 「端末に保存」は {@link ActiveVideoJobs} の予約を使わないので含めない（切れても取り直せる）。
      *
      * @param status               {@code UP}・{@code STARTING}・{@code DISABLED}・{@code STALE} のいずれか
      * @param secondsSinceLastPoll 最後に巡回が最後まで回ってからの経過秒。まだ 1 巡もしていなければ {@code null}
+     * @param recording            録画・サービスへの保存・後始末の詰め替えのどれかが動いていれば {@code true}
      */
-    public record HealthResponse(String status, Long secondsSinceLastPoll) {
+    public record HealthResponse(String status, Long secondsSinceLastPoll, boolean recording) {
     }
 }

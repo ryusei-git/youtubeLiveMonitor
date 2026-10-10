@@ -6,6 +6,7 @@ import com.example.monitor.config.MonitorProperties.RecordingProperties;
 import com.example.monitor.config.MonitorProperties.TwitchProperties;
 import com.example.monitor.config.MonitorProperties.YouTubeProperties;
 import com.example.monitor.controller.HealthController.HealthResponse;
+import com.example.monitor.service.ActiveVideoJobs;
 import com.example.monitor.service.PollingStatusTracker;
 import com.example.monitor.service.UptimeTracker;
 import org.junit.jupiter.api.DisplayName;
@@ -43,11 +44,14 @@ class HealthControllerTest {
     @Mock
     private UptimeTracker uptimeTracker;
 
+    /** 本物を使う（予約の集合を持つだけで、モックにすると hasAny() の既定値 false しか確かめられない） */
+    private final ActiveVideoJobs activeVideoJobs = new ActiveVideoJobs();
+
     private HealthController newController(int intervalSeconds) {
         MonitorProperties properties = new MonitorProperties(new YouTubeProperties("", intervalSeconds),
                 new TwitchProperties("", ""), new DiscordProperties(""),
                 new RecordingProperties("recordings", 1080), new MonitorProperties.AdminProperties("admin", ""));
-        return new HealthController(pollingStatusTracker, uptimeTracker, properties);
+        return new HealthController(pollingStatusTracker, uptimeTracker, properties, activeVideoJobs);
     }
 
     @Nested
@@ -55,7 +59,7 @@ class HealthControllerTest {
     class Health {
 
         @Test
-        @DisplayName("正常系：最後の巡回が 30 秒前なら 200・UP と経過秒を返す")
+        @DisplayName("正常系：最後の巡回が 30 秒前なら 200・UP と経過秒を返し、予約が無ければ録画中ではない")
         void testMethod01() {
             HealthController controller = newController(120);
             when(pollingStatusTracker.lastSucceededAt()).thenReturn(LocalDateTime.now().minusSeconds(30));
@@ -66,6 +70,7 @@ class HealthControllerTest {
             assertThat(response.getBody()).isNotNull();
             assertThat(response.getBody().status()).isEqualTo("UP");
             assertThat(response.getBody().secondsSinceLastPoll()).isBetween(30L, 31L);
+            assertThat(response.getBody().recording()).isFalse();
         }
 
         @Test
@@ -82,10 +87,11 @@ class HealthControllerTest {
         }
 
         @Test
-        @DisplayName("異常系：最後の巡回からしきい値を過ぎたら 503・STALE と経過秒を返す")
+        @DisplayName("異常系：最後の巡回からしきい値を過ぎたら 503・STALE と経過秒を返し、録画中なら 503 の本文でもそう示す")
         void testMethod03() {
             HealthController controller = newController(120);
             when(pollingStatusTracker.lastSucceededAt()).thenReturn(LocalDateTime.now().minusSeconds(362));
+            activeVideoJobs.reserve("video-1");
 
             ResponseEntity<HealthResponse> response = controller.health();
 
@@ -93,6 +99,8 @@ class HealthControllerTest {
             assertThat(response.getBody()).isNotNull();
             assertThat(response.getBody().status()).isEqualTo("STALE");
             assertThat(response.getBody().secondsSinceLastPoll()).isBetween(362L, 363L);
+            // 運用側の guard は 503 でも本文を読み、録画中なら理由として出す
+            assertThat(response.getBody().recording()).isTrue();
         }
 
         @Test
@@ -176,13 +184,13 @@ class HealthControllerTest {
     class HealthResponseFields {
 
         @Test
-        @DisplayName("正常系：応答の項目は status と secondsSinceLastPoll の 2 つだけ（ログイン無しで読め、bin/service.sh がこの名前で読むため）")
+        @DisplayName("正常系：応答の項目は status・secondsSinceLastPoll・recording の 3 つだけ（ログイン無しで読め、bin/service.sh と運用側の guard がこの名前で読むため）")
         void testMethod01() {
             List<String> names = Arrays.stream(HealthResponse.class.getRecordComponents())
                     .map(RecordComponent::getName)
                     .toList();
 
-            assertThat(names).containsExactly("status", "secondsSinceLastPoll");
+            assertThat(names).containsExactly("status", "secondsSinceLastPoll", "recording");
         }
     }
 }
