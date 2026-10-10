@@ -1,0 +1,17 @@
+# イメージの文脈に入れないもの。.gitignore とは別に要る（docker build は .gitignore を見ない）。
+# 特に .env・data/（DB と鍵）・recordings/ は秘密や大きなファイルなので、手元で docker build しても入らないようにする
+.git
+.gradle
+build
+data
+logs
+run
+recordings
+.sandbox
+.env
+*.log
+.claude
+.vscode
+.VSCodeCounter
+node_modules
+docs

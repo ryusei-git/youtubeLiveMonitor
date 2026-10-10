@@ -2,6 +2,10 @@
 # （ビルド・単体テスト・JavaDoc・JS の型検査・JS のテスト）を Linux で実行する。
 # 以前は PR を作った側の自己申告だけが頼りで、実行したかどうかを PR から確かめられなかった。
 # 確認用インスタンスでの API・CLI の確認は .env と DB が要るので、ここでは行わない（手元で行う）。
+#
+# 両方が通ったら image ジョブが、テストを通った jar で本番のイメージを作る（#856）。PR ではビルドだけ（Dockerfile の誤りを
+# マージ前に見つけるため）、main では ghcr.io/ryusei-git/youtube-live-monitor の :main と :sha-<7 桁> に push する。
+# 本番への反映は運用リポジトリ（server-stacks）の deploy.sh が、時間帯と「録画中は見送る」guard を見て行う（手では反映しない）。
 name: CI
 
 on:
@@ -9,14 +13,19 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # 週 1 回、コードが変わらなくてもイメージを作り直す。yt-dlp は版を固定せず、YouTube 側の変更に追従するのが目的のため
+  # （README「yt-dlp の更新」。壊れたときに急ぐなら workflow_dispatch で今すぐ作り直す）
+  schedule:
+    - cron: '0 18 * * 0'   # 毎週月曜 03:00（日本時間）。反映の時間帯（04:00-05:00）の前に作っておく
 
 permissions:
   contents: read
 
-# 同じ PR に続けて push したら、古い実行は結果を待たずに止める
+# 同じ PR に続けて push したら、古い実行は結果を待たずに止める。main は止めない（通ったコミットごとのイメージを残す。
+# 止めると、次の push のテストが落ちたときに間の通ったコミットも本番に届かず、戻し先の sha- タグも欠ける）
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   java:
@@ -27,6 +36,9 @@ jobs:
       TZ: Asia/Tokyo
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 後続の gradlew は第三者のコード（プラグイン・依存）を実行する。git の認証を使う工程は無いので、トークンを残さない
+          persist-credentials: false
       # Gradle のキャッシュは setup-java の機能で足りる。gradle/actions の setup-gradle は v6 から、
       # 既定のキャッシュ（Enhanced Caching）が Gradle の独自ライセンス（Gradle Technologies Terms of Use）の部品になったので使わない
       - uses: actions/setup-java@v6
@@ -45,6 +57,16 @@ jobs:
           name: test-reports
           path: build/reports/tests/test
           retention-days: 7
+      # テストを通った jar をそのまま image ジョブに渡す（image ジョブで Gradle を走らせ直すと、テストした jar と出荷する jar が
+      # 別のビルドになる）。Dockerfile の build 段が置く場所（/out/app.jar）と同じ階層にそろえる
+      - name: jar を image ジョブへ渡す
+        run: mkdir -p ci-jar/out && cp build/libs/*.jar ci-jar/out/app.jar
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-jar
+          path: ci-jar
+          if-no-files-found: error
+          retention-days: 1
 
   js:
     runs-on: ubuntu-latest
@@ -63,3 +85,48 @@ jobs:
       - name: JS のテスト
         if: ${{ !cancelled() }}
         run: node --test src/test/js/*.test.cjs
+
+  image:
+    needs: [java, js]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # GHCR へ書けるのはこのジョブだけ。java ジョブ（第三者のコードを実行する）には付けない。PR からは push しない
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/ryusei-git/youtube-live-monitor
+      PUSH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          name: app-jar
+          path: ci-jar
+      - uses: docker/setup-buildx-action@v3
+      - if: env.PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=main
+            type=sha,format=short
+      # build 段を「テストを通った jar」に差し替える（名前付きの文脈で同名の段を差し替えると、BuildKit はその段を走らせない）
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-contexts: |
+            build=./ci-jar
+          push: ${{ env.PUSH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

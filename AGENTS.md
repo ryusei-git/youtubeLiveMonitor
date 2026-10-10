@@ -181,6 +181,7 @@ gh api graphql -f query='{repository(owner:"ryusei-git",name:"youtubeLiveMonitor
 - 途中で終わった録画は、コンテナの長さと映像の長さが食い違う（実際に発生した）
 - 録画中にアプリを再起動すると「録画中」のまま更新されなくなる（実際に発生した）
 - 外部プロセスの出力を JVM へのパイプにすると、再起動で yt-dlp が止まる（実際に発生した）
+- Docker ではコンテナを止めると録画も止まる（`KillMode=process` の代わりは無い）
 - 録画中かの判定は、動画 ID を含むだけの `grep`・`tail` で誤検知する（実際に発生した）
 - 録画ファイルの配信は自前のストリーミング処理を書かない
 - ディスク使用量は DB ではなく実ファイルを走査して求める
@@ -214,6 +215,11 @@ gh api graphql -f query='{repository(owner:"ryusei-git",name:"youtubeLiveMonitor
 新しく事故を踏んだら `docs/pitfalls.md` に追記し、この索引にも 1 行足す。
 
 ## 起動・停止
+
+**本番は Docker で動く**（運用リポジトリ `ryusei-git/server-stacks` の `stacks/youtube-live-monitor`。#856）。main に入ると CI が
+イメージを作り、運用側の `deploy.sh` が時間帯と「録画中は見送る」guard を見て反映する。本番を手で再起動・反映しない。
+本番の CLI は `docker exec` で同じコンテナの中から動かす（README「Docker で動かす（本番）」）。
+下の `bin/service.sh` は、開発の端末でホストに直接動かすとき（旧方式）のもの。
 
 ```bash
 bin/service.sh start

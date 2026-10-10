@@ -397,6 +397,39 @@ crontab -e
 どちらも 1 度だけ知らせ、判定できるようになったらもう 1 度知らせます。知らせたかどうかはメモリに持つため、
 失敗が続いたまま再起動すると、もう 1 度知らせることがあります。
 
+### 7. Docker で動かす（本番）
+
+本番は、運用リポジトリ（非公開の `ryusei-git/server-stacks`）の `stacks/youtube-live-monitor` が Docker Compose で動かします（#856）。
+このリポジトリが持つのはイメージの作り方（`Dockerfile`・`docker/entrypoint.sh`）と、イメージを作る CI だけです。
+上の 4〜6（`bin/service.sh`・systemd・`bin/health-watch.sh`）は、開発の端末や旧方式で使うものとして残しています。
+
+**イメージ**: main に入ると CI（`.github/workflows/ci.yml` の image ジョブ）が、テストを通った jar で
+`ghcr.io/ryusei-git/youtube-live-monitor:main` と `:sha-<7 桁>` を作ります。PR ではビルドだけ確かめます。
+中身は Java 21 の JRE・`yt-dlp[default]`（yt-dlp-ejs 入り）・ffmpeg/ffprobe・deno・curl です。yt-dlp は版を固定せず、
+CI が毎週月曜 03:00（日本時間）にイメージを作り直して新しくします。YouTube 側の変更で壊れて急ぐときは、GitHub の
+Actions から CI を手で実行（workflow_dispatch）して作り直します。
+
+**反映**: 本番への反映は運用側の `deploy.sh` が、時間帯と guard（`/api/health` の `"recording":true` を見て録画中なら見送る）を
+見て行います。手で `docker compose up` し直さないでください。**コンテナを止めると録画中の yt-dlp も一緒に止まります**
+（`docs/pitfalls.md`「Docker ではコンテナを止めると録画も止まる」）。
+
+**ファイルの置き場所**（コンテナの中の作業ディレクトリは `/app`。既定の相対パスがそのまま合います）
+
+| コンテナの中 | 中身 | 運用側のマウント |
+|---|---|---|
+| `/app/data` | DB・remember-me の鍵・Cookie・`.env`（`/app/.env` はここへのリンク） | SSD（`stacks/youtube-live-monitor/data`） |
+| `/app/logs` | チャンネル別ログ・`service-app.log`・`logs/yt-dlp/` | SSD（`stacks/youtube-live-monitor/logs`） |
+| `/app/storage/recordings` | 録画（`MONITOR_RECORDING_DIRECTORY` で指す） | HDD |
+
+`.env` は `data/.env` に置きます。設定画面の保存もここに書きます（秘密をコンテナの環境変数にすると yt-dlp・ffmpeg に
+引き継がれるので、compose の `env_file` にはしません）。Docker に固有の値（`SERVER_ADDRESS=0.0.0.0`・録画の場所・
+信頼するプロキシ）は compose の `environment` に書き、こちらが `.env` より優先されます。
+
+**CLI とバックアップ**: H2 の `AUTO_SERVER` はコンテナの中のループバックで待ち受けるので、稼働中の DB に CLI を当てるときは
+`docker exec` で同じコンテナの中から動かします（運用側の `stacks/youtube-live-monitor/cli.sh`）。ホストで `bin/monitor.sh` を
+動かすと、リポジトリの `data/` に空の DB を作ってしまいます。DB の控えは運用側が毎晩、コンテナの中の H2
+（`/app/tools/h2.jar`。サービスと同じ版）で `BACKUP TO` して取ります。
+
 ## 使用方法
 
 ### 監視対象チャンネルの登録

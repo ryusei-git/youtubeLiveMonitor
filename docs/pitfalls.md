@@ -343,6 +343,22 @@ yt-dlp の出力をファイルへ流すなら `--no-progress` を付ける。�
 1 本で数十 MB になる。
 
 
+### Docker ではコンテナを止めると録画も止まる（`KillMode=process` の代わりは無い）
+
+前の 2 項目は「JVM を止めても yt-dlp は生き残る」前提で書かれている（systemd の `KillMode=process` と、出力をファイルへ
+向ける仕組み）。**Docker ではこの前提が崩れる。** コンテナを止める（反映での作り直し・`docker compose restart`・
+JVM の OOM での終了）と、PID 名前空間ごと終わるので、録画中の yt-dlp と ffmpeg も猶予なく止まる（#856）。
+出力をファイルへ向けていても、プロセスそのものが残らない。
+
+- **反映は録画中を見送る。** `/api/health` の `recording`（`ActiveVideoJobs.hasAny()`）を運用側の guard が見て、
+  `"recording":true` の間は反映しない。急ぐ反映（guard を無視する `--force`）は、録画が切れてよいときだけ。
+- **切れた録画は補正されるが、配信の残りは録られない。** 起動後の `RecordingReconciler` が断片を詰め替えて
+  `PARTIAL`（失敗なら `FAILED`、ファイルは残す）にする。巡回は同じ配信を録り直さない（`lastRecordedVideoId`）。
+- **`init: true`（tini）を付ける。** java が PID 1 だと、yt-dlp が先に死んで孤児になった ffmpeg を誰も回収せず、
+  ゾンビを生きていると見る `ProcessTermination.terminateTreeAndAwait` の待ちが戻らなくなる。
+- **停止の猶予を 30 秒以上にする**（compose の `stop_grace_period`）。既定の 10 秒では、H2 を閉じる・検出の印を書く
+  前に SIGKILL される。
+
 ### 録画中かの判定は、動画 ID を含むだけの `grep`・`tail` で誤検知する（実際に発生した）
 
 `ProcessLauncher.isRunningWithCommandLineContaining()` は以前、OS 上の**すべて**のプロセスのコマンドラインを見て、
