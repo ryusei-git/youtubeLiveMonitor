@@ -15,12 +15,7 @@ import java.time.LocalDateTime;
  * @param serviceMemoryBytes           このサービスの実メモリ
  * @param recorderCount                録画プロセスの数
  * @param networkReceiveBytesPerSecond 受信量（毎秒）。前回値が無い最初の記録は {@code null}
- * @param networkSendBytesPerSecond    送信量（毎秒）。前回値が無い最初の記録は {@code null}
  * @param diskFreeBytes                録画の保存先ボリュームの空き。取得できなければ {@code null}
- * @param recordingsBytes              録画フォルダーの実ファイルの合計
- * @param registeredCpuPercent         登録したサービス全体の CPU 使用率（端末全体を 100% とした値）。
- *                                     分からないプロセスが 1 つでもあれば {@code null}
- * @param registeredMemoryBytes        登録したサービス全体の実メモリの合計
  */
 public record ResourceHistoryPoint(
         LocalDateTime at,
@@ -30,9 +25,5 @@ public record ResourceHistoryPoint(
         long serviceMemoryBytes,
         int recorderCount,
         Long networkReceiveBytesPerSecond,
-        Long networkSendBytesPerSecond,
-        Long diskFreeBytes,
-        long recordingsBytes,
-        Double registeredCpuPercent,
-        long registeredMemoryBytes
+        Long diskFreeBytes
 ) {}

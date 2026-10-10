@@ -17,7 +17,7 @@ public final class LoginReturnPath {
     /** 再生画面は管理者だけの画面（利用者は {@code /my/watch/<ID>}、#178）。利用者の復帰先に選ばせると 403 になる。 */
     private static final Set<String> ADMIN_PAGES = Set.of("/", "/index.html", "/channels.html",
             "/recordings.html", "/player.html", "/notifications.html", "/users.html",
-            "/invitations.html", "/logs.html", "/tables.html", "/audit.html", "/system.html");
+            "/invitations.html", "/logs.html", "/tables.html", "/audit.html");
 
     private LoginReturnPath() { }
 

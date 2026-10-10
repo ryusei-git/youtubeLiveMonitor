@@ -55,8 +55,7 @@ class ResourceMonitorServiceTest {
     /** 推移を新しい順に並べる。引数は端末全体の CPU 使用率（先頭が今回の記録）。 */
     private static List<ResourceHistoryPoint> recent(Double... systemCpuPercents) {
         return Arrays.stream(systemCpuPercents)
-                .map(cpu -> new ResourceHistoryPoint(LocalDateTime.now(), cpu, 50.0, null, 0L, 0, null, null, null,
-                        0L, null, 0L))
+                .map(cpu -> new ResourceHistoryPoint(LocalDateTime.now(), cpu, 50.0, null, 0L, 0, null, null))
                 .toList();
     }
 
@@ -727,8 +726,8 @@ class ResourceMonitorServiceTest {
          * する。
          */
         private static ResourceHistoryPoint point(int minutes, Long diskFreeBytes) {
-            return new ResourceHistoryPoint(BASE.plusMinutes(minutes), null, 0.0, null, 0L, 0, null, null,
-                    diskFreeBytes, 0L, null, 0L);
+            return new ResourceHistoryPoint(BASE.plusMinutes(minutes), null, 0.0, null, 0L, 0, null,
+                    diskFreeBytes);
         }
 
         @Test
