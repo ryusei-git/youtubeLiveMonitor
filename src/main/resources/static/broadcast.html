@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>連続再生 - YouTube Live Monitor</title>
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/studio.css">
+<style>
+  /* 画面共有で大きく映すため、再生画面（.player の max-width: 960px）より広げ、画面の高さに収める。
+     下の「再生中」の欄まで 1 画面に入るよう、その分の高さを引いておく */
+  #broadcastPlayer { max-width: none; max-height: calc(100vh - 220px); background: #000; }
+  #broadcastNow { margin: 12px 0; }
+  #broadcastNow .broadcastTitle { font-size: 1.25rem; font-weight: 600; margin: 0 0 4px; }
+  #broadcastNow p { margin: 0 0 4px; }
+  /* .player（display: block）・.inline（display: flex）は hidden 属性の display: none より強いので、隠す指定を勝たせる */
+  #mainContent [hidden] { display: none; }
+  /* 全画面では動画と「再生中」の欄だけを黒地に置く。ウィンドウを共有したときに、メニューや見出しまで映さないため。
+     動画要素ではなく枠ごと全画面にするのは、題名と「次」を一緒に映すため（録画を切り替えても全画面は続く） */
+  #broadcastStage:fullscreen { background: #000; display: flex; flex-direction: column; justify-content: center; }
+  #broadcastStage:fullscreen #broadcastPlayer { max-height: calc(100vh - 96px); border-radius: 0; }
+  #broadcastStage:fullscreen #broadcastNow { margin: 0; padding: 8px 24px; color: #fff; }
+  #broadcastStage:fullscreen #broadcastNow .muted { color: #bbb; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="shell">
+    <a class="brand" href="/index.html">
+      <span class="brand-name">LIVE MONITOR</span>
+      <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
+    </a>
+  </div>
+</header>
+<nav class="globalnav" aria-label="メインメニュー">
+  <div class="shell">
+    <a href="/videos.html">動画・配信</a>
+    <a href="/index.html">ダッシュボード</a>
+    <a href="/channels.html">チャンネル</a>
+    <a href="/notifications.html">通知履歴</a>
+    <a href="/recordings.html" class="active">録画</a>
+    <a href="/users.html">利用者管理</a>
+    <a href="/invitations.html">招待</a>
+    <a href="/logs.html">ログ</a>
+    <a href="/audit.html">監査ログ</a>
+    <a href="/tables.html">DB管理</a>
+  </div>
+</nav>
+<main class="shell" id="mainContent">
+  <p><a href="/recordings.html">← 録画一覧へ戻る</a></p>
+  <p id="error" role="alert" class="error" style="display:none;"></p>
+
+  <h1>連続再生</h1>
+  <p class="pageDescription">再生できる録画をシャッフルして、途切れずに流し続けます。このウィンドウを Discord の画面共有で映してください。</p>
+
+  <div class="inline">
+    <button id="broadcastStartBtn" type="button">再生を始める</button>
+  </div>
+
+  <div id="broadcastStage">
+    <video id="broadcastPlayer" class="player" controls playsinline hidden></video>
+    <div id="broadcastNow" hidden>
+      <p class="broadcastTitle" id="broadcastTitle"></p>
+      <p class="muted" id="broadcastMeta"></p>
+      <p class="muted" id="broadcastUpNext"></p>
+    </div>
+  </div>
+  <div class="inline" id="broadcastControls" hidden>
+    <button id="broadcastSkipBtn" type="button">次の録画へ</button>
+    <button id="broadcastFullscreenBtn" type="button">全画面で映す</button>
+    <span class="muted">全画面にすると、メニューを映さずに動画と「再生中」の欄だけを共有できます（Esc で戻る）</span>
+  </div>
+  <div id="broadcastNotice" role="status"></div>
+</main>
+<script src="/js/common.js"></script>
+<script src="/js/broadcast.js"></script>
+</body>
+</html>

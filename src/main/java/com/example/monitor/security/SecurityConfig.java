@@ -318,8 +318,9 @@ public class SecurityConfig {
                 .requestMatchers("/channels.html", "/api/channels/**").hasRole("ADMIN")
                 .requestMatchers("/notifications.html", "/api/notifications/**").hasRole("ADMIN")
                 // 再生画面は管理者だけ。画面が使う API（/api/recordings/**）が管理者専用で、利用者が開いても録画を読めない。
-                // 利用者は 1 枚のページの /my/watch/<ID> で再生する（#178。#147 で利用者にも開けていたのを戻した）
-                .requestMatchers("/recordings.html", "/player.html").hasRole("ADMIN")
+                // 利用者は 1 枚のページの /my/watch/<ID> で再生する（#178。#147 で利用者にも開けていたのを戻した）。
+                // 連続再生の画面も同じ API を使うので管理者だけ。anyRequest に落とすと、利用者が開けるのに何も流れない
+                .requestMatchers("/recordings.html", "/player.html", "/broadcast.html").hasRole("ADMIN")
                 .requestMatchers("/api/recordings/**", "/api/downloads/**").hasRole("ADMIN")
                 // 録画ファイルはログインしていれば全部見てよい（#419）。利用者のアーカイブは購読していない
                 // チャンネルの録画も出すので、ファイルだけを購読で絞ると「一覧に出るのに再生できない」録画ができる

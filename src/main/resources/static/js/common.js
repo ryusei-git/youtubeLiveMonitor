@@ -2093,7 +2093,8 @@ function renderNavigationForViewer(admin) {
     if (!nav) return;
     viewerIsAdmin = admin;
     const logout = nav.querySelector(".navLogout");
-    const page = location.pathname === "/player.html" ? "/recordings.html" : location.pathname;
+    // 再生画面と連続再生の画面はメニューに無いので、元のアーカイブ一覧を光らせる
+    const page = ["/player.html", "/broadcast.html"].includes(location.pathname) ? "/recordings.html" : location.pathname;
     /** @param {Array<[string, string]>} entries */
     const toLinks = (entries) => entries.map(([href, label]) => {
         const link = document.createElement("a");
