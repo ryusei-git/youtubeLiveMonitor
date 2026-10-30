@@ -844,6 +844,8 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
 | PUT | `/api/admin/users/{id}/password` | 一般利用者の新しいパスワードを決める（管理者のみ。本文 `{"password":"...","adminPassword":"..."}`。今のパスワードは見られない。成功は 204 で、その利用者のほかの端末のログイン・「ログインしたままにする」・再設定用のリンクは切れる。403・400・409 は上と同じ） |
 | POST | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS&force=` | 録画の耳キスの検出を今すぐ始める（202。今の版で検出済みなら `force=true` が要る。検出が走っている・再生できない録画は 409） |
 | GET | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS` | 今の版の検出の実行記録（`status`・`candidateCount`・`attempts`・`message` など。まだ一度も検出していなければ 404） |
+| GET | `/api/my/recordings/channel-summaries` | 全チャンネルの録画の要約（再生できる録画の件数・合計の長さ・最新の録画日・最新のサムネイル・購読しているか）を、最新の録画が新しい順に返す。利用者のアーカイブの「チャンネル」（`/my/archive/channels`）が使う |
+| GET | `/api/my/recordings/channel-summaries/{channelId}` | 1 チャンネルの録画の要約（チャンネルページ `/my/archive/channels/{channelId}` の見出し。無いチャンネルは 404） |
 | GET | `/api/my/recordings/{recordingId}/sound-marks?kind=EAR_KISS` | 録画に付いた耳キスの印（全員の分）を位置の順に返す（ログインしていれば誰でも使える。以下の `/api/my/**` も同じ） |
 | POST | `/api/my/recordings/{recordingId}/sound-marks` | 印を付ける（本文 `{"kind":"EAR_KISS","positionMs":123456}`。同じ人が前後 1 秒以内に付け直すと前の印を返す） |
 | DELETE | `/api/my/recordings/{recordingId}/sound-marks/{markId}` | 自分の印を消す（ほかの人の印は 404） |

@@ -636,10 +636,14 @@ function thumbnailContent(recording) {
  * @param {(recording: Recording) => string} [playerHref] サムネイルと題名のリンク先。省略すると管理者の再生画面。
  *        利用者の 1 枚のページ（my.html）は {@code /my/watch/<ID>} を渡す。{@code /player.html} へ移ると
  *        ページが読み込み直され、ミニプレーヤーで再生中の動画が止まるため
+ * @param {((recording: Recording) => string)|null} [channelHref] チャンネル名のリンク先。省略すると配信元のチャンネルページ。
+ *        利用者の 1 枚のページは、このサービスの中のチャンネルページ（{@code /my/archive/channels/<ID>}）を渡す。
+ *        見ている録画のチャンネルのほかの録画を、配信元へ移らずにたどれるようにするため。
+ *        チャンネルに紐づかない録画（channelId が null）は、渡しても配信元のリンクのままにする
  * @returns {HTMLElement} カード要素
  */
 function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null, onToggleMark = null,
-                        playerHref = (r) => `/player.html?id=${r.id}`) {
+                        playerHref = (r) => `/player.html?id=${r.id}`, channelHref = null) {
     const card = document.createElement("div");
     card.className = "videoCard";
 
@@ -658,6 +662,9 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null,
         ? `<a href="${href}">${escapeHtml(recording.videoTitle)}</a>`
         : escapeHtml(recording.videoTitle);
     const status = recordingStatusLabel(recording.status);
+    const channel = channelHref && recording.channelId != null
+        ? `<a href="${escapeHtml(channelHref(recording))}">${escapeHtml(recording.channelName)}</a>`
+        : channelLink(recording.channelName, recording.channelUrl);
     // 録画中は削除の代わりに停止を出す（削除は API 側も 409 で弾く）。どちらも管理画面の一覧（onDelete を渡す画面）だけ
     const deletable = onDelete !== null && recording.status !== "RECORDING";
     const stopButton = onDelete !== null && recording.status === "RECORDING"
@@ -677,7 +684,7 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null,
         ${thumbnail}
         <div class="cardBody">
           <div class="cardTitle">${title}</div>
-          <div class="muted">${channelLink(recording.channelName, recording.channelUrl)}</div>
+          <div class="muted">${channel}</div>
           <div class="muted">${datetimeCell(recording.startedAt)} ・ ${status}`
         + ` ・ ${formatFileSize(recording.fileSizeBytes)} ・ <span class="playCount">再生 ${Number(recording.playCount)} 回</span></div>
           <div class="cardActions">${playButton}${deletable ? '<button class="deleteBtn">削除</button>' : ""}${stopButton}</div>
