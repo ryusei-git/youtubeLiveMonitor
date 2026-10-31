@@ -678,23 +678,14 @@ function renderNotificationFailures(failureCount) {
 let dashboardRequest = 0;
 /** @type {Date|null} */
 let dashboardLastUpdatedAt = null;
-/**
- * 配信中のカードと配信予定の表を前回描いた内容の要約。同じなら描き直さない（利用者のトップと同じ。#279）。
- * 1 分ごとの自動更新で毎回描き直すと、カードや表のリンクにフォーカスしていた人のフォーカスが body へ飛ぶため。
- */
-let dashboardVideosKey = "";
 
 async function loadDashboard() {
     const request = ++dashboardRequest;
-    // 下の Promise.all に入れると、片方の失敗で KPI やグラフまで更新されなくなるため別に読む
+    // 下の /api/dashboard と一緒に待つと、片方の失敗で KPI やグラフまで更新されなくなるため別に読む
     loadRecordingFailures();
     loadResources();
     try {
-        const [data, livePage, upcoming] = await Promise.all([
-            apiGet("/api/dashboard"),
-            apiGet("/api/videos?liveOnly=true&size=100"),
-            apiGet("/api/channels/upcoming"),
-        ]);
+        const data = await apiGet("/api/dashboard");
         if (request !== dashboardRequest) return;
         el("totalChannels").textContent = data.totalChannels;
         el("liveNowCount").textContent = data.liveNowCount;
@@ -711,12 +702,6 @@ async function loadDashboard() {
         startedAtCell.innerHTML = datetimeCell(data.serviceStartedAt);
         bindDatetimeCells(startedAtCell);
 
-        const videosKey = JSON.stringify([onlineVideosRenderKey(livePage.content), upcoming]);
-        if (videosKey !== dashboardVideosKey) {
-            dashboardVideosKey = videosKey;
-            renderLiveVideoCards(el("liveVideos"), livePage);
-            renderUpcomingStreams(upcoming);
-        }
         dashboardLastUpdatedAt = new Date();
         renderRefreshStatus(el("dashboardRefreshStatus"), dashboardLastUpdatedAt, false);
     } catch {
