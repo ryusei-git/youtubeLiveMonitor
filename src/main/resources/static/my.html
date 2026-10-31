@@ -22,13 +22,19 @@
 <link rel="stylesheet" href="/css/studio.css">
 <link rel="stylesheet" href="/css/mobile.css" media="(max-width: 760px)">
 </head>
-<body>
+<body class="userApp">
 <header class="masthead">
   <div class="shell">
     <a class="brand" href="/my">
       <span class="brand-name">LIVE MONITOR</span>
       <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
     </a>
+    <!-- 送ったときの動きは my-app.js の myBindHeaderSearch。760px 以下は欄を隠し、検索の画面へのアイコン（.headerSearchLink）だけを出す -->
+    <form id="headerSearchForm" class="headerSearch" role="search">
+      <input id="headerSearchInput" type="search" placeholder="検索" aria-label="動画を検索">
+      <button type="submit" aria-label="検索" title="検索"><svg class="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M16 16l5 5"/></svg></button>
+    </form>
+    <a class="headerSearchLink" href="/my/search" aria-label="検索" title="検索"><svg class="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M16 16l5 5"/></svg></a>
   </div>
 </header>
 <nav class="globalnav" aria-label="メインメニュー">
@@ -36,13 +42,14 @@
     <!-- 今いる画面の項目の印（class="active"）は、my-app.js のルーターが画面を移るたびに付け替える -->
     <a href="/my">トップ</a>
     <a href="/my/archive">アーカイブ</a>
-    <a href="/my/channels">マイチャンネル</a>
+    <!-- wbr: 細いメニュー（幅 1312px 以下）で 1 行に収まらない項目を、語の切れ目で折り返す。span は、wbr が flex の項目として分かれないように包む -->
+    <a href="/my/channels"><span>マイ<wbr>チャンネル</span></a>
     <a href="/my/settings/notifications">通知の設定</a>
     <a href="/my/settings/account">アカウント</a>
     <a href="/my/search">検索</a>
     <a href="/my/discover">新人発掘</a>
     <a href="/my/videos">動画・配信</a>
-    <a href="/my/download">動画ダウンロード</a>
+    <a href="/my/download"><span>動画<wbr>ダウンロード</span></a>
   </div>
 </nav>
 <!-- 再生中の動画。動画要素はこの 1 つだけで、DOM から外したり移したりしない（再生が止まり、小窓も閉じるため）。

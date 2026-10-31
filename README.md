@@ -652,6 +652,11 @@ HTTPS の要求にはどちらの Cookie にも `Secure` が付くので、tailn
 色は `css/style.css` 冒頭の CSS カスタムプロパティに集約しているので、
 配色を変えたい場合はそこだけ触れば全画面に反映されます。
 
+利用者の画面（`/my` 配下、`my.html`）だけは、普段使っている画面と同じ感覚で迷わず使えるよう、ヘッダーと左のメニューの配置・
+中央の検索欄・カードの並びと大きさ・ボタンの形・無彩色の配色を YouTube に寄せています（`css/studio.css` の末尾の
+`body.userApp` の規則）。YouTube のロゴ・名前の流用・赤い再生ボタン・赤の配色は使わず、サービスの名前と紫のロゴ、
+リンクと焦点の紫は残します（Branding Guidelines と Developer Policies III.I.1 のため）。
+
 ### 設定の変更
 
 ダッシュボードの「現在の設定」から、YouTube APIキー・Discord Webhook URL・監視間隔・

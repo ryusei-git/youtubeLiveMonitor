@@ -46,22 +46,9 @@ body:has(#playerDock.is-mini) { padding-bottom: calc(var(--dock-mini-height) + v
 .toastStack { left: calc(0.75rem + var(--safe-left)); right: calc(0.75rem + var(--safe-right)); bottom: calc(0.75rem + var(--safe-bottom)); }
 body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height) + 12px + var(--safe-bottom)); }
 
-/* 録画・動画のカード（#790）。1 列のままだと 8 件で 3400px ほどの縦長になり、一覧として見渡せないので 2 列にする。
-   .videoGrid はトップの配信中・動画・配信・再生画面の「同じチャンネルの録画」でも使うので、そこも同じく 2 列になる。
-   minmax(0, 1fr) にするのは、長い題名などの最小内容幅で列が広がり、ページ全体が横にはみ出さないようにするため。 */
-.videoGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; }
-/* 幅が半分になるので題名は 2 行で打ち切り、カードの高さを揃える（書き方は studio.css の .searchTitle と同じ）。 */
-.videoCard .cardTitle { font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.videoCard .cardBody .muted { font-size: 11px; }
-/* 動画のカードは題名が h3 の中のリンクかボタン（inline-block）なので、その側で 2 行に打ち切る（h3 で打ち切っても 1 個の箱は切れない）。 */
-.onlineTitle { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-/* PC の大きさのままの ▶ は、半分の幅のサムネイルでは絵を隠しすぎる。 */
-.onlinePlayMark { font-size: 16px; padding: 4px 10px; }
-/* サムネイルの無い動画（#794）。2 列で枠の背が 90px ほどになると、studio.css で枠の下端へ寄せた「サムネイル取得待ち」と
-   中央の ▶ が重なって文言が読めない。文言が出ているカードでだけ ▶ を上へずらし、文言の下の余白も少し詰めて間を空ける
-   （▶ は再生できる目印なので消さない。サムネイルのあるカードの ▶ は中央のまま）。 */
-.onlinePlayButton .thumbPlaceholder:not([hidden]) { padding-bottom: 8px; }
-.onlinePlayButton:has(> .thumbPlaceholder:not([hidden])) .onlinePlayMark { top: 36%; }
+/* 録画・動画のカード（#879）。YouTube のスマホの画面と同じく 1 列にする。minmax(0, 1fr) にするのは、長い題名などの最小内容幅で
+   列が広がり、ページ全体が横にはみ出さないようにするため。 */
+body.userApp .videoGrid { grid-template-columns: minmax(0, 1fr); }
 
 /* アーカイブのリスト（#790）。9 列の表は 375px では開始日時とチャンネルしか見えないので、表の 1 行を 3 行のカードに組み替える。
    JS で別のカードを作らないのは、印のボタンが 2 組になって押した後の表示をそろえる手間が増えるため（親 #785「表の扱い」）。
@@ -130,10 +117,11 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 #upcomingTable td:nth-child(7) { flex: 0 0 100%; margin-top: 4px; }
 #upcomingTable td:nth-child(8) { flex: 0 0 100%; margin-top: 4px; text-align: right; }
 
-/* 再生画面の操作の帯（#792）。PC と同じ折り返しのままだと 375px で -10秒・+10秒・速度・小窓で再生が 2 行になり、
+/* 再生画面の操作の帯（#792）。PC と同じ大きさのままだと 375px で -10秒・+10秒・速度・小窓で再生が 2 行になり、
    動画の下の 1 画面目を帯だけで使うので、文字と左右の余白を詰めて 1 行に収める（高さは押しやすさのため 44px のまま）。
-   詰め方は studio.css の 760px 以下の #playerDock.is-mini .dockBar と同じ。±10 秒と小窓のボタンは残りの幅を分け合う。 */
-#playerDock.is-full .dockBar { flex-wrap: nowrap; gap: 6px; }
+   詰め方は studio.css の 760px 以下の #playerDock.is-mini .dockBar と同じ。±10 秒と小窓のボタンは残りの幅を分け合う。
+   320px では詰めても 1 行に収まらないので、折り返しは止めない（止めると画面の外へはみ出す）。 */
+#playerDock.is-full .dockBar { gap: 6px; }
 #playerDock.is-full .dockBar button { font-size: 13px; padding-left: 8px; padding-right: 8px; }
 #playerDock.is-full #dockBack, #playerDock.is-full #dockForward, #playerDock.is-full #dockPip { flex: 1 1 auto; }
 /* 速度の選択肢は、中身（「1.25倍」まで）の幅だけにする。文字はボタンと揃えて 13px にはせず 16px のままにする
@@ -141,8 +129,7 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
    375px で「小窓を閉じる」まで 1 行に収まることを確かめてある。 */
 #playerDock.is-full #dockRate { width: auto; padding-left: 8px; padding-right: 8px; }
 /* 小窓にできないときの案内（common.js の bindPictureInPictureButton() が #dockPip の後ろに足す）は 1 行に収まらないので、
-   案内が出たときだけ折り返しを許し、帯の下の行に幅いっぱいで出す。 */
-#playerDock.is-full .dockBar:has(.pipHint) { flex-wrap: wrap; }
+   帯の下の行に幅いっぱいで出す。 */
 #playerDock.is-full .pipHint { flex-basis: 100%; }
 
 /* 再生画面の耳キスのボタン（#792）。style.css の 768px 以下の .inline の縦積みのままだと、5 つのボタンが幅いっぱいに
@@ -212,22 +199,22 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 /* 並べ替えの帯（#793）。カードには列の見出しが無いので、見出しの行を表の上の横 1 行にし、並べ替えのボタン
    （makeTableSortable() が data-sort の見出しに入れる .sortButton。チャンネル名・録画数・購読した日）だけを残す。
    押したときの動き（URL の sort に残す）は見出しのときと同じ。 */
-.myChannelsTable thead tr { display: flex; gap: 8px; align-items: center; padding: 0 12px; background: #fafbfc; border-bottom: 1px solid #eeeff3; }
-.myChannelsTable thead tr::before { content: "並べ替え"; font-size: 12px; color: var(--text-muted); }
+.myChannelsTable thead tr { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: center; padding: 0 12px; background: #fafbfc; border-bottom: 1px solid #eeeff3; }
+.myChannelsTable thead tr::before { content: "並べ替え"; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
 .myChannelsTable thead th { padding: 0; border: 0; background: none; }
 .myChannelsTable thead th:not([data-key]) { display: none; }
 /* studio.css の .sortButton は見出しの中で th の見た目のままにするため min-height: 0 にしている。帯では指で押すボタンなので、
    上の button の規則と同じ 44px に戻す（.sortButton の規則のほうが詳しいので、ここでも詳しく書く）。 */
 .myChannelsTable .sortButton, .myChannelsTable .sortButton:hover { min-height: 44px; padding: 0 6px; font-size: 12px; }
 
-/* 動画・配信の 3 つの段（#794）。PC と同じ 20px の余白のままだと、2 列のカード（#790）が 1 枚 150px ほどまで細くなるので、
-   段の枠の余白と段どうしの間を詰める。見出しとページ送り（前へ・次へ）は同じ行に置き、収まらないときだけ
+/* 動画・配信の 3 つの段（#794）。見出しとページ送り（前へ・次へ）は同じ行に置き、収まらないときだけ
    ページ送りが次の行の右に回る（折り返しは studio.css の flex-wrap: wrap のまま。margin-left: auto で右に寄せる）。 */
-.videoSection { padding: 14px 12px; margin-top: 18px; }
-.videoSectionHead { gap: 8px; padding-bottom: 10px; margin-bottom: 12px; }
-.videoSectionHead h2 { font-size: 16px; }
+.videoSectionHead { gap: 8px; }
 .videoPager { margin-left: auto; }
-#videoFilterForm { padding: 12px; }
+/* 絞り込みは 1 行にする（#879）。縦に積むと最初の一画面がフォームで埋まるので、ラベルは欄の上に小さく置く。 */
+body.userApp #videoFilterForm { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 8px; }
+body.userApp #videoFilterForm label { display: block; min-width: 0; font-size: 12px; }
+body.userApp #videoFilterForm button { width: auto; }
 
 /* 視聴画面（#876）。1 列にし、プレーヤーは画面の端まで広げて角丸を外す。負のマージンは本文の左右の余白（studio.css の 760px 以下の
    16px）と body の安全領域の分。「もっと見る」は studio.css で文字だけのボタンにしているので、上の button の 44px を詳しく書き直す。 */

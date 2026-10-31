@@ -6,8 +6,9 @@
  * my-app.js は別の作業が並行して触るため、画面はこのファイルに分け、my-app.js の myRoutes には行を足すだけにしている。
  * jsconfig.json はすべての js を 1 つのスコープで型検査するので、グローバルの名前は mySearch か myVideoWatch で始める。
  *
- * 並び方（左にサムネイル・右に情報、視聴画面は大きなプレーヤーと下に情報）だけを YouTube に近づけ、
- * 配色・ロゴ・赤い再生ボタンは真似しない。YouTube API Services の規約で、似せすぎないことが求められているため（#485）。
+ * 並び・大きさ・部品の形・無彩色の配色は YouTube に寄せ、ロゴ・名前の流用・赤い再生ボタン・赤の配色は使わない
+ * （#879 で #485 の線引きを改めた）。Branding Guidelines が trade dress（look and feel・特徴的な配色の組み合わせ）の模倣を、
+ * Developer Policies III.I.1 が体験の再現を禁じているため。視聴画面の操作は YouTube のものと混ぜない（III.C.2）。
  */
 
 /**
@@ -138,24 +139,6 @@ function mySearchKeptRange(previous, next, fresh) {
 }
 
 /**
- * 投稿からの経過を「3 日前」のように出す。YouTube の検索結果と同じく、日時より「どれだけ新しいか」が一目で分かるため。
- *
- * @param {string|null} iso 投稿日時
- * @returns {string} 経過。読めなければ空
- */
-function mySearchTimeAgo(iso) {
-    const time = iso ? new Date(iso).getTime() : NaN;
-    if (Number.isNaN(time)) return "";
-    const minutes = Math.max(0, Math.floor((Date.now() - time) / 60_000));
-    /** @type {Array<[number, string]>} */
-    const units = [[60 * 24 * 365, "年"], [60 * 24 * 30, "か月"], [60 * 24 * 7, "週間"], [60 * 24, "日"], [60, "時間"], [1, "分"]];
-    for (const [size, label] of units) {
-        if (minutes >= size) return `${Math.floor(minutes / size)} ${label}前`;
-    }
-    return "たった今";
-}
-
-/**
  * 検索結果を YouTube から取った時刻を「3 時間前に YouTube から取得」のように出す。サーバーは同じ条件の結果を
  * 使い回す（最大 6 時間、「ライブ中」は 15 分）ので、再生回数や「ライブ」の札がいつ時点の値かを見せるため
  * （新人発掘の画面の「N 日前に取得」と同じ考え）。
@@ -164,7 +147,7 @@ function mySearchTimeAgo(iso) {
  * @returns {string} 表示する文。読めなければ空
  */
 function mySearchFetchedLabel(iso) {
-    const ago = mySearchTimeAgo(iso);
+    const ago = formatTimeAgo(iso);
     if (!ago) return "";
     return ago === "たった今" ? "たった今 YouTube から取得" : `${ago}に YouTube から取得`;
 }
@@ -251,7 +234,7 @@ function mySearchResult(item, subscribed) {
             <img src="${escapeHtml(item.thumbnailUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer">${badge}</a>
         <div class="searchInfo">
           <h3 class="searchTitle"><a href="${watch}">${escapeHtml(item.title)}</a></h3>
-          <p class="muted">${[mySearchViews(item.viewCount), mySearchTimeAgo(item.publishedAt)].filter(Boolean).join("・")}</p>
+          <p class="muted">${[mySearchViews(item.viewCount), formatTimeAgo(item.publishedAt)].filter(Boolean).join("・")}</p>
           <p class="muted">${mySearchChannel(item)}</p>
           <p class="searchDescription muted">${escapeHtml(item.description)}</p>
           ${marks ? `<p class="searchMarks">${marks}</p>` : ""}
@@ -276,7 +259,6 @@ const mySearchView = {
             <form id="searchForm">
               <div class="inline searchMain">
                 <input type="search" name="q" placeholder="キーワード" aria-label="キーワード">
-                <button type="submit">検索</button>
               </div>
               <div class="inline">
                 <select name="order" aria-label="並び順">
@@ -297,6 +279,7 @@ const mySearchView = {
                   <option value="">ライブ：指定なし</option><option value="live">ライブ中</option>
                   <option value="upcoming">配信予定</option><option value="completed">配信済み</option>
                 </select>
+                <button type="submit">検索</button>
               </div>
               <details class="utilityPanel searchMore">
                 <summary aria-expanded="false">詳しい条件<small class="filterCount"></small></summary>
@@ -378,6 +361,14 @@ const mySearchView = {
             const reset = quota && quota.userRemaining === 0 ? `（${formatInstant(quota.resetsAt)} に戻ります）` : "";
             query(".quotaLeft", root).textContent = quota ? `今日の残り ${quota.userRemaining} 回${reset}` : "";
         };
+
+        // ヘッダーの検索欄と本文の語の欄を同じ語にする（PC の幅はヘッダーの欄、760px 以下は本文の欄で入力する）。
+        // ヘッダーから本文へ写す側は my-app.js の myBindHeaderSearch。語の欄はこの画面と一緒に消えるので、外す処理は要らない
+        const headerWord = inputEl("headerSearchInput");
+        headerWord.value = params.get("q") || "";
+        query("[name=q]", form).addEventListener("input", (event) => {
+            headerWord.value = /** @type {HTMLInputElement} */ (event.currentTarget).value;
+        });
 
         // URL の条件を欄へ戻す（select は選択肢に無い値だと空になるので、既定へ戻す）
         for (const field of fields) {
@@ -579,6 +570,10 @@ const mySearchView = {
                 showQuota(quota);
             }).catch(() => {});
         }
+    },
+    leave() {
+        // ヘッダーは画面を移っても残るので、検索の画面を離れたら語を残さない
+        inputEl("headerSearchInput").value = "";
     },
 };
 

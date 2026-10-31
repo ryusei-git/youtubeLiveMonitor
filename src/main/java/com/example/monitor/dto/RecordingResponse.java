@@ -22,6 +22,8 @@ import java.time.LocalDateTime;
  *                       {@link #UNLINKED_CHANNEL_NAME}（画面に「-」とだけ出ると理由が分からないため）
  * @param channelUrl     チャンネルページの URL。配信元ごとに形が違う（Twitch はログイン名から作る）ため
  *                       サーバーで組み立てる。未登録、または Twitch でログイン名が無ければ {@code null}
+ * @param channelIconUrl チャンネルのアイコン URL（{@link MonitoredChannel#channelIconUrl}）。利用者の画面のカードに出す。
+ *                       未登録、またはまだ読み取れていなければ {@code null}
  * @param videoId        配信の動画 ID
  * @param videoUrl       配信の視聴ページの URL（再生画面の「元の配信」のリンク先）。YouTube の録画だけ動画 ID から組み立てる。
  *                       Twitch の録画の動画 ID は配信 ID で視聴ページを作れず、未登録チャンネルの録画は配信元が分からないため、
@@ -48,6 +50,7 @@ public record RecordingResponse(
         String youtubeChannelId,
         String channelName,
         String channelUrl,
+        String channelIconUrl,
         String videoId,
         String videoUrl,
         String videoTitle,
@@ -110,6 +113,7 @@ public record RecordingResponse(
                 channel == null ? UNLINKED_CHANNEL_NAME : channel.getChannelName(),
                 channel == null ? null : StreamLinkUtils.channelUrl(
                         channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
+                channel == null ? null : channel.getChannelIconUrl(),
                 recording.getVideoId(),
                 channel == null ? null : StreamLinkUtils.videoUrl(channel.getPlatform(), recording.getVideoId(), null),
                 recording.getVideoTitle(),

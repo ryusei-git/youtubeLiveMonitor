@@ -589,10 +589,12 @@ const myVideosView = {
               <div id="${name}Grid" class="videoGrid"></div>
             </section>`).join("");
         root.innerHTML = `<div class="pageHead"><h1>動画・配信</h1><button type="button" id="refreshVideosBtn">表示を更新</button></div>
-            <p class="pageDescription">購読しているチャンネルの新着動画と配信を、この画面から再生できます。</p>
+            <div class="pageNotes">
+              <p class="pageDescription">購読しているチャンネルの新着動画と配信を、この画面から再生できます。</p>
+              <p id="collectionNotice" class="muted" role="status">取得状況を確認しています…</p>
+              <p id="videoRefreshStatus" class="muted" role="status">表示を読み込み中…</p>
+            </div>
             <p id="error" class="error" role="alert" style="display:none;"></p>
-            <p id="collectionNotice" class="muted" role="status">取得状況を確認しています…</p>
-            <p id="videoRefreshStatus" class="muted" role="status">表示を読み込み中…</p>
             <form id="videoFilterForm" class="inline">
               <label>検索 <input id="videoKeyword" type="search" placeholder="タイトル・チャンネル名" maxlength="200"></label>
               <label>チャンネル <select id="videoChannel"><option value="">すべて</option></select></label>
@@ -2174,6 +2176,35 @@ function myNavigate(url) {
 }
 
 /**
+ * ヘッダーの検索欄をつなぐ。ヘッダーは画面を移っても作り直さないので、ページを開いたときに 1 回だけ呼ぶ。
+ *
+ * 検索の画面では本文のフォームの語の欄へ写してから本文のフォームを送る。本文の条件（並び順・投稿日など）を保ったまま探し、
+ * 入力の確かめも同じものを通すため（語の欄は PC の幅では隠しているだけで、フォームの中に残している）。
+ * ほかの画面からは語だけを付けて検索の画面へ移る。語が空でも移るのは、詳しい条件から探す入口にもなるため。
+ */
+function myBindHeaderSearch() {
+    const input = inputEl("headerSearchInput");
+    const bodyWord = () => /** @type {HTMLInputElement|null} */ (document.querySelector('#searchForm [name="q"]'));
+    input.addEventListener("input", () => {
+        const word = bodyWord();
+        if (word) word.value = input.value;
+    });
+    formEl("headerSearchForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const word = bodyWord();
+        if (word?.form) {
+            word.value = input.value;
+            word.form.requestSubmit();
+            return;
+        }
+        const url = new URL("/my/search", location.origin);
+        const value = input.value.trim();
+        if (value) url.searchParams.set("q", value);
+        myNavigate(url);
+    });
+}
+
+/**
  * ログイン後の復帰で付く continue を URL から取り除く。Spring Security は保存した URL の末尾に
  * 付けて戻す（/my/archive?genre=x&continue）。検索条件ではなく、残すとブックマークにも付いて回る。
  */
@@ -2206,4 +2237,5 @@ window.addEventListener("popstate", () => myRender({ restoreScroll: true }));
 history.scrollRestoration = "manual";
 myDropContinueParam();
 myDockInit();
+myBindHeaderSearch();
 myRender({ initial: true });
