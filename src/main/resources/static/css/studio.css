@@ -354,6 +354,8 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 .watchPlayer { border-radius: 12px; overflow: hidden; background: #000; }
 .watchPlayer:empty { aspect-ratio: 16 / 9; }
 .watchPlayer iframe { display: block; width: 100%; min-width: 200px; min-height: 200px; aspect-ratio: 16 / 9; border: 0; }
+/* 埋め込みの外から操作する列（#878）。プレーヤーの上に重ねる表示は規約で禁じられているので、すぐ下に置く。部品は録画のドックと同じ */
+.watchControls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .watchHint, .watchPrimary .adSkipNotice { font-size: 12px; margin: 8px 0 0; }
 .watchTitle { margin: 12px 0 0; font-size: 20px; font-weight: 700; line-height: 1.4; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .watchOwner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; margin-top: 12px; }
@@ -373,6 +375,11 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 .watchDescriptionText { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .watchDescriptionText.is-open { display: block; }
 .watchDescriptionText:empty { display: none; }
+/* 説明の時刻（#878）。プレーヤーが応答するまでは飛べないので、まわりの文字と同じに見せる。応答したらリンクの見た目にする。
+   文の中に置くので、ボタンの枠・余白・最小の高さ（mobile.css の 44px を含む）を外す */
+.watchTime, .watchTime:hover { min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font-weight: inherit; letter-spacing: inherit; cursor: inherit; }
+.watchDescription.is-seekable .watchTime { color: var(--link); cursor: pointer; }
+.watchDescription.is-seekable .watchTime:hover { text-decoration: underline; }
 .descriptionToggle, .descriptionToggle:hover { min-height: 0; margin-top: 4px; padding: 0; border: 0; background: none; color: var(--text); }
 .descriptionToggle:hover { text-decoration: underline; }
 .watchSecondary { min-width: 0; }

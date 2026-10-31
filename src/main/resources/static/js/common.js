@@ -2255,12 +2255,33 @@ function csrfHeaders() {
     return cookie ? { "X-XSRF-TOKEN": decodeURIComponent(cookie.slice("XSRF-TOKEN=".length)) } : {};
 }
 
+/**
+ * YouTube の埋め込みの URL を組み立てる。
+ *
+ * enablejsapi と origin は、外から postMessage で操作するため（my-search.js の mySearchBindPlayer）。公式の
+ * iframe_api は CSP（script-src 'self'）で読めないが、この 2 つを付ければ外部スクリプト無しで操作でき、応答も
+ * origin 宛てに届く。
+ * start は秒の整数しか受け付けない。1 未満は先頭と同じなので付けない。
+ *
+ * @param {string} id 動画 ID
+ * @param {{autoplay?: boolean, start?: number}} [options] autoplay は開いたら再生するか、start は始める位置（秒）
+ * @param {string} [origin] 操作する画面のオリジン
+ * @returns {string} 埋め込みの URL
+ */
+function youtubeEmbedUrl(id, { autoplay = false, start = 0 } = {}, origin = location.origin) {
+    const required = `playsinline=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
+    const autoplayParam = autoplay ? "&autoplay=1" : "";
+    const startParam = start >= 1 ? `&start=${Math.floor(start)}` : "";
+    return `https://www.youtube-nocookie.com/embed/${id}?${required}${autoplayParam}${startParam}`;
+}
+
 /** 許可したサービスのURLだけを公式プレーヤーに変換する。
  * @param {string} watchUrl
- * @param {string} [hostname]
+ * @param {{hostname?: string, origin?: string, start?: number}} [options] hostname は Twitch の parent、origin は
+ *   YouTube の操作に使う画面のオリジン、start は YouTube を始める位置（秒）
  * @returns {string|null}
  */
-function embeddedVideoUrl(watchUrl, hostname = location.hostname) {
+function embeddedVideoUrl(watchUrl, { hostname = location.hostname, origin = location.origin, start = 0 } = {}) {
     try {
         const url = new URL(watchUrl);
         if (url.protocol !== "https:") return null;
@@ -2268,8 +2289,7 @@ function embeddedVideoUrl(watchUrl, hostname = location.hostname) {
         if (youtube) {
             const id = url.hostname === "youtu.be" ? url.pathname.slice(1)
                 : url.pathname === "/watch" ? url.searchParams.get("v") : null;
-            return id && /^[A-Za-z0-9_-]{11}$/.test(id)
-                ? `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0` : null;
+            return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? youtubeEmbedUrl(id, { autoplay: true, start }, origin) : null;
         }
         if (!["www.twitch.tv", "twitch.tv"].includes(url.hostname)) return null;
         const vod = url.pathname.match(/^\/videos\/(\d+)\/?$/);
