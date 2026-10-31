@@ -2280,6 +2280,45 @@ function embeddedVideoUrl(watchUrl, hostname = location.hostname) {
     } catch { return null; }
 }
 
+/** 広告スキップの案内を閉じたことを残す localStorage のキー。動画を開くたびに出さないよう、端末ごとに残す */
+const AD_SKIP_NOTICE_DISMISSED_KEY = "ylm.adSkipNoticeDismissed";
+
+/**
+ * 広告スキップのユーザースクリプトの導入の案内。埋め込みは別オリジンの iframe でアプリの JS は中に触れないので、
+ * 利用者のブラウザに入れてもらうしかない。導入済みの印（スクリプトが付ける data-ad-skip）があるか、閉じた後なら出さない。
+ * @returns {HTMLElement|null} 案内の要素。出さないときは null（`after`・`before` へそのまま渡すと文字の null が入る）
+ */
+function adSkipNotice() {
+    if (document.documentElement.dataset.adSkip) return null;
+    try {
+        if (localStorage.getItem(AD_SKIP_NOTICE_DISMISSED_KEY) === "1") return null;
+    } catch {
+        // 閉じたかどうか読めないときは、案内を出す。出ても再生の邪魔にはならない
+    }
+    const notice = document.createElement("p");
+    notice.className = "muted adSkipNotice";
+    const link = document.createElement("a");
+    link.href = "/userscripts/youtube-ad-skip.user.js";
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "広告スキップを導入";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "閉じる";
+    // 再生ダイアログには再生を閉じる「閉じる」もあるので、読み上げでは何を閉じるのかを分ける
+    close.setAttribute("aria-label", "広告スキップの案内を閉じる");
+    close.addEventListener("click", () => {
+        try {
+            localStorage.setItem(AD_SKIP_NOTICE_DISMISSED_KEY, "1");
+        } catch {
+            // 残せなくても、今の案内は消す
+        }
+        notice.remove();
+    });
+    notice.append(link, " Tampermonkey か Violentmonkey が必要です。一度入れると、次からは接続するだけで動きます。 ", close);
+    return notice;
+}
+
 /** 一覧を離れず一つの動画だけ再生し、閉じた時に音声も確実に止める。
  * @param {any} video
  */
@@ -2304,6 +2343,9 @@ function openOnlineVideo(video) {
     // サイト全体のsame-origin方針は維持し、埋め込みだけ必要なRefererを送る。
     frame.referrerPolicy = "strict-origin-when-cross-origin";
     query(".onlinePlayerFrame", dialog).append(frame);
+    // スクリプトが効くのは YouTube の埋め込みだけなので、Twitch には出さない
+    const adSkip = source.startsWith("https://www.youtube-nocookie.com/") ? adSkipNotice() : null;
+    if (adSkip) query(".onlinePlayerFrame", dialog).after(adSkip);
     query(".closeOnlinePlayer", dialog).addEventListener("click", () => dialog.close());
     // 閉じるとブラウザは開く前のボタンへフォーカスを戻す。開いている間に自動更新で一覧が作り直されていると、そのボタンは
     // DOM に無く body へ落ちるので、同じ動画のカード（data-focus-key）の最初の押せるボタンへ戻す
