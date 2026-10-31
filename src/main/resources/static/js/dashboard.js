@@ -369,16 +369,16 @@ function renderResourceHistory(history) {
             ${lineChart(times, [
                 { label: "端末全体", color: "var(--chart-3)", values: history.map((p) => p.systemCpuPercent) },
                 { label: "このサービス", color: "var(--chart-1)", values: history.map((p) => p.serviceCpuPercent) },
-            ], percent)}
+            ], { ...percent, height: 130 })}
         </div>
         <div class="chartCard">
             <h2>メモリ（直近 24 時間）</h2>
             ${lineChart(times, [
                 { label: "端末全体の使用率", color: "var(--chart-3)", values: history.map((p) => p.systemMemoryUsedPercent) },
-            ], percent)}
+            ], { ...percent, height: 70 })}
             ${lineChart(times, [
                 { label: "このサービスの使用量", color: "var(--chart-1)", values: history.map((p) => p.serviceMemoryBytes) },
-            ], { format: formatFileSize, height: 100 })}
+            ], { format: formatFileSize, height: 70 })}
         </div>
     </div>`;
 }
