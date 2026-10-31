@@ -80,6 +80,9 @@
     </div>
   </div>
 
+  <h2>リソース <span class="hint" title="端末全体と、このサービス（アプリ本体・録画プロセス・アプリが起動した ffmpeg などの外部プロセス）が使っている CPU・メモリなどです。1 分ごとの計測の時点で動いているプロセスを数えます。推移は 1 分ごとに記録し、サービスを再起動すると消えます。">ⓘ</span></h2>
+  <div id="resources"></div>
+
   <div class="chartRow">
     <div class="chartCard">
       <h2>チャンネルの状態 <span class="hint" title="配信中と休止中は重ならない分類です。判定に失敗しているチャンネルは上の警告欄に出ます。">ⓘ</span></h2>
@@ -101,9 +104,6 @@
   <h2>サービスのファイル容量 <span class="hint" title="実際のファイルを走査した値です。録画はダッシュボード上部の『ディスク使用量』と同じものです。">ⓘ</span></h2>
   <div id="storageForecast"></div>
   <div id="serviceStorage"></div>
-
-  <h2>リソース <span class="hint" title="端末全体と、このサービス（アプリ本体・録画プロセス・アプリが起動した ffmpeg などの外部プロセス）が使っている CPU・メモリなどです。1 分ごとの計測の時点で動いているプロセスを数えます。推移は 1 分ごとに記録し、サービスを再起動すると消えます。">ⓘ</span></h2>
-  <div id="resources"></div>
 
   <details class="utilityPanel" id="monitorSettings">
     <summary>監視・録画の設定</summary>
