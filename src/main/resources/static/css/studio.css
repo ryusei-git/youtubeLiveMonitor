@@ -248,21 +248,31 @@ td .markBtn { margin-right: 0; }
 .soundReviewBig { min-height: 48px; padding: 10px 24px; font-size: 16px; }
 
 /* ダッシュボードの「リソース」。カードは項目数（5）が上の KPI（4）と違うため、列数を幅に任せる。 */
-.kpiGrid.resourceGrid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 16px; }
-.resourceGrid .kpiValue { font-size: 22px; }
+.kpiGrid.resourceGrid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.resourceGrid .kpi { padding: 10px 12px; }
+.resourceGrid .kpiLabel { margin-bottom: 4px; }
+.resourceGrid .kpiValue { font-size: 18px; }
 .resourceGrid .kpiUnit { white-space: nowrap; }
 .resourceGrid .kpiNumber { white-space: nowrap; }
 /* 録画の保存先のパスは長く、折り返さないとカードからはみ出してスマホで横スクロールが出る */
 .resourceGrid .kpi { min-width: 0; }
-.resourceGrid .kpiSub { overflow-wrap: anywhere; }
-.resourceRate { display: block; font-size: 16px; }
-.resourceMeter { height: 6px; margin-top: 10px; }
+.resourceGrid .kpiSub { margin-top: 4px; overflow-wrap: anywhere; }
+.resourceRate { display: block; font-size: 13px; line-height: 1.35; }
+.resourceMeter { height: 4px; margin-top: 6px; }
 /* 注意の対象になっている値は、枠と値を警告の色にして先頭の警告文と対応づける。 */
 .kpi.is-warning { border-color: var(--danger); }
 .kpi.is-warning .kpiValue, .kpi.is-warning .kpiLabel { color: var(--danger); }
 .resourceWarning { font-size: 16px; font-weight: 700; margin: 0 0 12px; }
 .processChild { padding-left: 1.2em; }
-.resourceCharts { grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); }
+/* 列の最小の幅・間隔・枠の余白は dashboard.js の RESOURCE_CHART_* と同じ値にする（グラフを表示する幅で描くため） */
+.chartRow.resourceCharts { grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 10px; margin: 10px 0 0; }
+.resourceCharts .chartCard { padding: 10px 12px; }
+.resourceCharts .chartCard h2 { margin: 0 0 6px; font-size: 12px; }
+/* 凡例は見出しの右に置く。CPU だけ凡例の 1 行があると、ほかの 2 枠の下が空いて全体が 1 行分高くなる */
+.resourceCharts .lineChart { position: relative; }
+.resourceCharts .lineLegend { position: absolute; top: -24px; right: 0; margin: 0; flex-wrap: nowrap; gap: 4px 10px; font-size: 10px; }
+.resourceCharts .lineLegend em { width: 10px; }
+#resourceProcessTable th, #resourceProcessTable td { padding: 6px 12px; font-size: 12px; }
 .lineChart svg { display: block; width: 100%; height: auto; }
 .lineChart + .lineChart { margin-top: 12px; }
 .lineGrid { stroke: var(--border); stroke-width: 1; }
