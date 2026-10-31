@@ -442,6 +442,40 @@ function myWatchPath(rec) {
 }
 
 /**
+ * チャンネルページの URL。アーカイブの下に置くのは、チャンネルから録画を選ぶのもアーカイブの見方の 1 つだから
+ * （メニューの「アーカイブ」に印を付けたままにする）。
+ *
+ * @param {number} channelId チャンネルの主キー
+ * @returns {string} チャンネルページのパス
+ */
+function myChannelPath(channelId) {
+    return `/my/archive/channels/${channelId}`;
+}
+
+/**
+ * 録画カードのチャンネル名のリンク先（common.js の buildVideoCard の channelHref）。
+ *
+ * @param {Recording} rec 録画。channelId が null の録画には buildVideoCard が呼ばない
+ * @returns {string} チャンネルページのパス
+ */
+function myRecordingChannelPath(rec) {
+    return myChannelPath(Number(rec.channelId));
+}
+
+/**
+ * アーカイブの見方（すべての録画・チャンネル）の切り替え。今の見方に aria-current を付ける。
+ *
+ * @param {"all"|"channels"} current 今の見方
+ * @returns {string} 差し込む HTML
+ */
+function myArchiveTabs(current) {
+    /** @param {"all"|"channels"} name @param {string} href @param {string} label */
+    const tab = (name, href, label) => `<a href="${href}"${name === current ? ' aria-current="page"' : ""}>${label}</a>`;
+    return `<nav class="archiveTabs" aria-label="アーカイブの見方">
+        ${tab("all", "/my/archive", "すべての録画")}${tab("channels", "/my/archive/channels", "チャンネル")}</nav>`;
+}
+
+/**
  * 配信・動画のカード（common.js の buildOnlineVideoCard）を並べた入れ物で、埋め込みの再生を開いたらミニプレーヤーの録画を止める。
  * 再生はモーダルのダイアログで開くので、開いている間はダイアログの外（ミニプレーヤー）を押せず、録画と音が重なるため。
  * カードのボタンがダイアログを開いた後に届くので、開けなかったとき（埋め込めない URL）は止めない
@@ -611,6 +645,19 @@ async function myToggleMark(recording, kind, button) {
 }
 
 /**
+ * 録画のチャンネル名を、このサービスの中のチャンネルページへのリンクにする（表と再生画面の詳細）。
+ * チャンネルに紐づかない録画（URL を貼って取得したもの）は、チャンネルページが無いので配信元のリンクのままにする。
+ *
+ * @param {Recording} r 録画
+ * @returns {string} 差し込む HTML
+ */
+function myChannelCell(r) {
+    return r.channelId == null
+        ? channelLink(r.channelName, r.channelUrl)
+        : `<a href="${myChannelPath(r.channelId)}">${escapeHtml(r.channelName)}</a>`;
+}
+
+/**
  * アーカイブの表の 1 行。列は管理画面の表と同じ並びで、削除だけが無い（録画は利用者どうしで共有しているため、
  * 利用者には消させない）。題名はカードと同じく再生画面（/my/watch/ID）へのリンクにする。
  *
@@ -620,7 +667,7 @@ async function myToggleMark(recording, kind, button) {
 function myArchiveRow(r) {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${datetimeCell(r.startedAt)}</td>
-        <td>${channelLink(r.channelName, r.channelUrl)}</td>
+        <td>${myChannelCell(r)}</td>
         <td><a href="${myWatchPath(r)}">${escapeHtml(r.videoTitle)}</a></td>
         <td>${formatDuration(r.durationSeconds)}</td>
         <td>${formatFileSize(r.fileSizeBytes)}</td>
@@ -646,6 +693,7 @@ const myArchiveView = {
     render(root) {
         root.innerHTML = `<h1>アーカイブ</h1>
             <p class="pageDescription">この端末に録画したすべての録画。再生中にほかの画面へ移っても、画面下で再生を続けます。</p>
+            ${myArchiveTabs("all")}
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <form id="filterForm" class="inline">
               <input type="search" name="keyword" placeholder="タイトル・チャンネル名で検索" aria-label="タイトル・チャンネル名で検索">
@@ -722,7 +770,7 @@ const myArchiveView = {
             list: query(".table-scroll", root),
             pager: query(".pager", root),
             load,
-            buildCard: (r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath),
+            buildCard: (r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath, myRecordingChannelPath),
             buildRow: myArchiveRow,
             empty: emptyState("該当する録画はありません",
                 "絞り込みを外してお試しください。マイチャンネルで自動録画をオンにすると、条件に合う配信が自動で保存されます"),
@@ -766,6 +814,299 @@ const myArchiveView = {
     },
 };
 
+/**
+ * アーカイブのチャンネル 1 件（GET /api/my/recordings/channel-summaries の要素）。
+ *
+ * @typedef {object} MyRecordingChannel
+ * @property {number} id チャンネルの主キー
+ * @property {string} channelName チャンネル名
+ * @property {string} platformLabel 画面表示用のプラットフォーム名
+ * @property {string|null} channelUrl 配信元のチャンネルページの URL。組み立てられなければ null
+ * @property {string|null} channelIconUrl アイコンの URL。まだ読み取れていなければ null
+ * @property {boolean} currentlyLive 最後に確かめた時点で配信中か
+ * @property {boolean} subscribed 自分が購読しているか
+ * @property {number} recordingCount 再生できる録画の件数
+ * @property {number} totalDurationSeconds 再生できる録画の長さの合計（秒）
+ * @property {string|null} latestStartedAt 最新の録画の開始時刻。録画が無ければ null
+ * @property {string|null} latestThumbnailPath サムネイルのある最新の録画のサムネイル。無ければ null
+ */
+
+/**
+ * 録画の長さの合計を「12時間34分」の形にする。チャンネルの要約は数十時間になるので、formatDuration の「34:56:00」より
+ * 読みやすい形にする。
+ *
+ * @param {number} seconds 秒数
+ * @returns {string} 表示用の文字列
+ */
+function myFormatTotalDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    return hours > 0 ? `${hours}時間${minutes}分` : `${minutes}分`;
+}
+
+/**
+ * チャンネルの要約の 1 行（件数・合計・最新の録画日）。一覧のカードとチャンネルページの見出しで同じ書き方にする。
+ *
+ * @param {MyRecordingChannel} ch チャンネル
+ * @returns {string} 差し込む HTML
+ */
+function myChannelStats(ch) {
+    if (ch.recordingCount === 0) return "まだ録画はありません";
+    const parts = [`録画 ${ch.recordingCount} 件`];
+    if (ch.totalDurationSeconds > 0) parts.push(`合計 ${myFormatTotalDuration(ch.totalDurationSeconds)}`);
+    if (ch.latestStartedAt) parts.push(`最新 ${escapeHtml(formatDateTimeSimple(ch.latestStartedAt).slice(0, 10))}`);
+    return parts.join(" ・ ");
+}
+
+/**
+ * チャンネルの印（配信中・購読中）。カードと見出しで同じ出し方にする。
+ *
+ * @param {MyRecordingChannel} ch チャンネル
+ * @returns {string} 差し込む HTML。印が無ければ空文字
+ */
+function myChannelBadges(ch) {
+    return (ch.currentlyLive ? '<span class="channelBadge is-live">配信中</span>' : "")
+        + (ch.subscribed ? '<span class="channelBadge">購読中</span>' : "");
+}
+
+/**
+ * チャンネル一覧のカード 1 枚。カード全体を 1 つのリンクにする（どこを押してもチャンネルページへ移る）。
+ * 絵は最新の録画のサムネイルにし、無ければアイコンを大きく出す（どちらも無ければ名前の頭文字）。
+ *
+ * @param {MyRecordingChannel} ch チャンネル
+ * @returns {HTMLAnchorElement} カード
+ */
+function myRecordingChannelCard(ch) {
+    const card = document.createElement("a");
+    card.className = "channelCard";
+    card.href = myChannelPath(ch.id);
+    const art = ch.latestThumbnailPath
+        ? `<img class="thumb" src="/recordings/${escapeHtml(encodeURI(ch.latestThumbnailPath))}" alt="" loading="lazy">`
+        : `<span class="thumbPlaceholder">${ch.recordingCount === 0 ? "録画なし" : "サムネイル生成待ち"}</span>`;
+    card.innerHTML = `<span class="channelCardArt">${art}</span>
+        <span class="channelCardBody">
+          ${myChannelAvatar(ch, 40)}
+          <span class="channelCardText">
+            <span class="channelCardName">${escapeHtml(ch.channelName)}</span>
+            <span class="muted">${myChannelStats(ch)}</span>
+            <span>${myChannelBadges(ch)}</span>
+          </span>
+        </span>`;
+    return card;
+}
+
+/**
+ * チャンネルの丸いアイコン。アイコンがまだ読み取れていないチャンネルは、名前の頭文字で代える
+ * （空けておくと、カードごとに名前の書き出しの位置がずれるため）。
+ *
+ * @param {MyRecordingChannel} ch チャンネル
+ * @param {number} size 一辺（px）
+ * @returns {string} 差し込む HTML
+ */
+function myChannelAvatar(ch, size) {
+    return ch.channelIconUrl
+        ? `<img class="channelAvatar" src="${escapeHtml(ch.channelIconUrl)}" alt="" width="${size}" height="${size}" loading="lazy" referrerpolicy="no-referrer">`
+        : `<span class="channelAvatar" style="width:${size}px;height:${size}px" aria-hidden="true">${escapeHtml(Array.from(ch.channelName)[0] ?? "?")}</span>`;
+}
+
+/**
+ * アーカイブのチャンネル一覧。全チャンネル（購読していないものも含む。#419）を、最新の録画が新しい順に並べ、
+ * 押すとそのチャンネルの録画だけを並べたチャンネルページへ移る。
+ *
+ * 名前の絞り込みと「購読中だけ」は手元で絞る（数十件なので、そのたびに API を引かない）。条件は URL に残し
+ * （履歴は積まずに置き換える）、チャンネルページから「戻る」で戻ったときに同じ条件で出す。
+ * @type {MyView}
+ */
+const myArchiveChannelsView = {
+    title: "チャンネル - アーカイブ",
+    nav: "/my/archive",
+    async render(root, _match, params) {
+        root.innerHTML = `<h1>アーカイブ</h1>
+            <p class="pageDescription">チャンネルを選んで、そのチャンネルの録画だけを見られます。</p>
+            ${myArchiveTabs("channels")}
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <form class="inline channelFilter" role="search">
+              <input type="search" name="keyword" placeholder="チャンネル名で絞り込み" aria-label="チャンネル名で絞り込み" maxlength="200">
+              <label><input type="checkbox" name="subscribed"> 購読中のみ</label>
+              <span class="resultSummary muted" role="status"></span>
+            </form>
+            <div class="channelGrid"><p class="muted">読み込み中...</p></div>`;
+        const form = /** @type {HTMLFormElement} */ (query("form", root));
+        const keyword = /** @type {HTMLInputElement} */ (query('input[name="keyword"]', form));
+        const subscribedOnly = /** @type {HTMLInputElement} */ (query('input[name="subscribed"]', form));
+        const grid = query(".channelGrid", root);
+        const summary = query(".resultSummary", root);
+        keyword.value = (params.get("keyword") || "").slice(0, 200);
+        subscribedOnly.checked = params.get("subscribed") === "true";
+
+        /** @type {MyRecordingChannel[]} */
+        let channels;
+        try {
+            channels = await apiGet("/api/my/recordings/channel-summaries");
+        } catch (e) {
+            if (grid.isConnected) {
+                grid.innerHTML = "";
+                showError(errorMessage(e));
+            }
+            return;
+        }
+        if (!grid.isConnected) return;
+
+        const draw = () => {
+            const word = keyword.value.trim().toLowerCase();
+            const shown = channels.filter((ch) => (!subscribedOnly.checked || ch.subscribed)
+                && (!word || ch.channelName.toLowerCase().includes(word)));
+            summary.textContent = `${shown.length} チャンネル`;
+            if (shown.length === 0) {
+                grid.innerHTML = emptyState("該当するチャンネルはありません",
+                    channels.length === 0 ? "マイチャンネルでチャンネルを購読すると、ここに並びます" : "絞り込みを外してお試しください");
+                return;
+            }
+            grid.replaceChildren(...shown.map(myRecordingChannelCard));
+        };
+        const syncUrl = () => {
+            const url = new URL(location.href);
+            url.searchParams.delete("keyword");
+            url.searchParams.delete("subscribed");
+            if (keyword.value.trim()) url.searchParams.set("keyword", keyword.value.trim());
+            if (subscribedOnly.checked) url.searchParams.set("subscribed", "true");
+            history.replaceState(history.state, "", url);
+        };
+        form.addEventListener("submit", (ev) => ev.preventDefault());
+        form.addEventListener("input", () => {
+            syncUrl();
+            draw();
+        });
+        draw();
+    },
+};
+
+/**
+ * チャンネルページ。見出しにチャンネルの要約（アイコン・名前・件数・配信元へのリンク）を出し、その下に
+ * そのチャンネルの録画を、アーカイブと同じ検索一式（common.js の bindRecordingSearch）で並べる。
+ *
+ * チャンネルは URL のパス（/my/archive/channels/ID）で決め、検索のフォームには置かない。フォームに置くと
+ * 「1件の条件を指定中」と数えられ、URL にも同じ値が二重に載るため。API に渡すときだけ足す。
+ * @type {MyView}
+ */
+const myChannelPageView = {
+    title: "チャンネル",
+    nav: "/my/archive",
+    render(root, match) {
+        const channelId = match[1];
+        root.innerHTML = `<p class="archiveBack"><a href="/my/archive/channels">← チャンネル一覧</a></p>
+            <header class="channelHero"><h1>読み込み中...</h1></header>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <form id="filterForm" class="inline">
+              <input type="search" name="keyword" placeholder="このチャンネルの録画を検索" aria-label="このチャンネルの録画を検索">
+              <button type="submit">検索</button>
+              <select name="sort" aria-label="並び順">
+                <option value="newest">新しい順</option>
+                <option value="oldest">古い順</option>
+                <option value="longest">長い順</option>
+              </select>
+              <select name="watched" aria-label="視聴">
+                <option value="">すべて</option>
+                <option value="unwatched">未視聴</option>
+                <option value="watched">視聴済み</option>
+              </select>
+              <label><input type="checkbox" name="favorite"> お気に入りのみ</label>
+            </form>
+            <div class="inline">
+              <div class="viewToggle" role="group" aria-label="表示">
+                <button type="button" class="cardViewBtn" aria-pressed="true">カード</button>
+                <button type="button" class="listViewBtn" aria-pressed="false">リスト</button>
+              </div>
+              <span class="resultSummary muted"></span>
+            </div>
+            <div class="videoGrid"></div>
+            <div class="table-scroll" hidden>
+              <table class="myArchiveTable">
+                <thead><tr><th>開始日時</th><th>チャンネル</th><th>タイトル</th><th>長さ</th><th>サイズ</th><th>状態</th><th>ジャンル</th><th>視聴</th><th>★</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <nav class="inline pager" aria-label="ページ送り">
+              <button type="button" class="prevBtn">前へ</button>
+              <span class="pageNumbers" style="display:contents"></span>
+              <button type="button" class="nextBtn">次へ</button>
+            </nav>`;
+        const hero = query(".channelHero", root);
+        const grid = query(".videoGrid", root);
+        const summary = query(".resultSummary", root);
+
+        const loadHero = async () => {
+            // 無いチャンネル（削除された）は 404 で返る。ほかの失敗と分けて伝えるため、状態コードを見られるよう apiGet を使わない
+            const res = await authenticatedFetch(`/api/my/recordings/channel-summaries/${channelId}`);
+            if (!hero.isConnected) return;
+            if (res.status === 404) {
+                root.innerHTML = `<h1>このチャンネルは見られません</h1>
+                    <p class="pageDescription">削除されたか、存在しないチャンネルです。</p>
+                    <p><a href="/my/archive/channels">チャンネル一覧へ戻る</a></p>`;
+                return;
+            }
+            if (!res.ok) throw new Error(await extractError(res));
+            /** @type {MyRecordingChannel} */
+            const ch = await res.json();
+            if (!hero.isConnected) return;
+            document.title = `${ch.channelName} - YouTube Live Monitor`;
+            hero.innerHTML = `${myChannelAvatar(ch, 72)}
+                <div class="channelHeroText">
+                  <h1>${escapeHtml(ch.channelName)}</h1>
+                  <p class="muted">${myChannelStats(ch)}</p>
+                  <p class="channelHeroLinks">${myChannelBadges(ch)}${ch.channelUrl ? externalLink(`${ch.platformLabel}で開く`, ch.channelUrl) : ""}</p>
+                </div>`;
+        };
+
+        /** 読み込みの番号。条件を続けて変えたとき、遅れて届いた古い応答で上書きしないため（アーカイブと同じ）。 */
+        let request = 0;
+        const load = async () => {
+            const current = ++request;
+            try {
+                const params = search.apiParams();
+                params.set("channelId", channelId);
+                params.set("playableOnly", "true");
+                params.set("size", "24");
+                const data = await apiGet(`/api/my/recordings?${params}`);
+                if (current !== request || !grid.isConnected) return;
+                if (!search.show(data)) return load();
+                summary.textContent = data.totalElements === 0 ? "" : `${data.totalElements}件`;
+            } catch (e) {
+                if (current === request && grid.isConnected) showError(errorMessage(e), { reveal: true });
+            }
+        };
+        const search = bindRecordingSearch({
+            form: formEl("filterForm"),
+            viewToggle: query(".viewToggle", root),
+            grid,
+            list: query(".table-scroll", root),
+            pager: query(".pager", root),
+            load,
+            buildCard: (r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath),
+            buildRow: myArchiveRow,
+            empty: emptyState("該当する録画はありません",
+                "絞り込みを外してお試しください。マイチャンネルで自動録画をオンにすると、条件に合う配信が自動で保存されます"),
+            writeUrl: (url, replace) => {
+                if (replace) {
+                    history.replaceState(history.state, "", url);
+                } else {
+                    myRememberScroll();
+                    history.pushState(null, "", url);
+                }
+            },
+        });
+        search.restore();
+        return Promise.all([
+            loadHero().catch((e) => {
+                if (!hero.isConnected) return;
+                query("h1", hero).textContent = "チャンネルを読み込めませんでした";
+                showError(errorMessage(e));
+            }),
+            load(),
+        ]).then(() => {});
+    },
+};
+
 /** 再生画面の耳キスの欄が動画に付けた処理を外す関数。再生画面を出していない間は null。 */
 /** @type {(() => void)|null} */
 let myWatchStopSoundMarks = null;
@@ -785,7 +1126,7 @@ const myWatchView = {
             <h1>読み込み中...</h1>
             <p class="watchMarks"></p>
             <div class="table-scroll"><table><tbody></tbody></table></div>
-            <h2>同じチャンネルの録画</h2>
+            <div class="sectionHead"><h2>同じチャンネルの録画</h2></div>
             <div class="videoGrid"></div>`;
         const heading = query("h1", root);
         /** @type {Recording} */
@@ -850,7 +1191,7 @@ const myWatchView = {
             renderRecordingMarkButton(watchedButton, "watched", true);
         };
         query("tbody", root).innerHTML = [
-            ["チャンネル", channelLink(rec.channelName, rec.channelUrl)],
+            ["チャンネル", myChannelCell(rec)],
             // 動画 ID から URL を推測しない。Twitch の録画は URL が null で、ID を文字で出す
             ["元の配信", externalLink(rec.videoId, rec.videoUrl)],
             ["録画開始", datetimeCell(rec.startedAt)],
@@ -859,6 +1200,11 @@ const myWatchView = {
             ["ファイルサイズ", formatFileSize(rec.fileSizeBytes)],
         ].map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`).join("");
         bindDatetimeCells(root);
+        // 12 件より前の録画は関連の欄に出ないので、チャンネルページで全部を見られるようにする
+        if (rec.channelId != null) {
+            query(".sectionHead", root).insertAdjacentHTML("beforeend",
+                `<a href="${myChannelPath(rec.channelId)}">チャンネルの録画をすべて見る</a>`);
+        }
         myLoadRelated(rec, query(".videoGrid", root));
     },
     leave() {
@@ -890,7 +1236,8 @@ async function myLoadRelated(rec, grid) {
             grid.innerHTML = '<p class="muted">他の録画はありません</p>';
             return;
         }
-        grid.replaceChildren(...others.map((r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath)));
+        grid.replaceChildren(...others.map((r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath,
+            myRecordingChannelPath)));
         bindDatetimeCells(grid);
     } catch (e) {
         if (grid.isConnected) showError(errorMessage(e));
@@ -1456,7 +1803,7 @@ function myChannelRow(ch, reload) {
     // PC では data-label に当たる規則が無いので表示は変わらない。
     // 並べ替えは秒までの値で比べる（数字の並びを数として比べるため、秒未満の桁数が行ごとに違うと正しく並ばない）
     const subscribed = escapeHtml(formatDateTimeSimple(ch.subscribedAt));
-    tr.innerHTML = `<td><span class="channelWithIcon">${channelIcon(ch.channelIconUrl)}<a href="/my/archive?channelId=${ch.id}">${escapeHtml(ch.channelName)}</a></span></td>
+    tr.innerHTML = `<td><span class="channelWithIcon">${channelIcon(ch.channelIconUrl)}<a href="${myChannelPath(ch.id)}">${escapeHtml(ch.channelName)}</a></span></td>
         <td>${externalLink(ch.platformLabel, ch.channelUrl)}</td>
         <td>${myChannelStateLabel(ch)}</td>
         <td data-sort-value="${ch.recordingCount}">${ch.recordingCount}件</td>
@@ -2038,6 +2385,8 @@ const myRoutes = [
     [/^\/my\/search\/watch\/([\w-]{11})\/?$/, mySearchWatchView],
     [/^\/my\/discover\/?$/, myDiscoverView],
     [/^\/my\/archive\/?$/, myArchiveView],
+    [/^\/my\/archive\/channels\/?$/, myArchiveChannelsView],
+    [/^\/my\/archive\/channels\/(\d+)\/?$/, myChannelPageView],
     [/^\/my\/watch\/(\d+)\/?$/, myWatchView],
     [/^\/my\/channels\/?$/, myChannelsView],
     [/^\/my\/settings\/notifications\/?$/, myNotificationSettingsView],

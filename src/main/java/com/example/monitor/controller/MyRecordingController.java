@@ -2,6 +2,7 @@ package com.example.monitor.controller;
 
 import com.example.monitor.dto.ChannelOptionResponse;
 import com.example.monitor.dto.PageResponse;
+import com.example.monitor.dto.RecordingChannelResponse;
 import com.example.monitor.dto.RecordingFavoriteRequest;
 import com.example.monitor.dto.RecordingGenreCountResponse;
 import com.example.monitor.dto.RecordingMarkResponse;
@@ -11,6 +12,7 @@ import com.example.monitor.entity.Recording;
 import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.entity.RecordingMark;
 import com.example.monitor.repository.MonitoredChannelRepository;
+import com.example.monitor.service.RecordingChannelService;
 import com.example.monitor.service.RecordingHistoryService;
 import com.example.monitor.service.RecordingMarkService;
 import com.example.monitor.util.PageRequestUtils;
@@ -63,6 +65,7 @@ public class MyRecordingController {
     private final RecordingHistoryService recordingHistoryService;
     private final RecordingMarkService recordingMarkService;
     private final MonitoredChannelRepository monitoredChannelRepository;
+    private final RecordingChannelService recordingChannelService;
 
     /**
      * 録画を条件で絞り込んで返す。購読していないチャンネルの録画も含む。
@@ -144,6 +147,34 @@ public class MyRecordingController {
         return monitoredChannelRepository.findAll(Sort.by("channelName")).stream()
                 .map(channel -> new ChannelOptionResponse(channel.getId(), channel.getChannelName()))
                 .toList();
+    }
+
+    /**
+     * チャンネルごとの録画の要約（件数・最新の録画・サムネイル）を、最新の録画が新しい順に返す。
+     * アーカイブの「チャンネル」の一覧に使う。
+     *
+     * <p>{@link #getChannels()} と同じく購読していないチャンネルも返す。選択肢だけの {@link #getChannels()} と
+     * 分けているのは、集計の問い合わせを選択肢の読み込みにまで負わせないため。
+     *
+     * @param authentication ログイン中の利用者。購読しているかを添えるために使う
+     * @return チャンネルの要約
+     */
+    @GetMapping("/channel-summaries")
+    public List<RecordingChannelResponse> listChannelSummaries(Authentication authentication) {
+        return recordingChannelService.list(authentication.getName());
+    }
+
+    /**
+     * 1 チャンネルの録画の要約を返す。チャンネルページの見出しに使う。
+     *
+     * @param id             チャンネルの主キー
+     * @param authentication ログイン中の利用者
+     * @return チャンネルの要約
+     * @throws com.example.monitor.exception.ChannelNotFoundException 無い場合（404）
+     */
+    @GetMapping("/channel-summaries/{id}")
+    public RecordingChannelResponse getChannelSummary(@PathVariable Long id, Authentication authentication) {
+        return recordingChannelService.get(authentication.getName(), id);
     }
 
     /**

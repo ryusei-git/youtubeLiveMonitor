@@ -291,6 +291,44 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
     List<Object[]> countByChannel(@Param("statuses") Collection<RecordingStatus> statuses);
 
     /**
+     * チャンネルごとに、指定した状態の録画の件数・合計の長さ・最新の録画開始時刻をまとめる。
+     *
+     * <p>利用者のアーカイブのチャンネル一覧に使う。{@link #countByChannel} と同じく、チャンネルごとに
+     * 問い合わせると登録数に比例してクエリが増えるため、1 回の GROUP BY でまとめる。
+     * チャンネルに紐づかない録画（URL 指定のダウンロード）は含めない。
+     *
+     * @param statuses 対象の状態
+     * @return 各要素が {@code [チャンネルの主キー(Long), 件数(Long), 合計秒数(Long), 最新の開始時刻(LocalDateTime)]}
+     *         の配列。録画が 1 件も無いチャンネルは含まない
+     */
+    @Query("""
+            SELECT r.channel.id, COUNT(r), COALESCE(SUM(r.durationSeconds), 0), MAX(r.startedAt) FROM Recording r
+             WHERE r.channel IS NOT NULL AND r.status IN :statuses
+             GROUP BY r.channel.id
+            """)
+    List<Object[]> summarizeByChannel(@Param("statuses") Collection<RecordingStatus> statuses);
+
+    /**
+     * チャンネルごとに、サムネイルのある最新の録画を返す。チャンネル一覧のカードの絵に使う。
+     *
+     * <p>サムネイルの無い録画（生成待ち）を除いてから最新を選ぶのは、直近の録画のサムネイルが
+     * まだ無いだけでカードが無地になるのを避けるため。開始時刻が同じ録画が複数あれば複数返るので、
+     * 呼び出し側で 1 チャンネル 1 件に絞る。
+     *
+     * @param statuses 対象の状態
+     * @return 録画の一覧（チャンネルは読み込み済み）
+     */
+    @EntityGraph(attributePaths = "channel")
+    @Query("""
+            SELECT r FROM Recording r
+             WHERE r.channel IS NOT NULL AND r.status IN :statuses AND r.thumbnailPath IS NOT NULL
+               AND r.startedAt = (SELECT MAX(r2.startedAt) FROM Recording r2
+                                   WHERE r2.channel = r.channel AND r2.status IN :statuses
+                                     AND r2.thumbnailPath IS NOT NULL)
+            """)
+    List<Recording> findLatestWithThumbnailByChannel(@Param("statuses") Collection<RecordingStatus> statuses);
+
+    /**
      * 録画完了として記録する。
      *
      * @param id            録画履歴の主キー

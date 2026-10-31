@@ -1,6 +1,7 @@
 package com.example.monitor.controller;
 
 import com.example.monitor.dto.PageResponse;
+import com.example.monitor.dto.RecordingChannelResponse;
 import com.example.monitor.dto.RecordingFavoriteRequest;
 import com.example.monitor.dto.RecordingGenreCountResponse;
 import com.example.monitor.dto.RecordingMarkResponse;
@@ -12,6 +13,7 @@ import com.example.monitor.entity.Recording.RecordingStatus;
 import com.example.monitor.entity.RecordingMark;
 import com.example.monitor.exception.RecordingNotFoundException;
 import com.example.monitor.repository.MonitoredChannelRepository;
+import com.example.monitor.service.RecordingChannelService;
 import com.example.monitor.service.RecordingHistoryService;
 import com.example.monitor.service.RecordingMarkService;
 import org.junit.jupiter.api.DisplayName;
@@ -50,6 +52,9 @@ class MyRecordingControllerTest {
 
     @Mock
     private MonitoredChannelRepository monitoredChannelRepository;
+
+    @Mock
+    private RecordingChannelService recordingChannelService;
 
     @InjectMocks
     private MyRecordingController controller;
@@ -202,6 +207,30 @@ class MyRecordingControllerTest {
             when(recordingHistoryService.countPlayableByGenre()).thenReturn(genres);
 
             assertThat(controller.getGenres()).isSameAs(genres);
+        }
+    }
+
+    @Nested
+    @DisplayName("listChannelSummaries() / getChannelSummary()")
+    class ChannelSummaries {
+
+        private final RecordingChannelResponse summary = new RecordingChannelResponse(
+                7L, "テストチャンネル", "YouTube", null, null, false, true, 2, 120, null, null);
+
+        @Test
+        @DisplayName("正常系：ログイン中の利用者名で一覧を引き、そのまま返す")
+        void testMethod01() {
+            when(recordingChannelService.list("user")).thenReturn(List.of(summary));
+
+            assertThat(controller.listChannelSummaries(AUTH)).containsExactly(summary);
+        }
+
+        @Test
+        @DisplayName("正常系：ログイン中の利用者名とパスの主キーで 1 件を引き、そのまま返す")
+        void testMethod02() {
+            when(recordingChannelService.get("user", 7L)).thenReturn(summary);
+
+            assertThat(controller.getChannelSummary(7L, AUTH)).isSameAs(summary);
         }
     }
 }
