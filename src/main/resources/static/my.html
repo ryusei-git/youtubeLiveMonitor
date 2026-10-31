@@ -52,6 +52,9 @@
     <a href="/my/download"><span>動画<wbr>ダウンロード</span></a>
   </div>
 </nav>
+<!-- 録画の再生画面（/my/watch/{id}）だけ、右の列（#viewAside）を出して動画と本文の横に並べる（studio.css の .appColumns。#882）。
+     右の列をドックと同じ行から始めるには main の中に置けない。ドックと main は隣のままにする -->
+<div class="appColumns">
 <!-- 再生中の動画。動画要素はこの 1 つだけで、DOM から外したり移したりしない（再生が止まり、小窓も閉じるため）。
      大きさは my-app.js がクラス（is-full / is-mini）で切り替える -->
 <section id="playerDock" aria-label="再生中の録画" hidden>
@@ -67,6 +70,8 @@
   </div>
 </section>
 <main class="shell" id="view"></main>
+<aside id="viewAside" class="watchSecondary" aria-labelledby="watchSecondaryHeading" hidden></aside>
+</div>
 <script src="/js/common.js"></script>
 <script src="/js/my-search.js"></script>
 <script src="/js/my-discover.js"></script>

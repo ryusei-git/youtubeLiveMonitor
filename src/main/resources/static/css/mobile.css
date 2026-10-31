@@ -10,7 +10,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 input, select, textarea { font-size: 16px; }
 
 /* 指で押す前提の大きさ（Apple の推奨は 44pt）。PC のままの 32〜38px では押し損じる。 */
-button, .watchActions a, .discoverTabs a { min-height: 44px; }
+button, .watchActions a, .watchActions .markBtn, .discoverTabs a { min-height: 44px; }
 
 /* 一覧の行の中・耳キスの印は 44px にすると行が伸びすぎて一覧が見にくくなるので、少し小さめで止める。 */
 td button, .markBtn { min-height: 40px; }
@@ -133,7 +133,7 @@ body.userApp .videoGrid { grid-template-columns: minmax(0, 1fr); }
 #playerDock.is-full .pipHint { flex-basis: 100%; }
 
 /* 再生画面の耳キスのボタン（#792）。style.css の 768px 以下の .inline の縦積みのままだと、5 つのボタンが幅いっぱいに
-   積まれて 230px ほどを使い、詳細の表が遠くなるので 2 列にする。「ここは耳キス」はいちばん押すボタンなので 2 列分の幅で
+   積まれて 230px ほどを使い、下の同じチャンネルの録画が遠くなるので 2 列にする。「ここは耳キス」はいちばん押すボタンなので 2 列分の幅で
    先頭に置き、状態の文は長くなるので 2 列分に出す。
      [          ここは耳キス          ]
      [ 前の耳キスへ   ][ 次の耳キスへ    ]
@@ -147,10 +147,6 @@ body.userApp .videoGrid { grid-template-columns: minmax(0, 1fr); }
 /* 「候補を順に確かめる」を押した後の答えのボタン（耳キス・ちがう・もう一度・やめる）も、縦に 4 つ積まず 2 列 × 2 行にする。
    答えのボタンの大きさ（.soundReviewBig）は、聞いてすぐ押すためのものなので変えない。 */
 .soundReviewButtons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-
-/* 再生画面の題名（#792）。23px では長い題名が 3〜4 行になり、詳細の表と耳キスのボタンが遠くなるので小さくする。
-   .watchMarks は再生画面にだけあるので、ほかの画面の見出しは変えない。 */
-#view:has(> .watchMarks) > h1 { font-size: 18px; line-height: 1.4; margin: 4px 0 8px; }
 
 /* マイチャンネルの購読の表（#793）。9 列の表は 375px ではチャンネル名と配信元の途中までしか見えず、いちばん使う
    自動録画の切り替えに届かないので、表の 1 行を 3 行のカードに組み替える。
@@ -221,6 +217,13 @@ body.userApp #videoFilterForm button { width: auto; }
 .watchPage, .watchPage:has(> .watchSecondary) { grid-template-columns: minmax(0, 1fr); }
 .watchPlayer { margin-left: calc(-16px - var(--safe-left)); margin-right: calc(-16px - var(--safe-right)); border-radius: 0; }
 .descriptionToggle, .descriptionToggle:hover { min-height: 44px; margin-top: 0; }
+
+/* 録画の再生画面（#882）。視聴画面と同じく 1 列にし、プレーヤーは画面の端まで広げて角丸を外す。枠の余白は studio.css の 760px 以下の
+   本文と同じ値。動画は中身の幅を持つので、.watchPlayer と違って負のマージンだけでは広がらず、幅も足す。 */
+body.userApp .appColumns:has(> #playerDock.is-full), body.userApp .appColumns:has(> #viewAside:not([hidden])) { margin-left: 0; padding: 24px 16px 40px; }
+body.userApp .appColumns:has(> #viewAside:not([hidden])) { grid-template-columns: minmax(0, 1fr); }
+body.userApp .appColumns:has(> #viewAside[hidden]) > #playerDock.is-full, body.userApp .appColumns:has(> #viewAside[hidden]) > #playerDock.is-full + main.shell { max-width: none; }
+body.userApp #playerDock.is-full .player { width: calc(100% + 32px + var(--safe-left) + var(--safe-right)); margin-left: calc(-16px - var(--safe-left)); margin-right: calc(-16px - var(--safe-right)); border-radius: 0; }
 
 /* 新人発掘の巡回の状態（#794）。3 つの値は iPhone の幅でだけ改行で区切って入れる（my-discover.js の myDiscoverView.render()）。
    改行をそのまま行の区切りとして出し、続く空白は詰める（pre-line）。PC では「・」区切りの 1 行のまま。
