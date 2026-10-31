@@ -522,7 +522,7 @@ CLI も起動時にテーブルを自分の版の形に合わせる（`ddl-auto:
 セッションは 30 分使わないと切れるため、一時停止したまま置くとログインが切れて流れなくなります。
 読み込めない録画は飛ばし、5 本続けて読み込めないとき（本番の反映中など）は 1 分待ってから続けます。
 
-YouTube の埋め込み再生（再生ダイアログと、検索から開く視聴画面）では、スキップボタンが出た広告を飛ばす
+YouTube の埋め込み再生（動画・配信のカードと検索から開く視聴画面）では、スキップボタンが出た広告を飛ばす
 ユーザースクリプトを配布しています。ブラウザに Tampermonkey か Violentmonkey を入れ、再生画面に出る
 「広告スキップを導入」（`/userscripts/youtube-ad-skip.user.js`）を開いて導入してください。一度入れると、
 次からは接続するだけで動きます。埋め込みは YouTube の別オリジンの iframe で、アプリの JS は中に触れないため、
@@ -852,6 +852,7 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
 | PUT | `/api/admin/users/{id}/password` | 一般利用者の新しいパスワードを決める（管理者のみ。本文 `{"password":"...","adminPassword":"..."}`。今のパスワードは見られない。成功は 204 で、その利用者のほかの端末のログイン・「ログインしたままにする」・再設定用のリンクは切れる。403・400・409 は上と同じ） |
 | POST | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS&force=` | 録画の耳キスの検出を今すぐ始める（202。今の版で検出済みなら `force=true` が要る。検出が走っている・再生できない録画は 409） |
 | GET | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS` | 今の版の検出の実行記録（`status`・`candidateCount`・`attempts`・`message` など。まだ一度も検出していなければ 404） |
+| GET | `/api/my/videos/{id}` | 録画していない動画 1 件を返す（視聴画面 `/my/videos/watch/{id}` が読む。ログインしていれば誰でも使える。無い・購読していないチャンネルの動画は 404。管理者はすべての動画を読める） |
 | GET | `/api/my/recordings/{recordingId}/sound-marks?kind=EAR_KISS` | 録画に付いた耳キスの印（全員の分）を位置の順に返す（ログインしていれば誰でも使える。以下の `/api/my/**` も同じ） |
 | POST | `/api/my/recordings/{recordingId}/sound-marks` | 印を付ける（本文 `{"kind":"EAR_KISS","positionMs":123456}`。同じ人が前後 1 秒以内に付け直すと前の印を返す） |
 | DELETE | `/api/my/recordings/{recordingId}/sound-marks/{markId}` | 自分の印を消す（ほかの人の印は 404） |

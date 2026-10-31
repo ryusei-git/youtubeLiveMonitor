@@ -10,7 +10,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 input, select, textarea { font-size: 16px; }
 
 /* 指で押す前提の大きさ（Apple の推奨は 44pt）。PC のままの 32〜38px では押し損じる。 */
-button, .searchWatchActions a, .discoverTabs a { min-height: 44px; }
+button, .watchActions a, .discoverTabs a { min-height: 44px; }
 
 /* 一覧の行の中・耳キスの印は 44px にすると行が伸びすぎて一覧が見にくくなるので、少し小さめで止める。 */
 td button, .markBtn { min-height: 40px; }
@@ -46,10 +46,6 @@ body:has(#playerDock.is-mini) { padding-bottom: calc(var(--dock-mini-height) + v
 .toastStack { left: calc(0.75rem + var(--safe-left)); right: calc(0.75rem + var(--safe-right)); bottom: calc(0.75rem + var(--safe-bottom)); }
 body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height) + 12px + var(--safe-bottom)); }
 
-/* 動画のダイアログは画面の中央に出る。背の高い動画で上下いっぱいになったとき、ステータスバーとホームインジケーターに
-   かからないよう、安全領域の分だけ最大の高さと幅を減らす。 */
-.onlinePlayerDialog { width: calc(100% - 24px - var(--safe-left) - var(--safe-right)); max-height: calc(100dvh - 24px - var(--safe-top) - var(--safe-bottom)); }
-
 /* 録画・動画のカード（#790）。1 列のままだと 8 件で 3400px ほどの縦長になり、一覧として見渡せないので 2 列にする。
    .videoGrid はトップの配信中・動画・配信・再生画面の「同じチャンネルの録画」でも使うので、そこも同じく 2 列になる。
    minmax(0, 1fr) にするのは、長い題名などの最小内容幅で列が広がり、ページ全体が横にはみ出さないようにするため。 */
@@ -57,7 +53,7 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 /* 幅が半分になるので題名は 2 行で打ち切り、カードの高さを揃える（書き方は studio.css の .searchTitle と同じ）。 */
 .videoCard .cardTitle { font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .videoCard .cardBody .muted { font-size: 11px; }
-/* 動画のカードは題名が h3 の中のボタンなので、ボタンの側で 2 行に打ち切る（h3 で打ち切っても 1 個のボタンは切れない）。 */
+/* 動画のカードは題名が h3 の中のリンクかボタン（inline-block）なので、その側で 2 行に打ち切る（h3 で打ち切っても 1 個の箱は切れない）。 */
 .onlineTitle { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* PC の大きさのままの ▶ は、半分の幅のサムネイルでは絵を隠しすぎる。 */
 .onlinePlayMark { font-size: 16px; padding: 4px 10px; }
@@ -232,6 +228,12 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 .videoSectionHead h2 { font-size: 16px; }
 .videoPager { margin-left: auto; }
 #videoFilterForm { padding: 12px; }
+
+/* 視聴画面（#876）。1 列にし、プレーヤーは画面の端まで広げて角丸を外す。負のマージンは本文の左右の余白（studio.css の 760px 以下の
+   16px）と body の安全領域の分。「もっと見る」は studio.css で文字だけのボタンにしているので、上の button の 44px を詳しく書き直す。 */
+.watchPage, .watchPage:has(> .watchSecondary) { grid-template-columns: minmax(0, 1fr); }
+.watchPlayer { margin-left: calc(-16px - var(--safe-left)); margin-right: calc(-16px - var(--safe-right)); border-radius: 0; }
+.descriptionToggle, .descriptionToggle:hover { min-height: 44px; margin-top: 0; }
 
 /* 新人発掘の巡回の状態（#794）。3 つの値は iPhone の幅でだけ改行で区切って入れる（my-discover.js の myDiscoverView.render()）。
    改行をそのまま行の区切りとして出し、続く空白は詰める（pre-line）。PC では「・」区切りの 1 行のまま。

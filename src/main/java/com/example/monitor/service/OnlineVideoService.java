@@ -7,6 +7,7 @@ import com.example.monitor.entity.MonitoredChannel;
 import com.example.monitor.entity.OnlineVideo;
 import com.example.monitor.platform.Platform;
 import com.example.monitor.repository.OnlineVideoRepository;
+import com.example.monitor.util.StreamLinkUtils;
 import com.example.monitor.util.ThumbnailRetryPolicy;
 import com.example.monitor.util.YouTubeWatchUrl;
 import lombok.RequiredArgsConstructor;
@@ -145,7 +146,8 @@ public class OnlineVideoService {
                 channel.getPlatform().name(), channel.getPlatform().displayName(), video.getTitle(), watchUrl,
                 "/api/videos/" + video.getId() + "/thumbnail", video.getPublishedAt(), video.getLastObservedAt(), state, playable,
                 ThumbnailRetryPolicy.exhausted(video.getThumbnailAttempts()),
-                video.getContentKind(), video.getScheduledStartTime());
+                video.getContentKind(), video.getScheduledStartTime(), channel.getChannelIconUrl(),
+                StreamLinkUtils.channelUrl(channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()));
     }
 
     /**

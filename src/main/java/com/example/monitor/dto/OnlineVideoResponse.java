@@ -26,8 +26,10 @@ import java.time.Instant;
  * @param contentKind             種類（{@code UPCOMING} / {@code STREAM} / {@code UPLOAD} / {@code MISSING}）。まだ判定できていなければ {@code null}。
  *                                {@code MISSING}（削除された・存在しない待機所）は段ごとの一覧には出ず、段を指定しない一覧と 1 件の取得でだけ返る
  * @param scheduledStartTime      配信予定の開始時刻。配信予定以外では {@code null}
+ * @param channelIconUrl          チャンネルのアイコンの URL。まだ読み取れていなければ {@code null}
+ * @param channelUrl              チャンネルページの URL。Twitch でログイン名をまだ取得できていなければ {@code null}
  */
 public record OnlineVideoResponse(String id, Long channelId, String channelName, String platform,
         String platformLabel, String title, String watchUrl, String thumbnailUrl, Instant publishedAt,
         Instant lastObservedAt, String state, boolean playable, boolean thumbnailRetryExhausted,
-        String contentKind, Instant scheduledStartTime) {}
+        String contentKind, Instant scheduledStartTime, String channelIconUrl, String channelUrl) {}
