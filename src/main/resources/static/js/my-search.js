@@ -592,9 +592,10 @@ const mySearchView = {
  * 日本語を含む URL は、日本語の手前までをリンクにする（ブラウザのアドレス欄からコピーした URL は % の形になっているため、実際には少ない）。
  *
  * @param {string|null} text 説明
+ * @param {(text: string) => string} [renderText] URL の外の文字を HTML にする関数。必ずエスケープすること
  * @returns {string} 差し込む HTML
  */
-function mySearchLinkify(text) {
+function mySearchLinkify(text, renderText = escapeHtml) {
     const source = text ?? "";
     let html = "";
     let last = 0;
@@ -606,10 +607,31 @@ function mySearchLinkify(text) {
         }
         const index = /** @type {number} */ (match.index);
         const escapedUrl = escapeHtml(url);
-        html += `${escapeHtml(source.slice(last, index))}<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">${escapedUrl}</a>`;
+        html += `${renderText(source.slice(last, index))}<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">${escapedUrl}</a>`;
         last = index + url.length;
     }
-    return html + escapeHtml(source.slice(last));
+    return html + renderText(source.slice(last));
+}
+
+/**
+ * 説明の時刻（12:34・1:02:03）の形。前後が数字や : のものは時刻とみなさない（123:45・1:02:03:04 など）。
+ * 分・秒が 60 以上のものも形の時点で外す。split の結果に時刻も入るよう、全体を 1 つの組にする。
+ */
+const MY_SEARCH_TIME = /((?<![\d:])(?:\d{1,2}:[0-5]\d|[0-5]?\d):[0-5]\d(?![\d:]))/;
+
+/**
+ * 説明の URL の外の文字を HTML にする。時刻は押すとその位置へ飛ぶボタンにする（章の目次を説明に書く動画が多いため）。
+ * 押したときの動きは {@link mySearchBindWatchControls} が付ける。
+ *
+ * @param {string} text URL の外の文字
+ * @returns {string} 差し込む HTML
+ */
+function mySearchTimeButtons(text) {
+    return text.split(MY_SEARCH_TIME).map((part, index) => {
+        if (index % 2 === 0) return escapeHtml(part);
+        const seconds = part.split(":").reduce((sum, value) => sum * 60 + Number(value), 0);
+        return `<button type="button" class="watchTime" data-seconds="${seconds}">${part}</button>`;
+    }).join("");
 }
 
 /**
@@ -636,6 +658,312 @@ function mySearchWatchLayout({ before = "", after = "", secondary = false } = {}
         </div>${after}`;
 }
 
+/** 埋め込みプレーヤーのオリジン。命令の送り先で、応答もここから来たものだけを読む。 */
+const MY_SEARCH_PLAYER_ORIGIN = "https://www.youtube-nocookie.com";
+
+/** 応答の info のうち読む項目（{@link MySearchPlayerState}）。 */
+const MY_SEARCH_PLAYER_INFO_KEYS = ["currentTime", "duration", "playerState", "playbackRate", "availablePlaybackRates", "muted"];
+
+/** listening を送り直す間隔（ミリ秒）。プレーヤーの準備が整う前に届いた分は捨てられる（公式のスクリプトも送り直している）。 */
+const MY_SEARCH_PLAYER_RETRY_MS = 250;
+
+/** listening を諦めるまでの長さ（ミリ秒）。これを過ぎても待ち受けは残すが、送り続けない。 */
+const MY_SEARCH_PLAYER_GIVE_UP_MS = 10000;
+
+/**
+ * 埋め込みプレーヤーの状態。currentTime のほかは、プレーヤーから届いた値だけを持つ（速度は頼むだけで変わらないことが
+ * あるので、届いた値を正とする）。
+ *
+ * @typedef {object} MySearchPlayerState
+ * @property {number} currentTime 再生位置（秒）
+ * @property {number} duration 長さ（秒）。分からなければ 0
+ * @property {number} playerState 0 終了・1 再生中・2 一時停止・3 読み込み中・5 頭出し。届く前は -1
+ * @property {number} playbackRate 再生速度（倍）
+ * @property {number[]} availablePlaybackRates 使える再生速度
+ * @property {boolean} muted 消音か
+ * @property {boolean} live 配信中か（videoData.isLive）。最初の状態では配信でも false で、再生が始まると true で届く
+ * @property {boolean} failed 再生できない（onError が届いた）か。再生できない動画でも、状態は onError の前に届く
+ */
+
+/**
+ * @typedef {object} MySearchPlayer
+ * @property {MySearchPlayerState} state 届いた状態
+ * @property {(() => void)|null} onInfo 状態が届くたびに呼ぶ処理
+ * @property {(func: string, ...args: unknown[]) => void} command プレーヤーの関数を呼ぶ
+ * @property {(seconds: number) => void} seekTo 指定の位置へ動かす
+ * @property {(seconds: number) => void} seekBy 今の位置から進める（負なら戻す）
+ * @property {() => void} stop 待ち受けと送り直しのタイマーを外す
+ */
+
+/**
+ * YouTube の埋め込みプレーヤーを postMessage で操作する。
+ *
+ * 公式の iframe_api は CSP（script-src 'self'）で読めないので、その中身と同じやりとりだけを行う。送り先と送り元を
+ * プレーヤーのオリジンに限り、ほかの窓から届いた文字列を状態として読まない。iframe を外すと contentWindow は null に
+ * なるので、別の動画へ移った後に前のプレーヤーの応答が届いても、source の比較で落ちる。
+ * 応答が来ないとき（YouTube 側の変更など）は onReady を呼ばないだけで、埋め込みそのものの再生はそのまま動く。
+ *
+ * 止めている間にシークしても、プレーヤーは currentTime を送ってこない（再開すると正しい位置から始まる）。そのため
+ * seekTo は持っている位置も動かす。動かさないと、止めたまま J や L を続けて押したときに同じ位置から数え直す。
+ *
+ * @param {HTMLIFrameElement} frame 埋め込みの iframe（読み込みが終わる前に渡す）
+ * @param {() => void} onReady availablePlaybackRates が届いたら 1 回だけ呼ぶ処理
+ * @returns {MySearchPlayer} 操作
+ */
+function mySearchBindPlayer(frame, onReady) {
+    /** @type {MySearchPlayerState} */
+    const state = {
+        currentTime: 0, duration: 0, playerState: -1, playbackRate: 1, availablePlaybackRates: [], muted: false, live: false, failed: false,
+    };
+    let ready = false;
+    /** @type {number|undefined} */
+    let retryTimer;
+
+    /** @param {Record<string, unknown>} message 送る内容 */
+    const send = (message) => {
+        frame.contentWindow?.postMessage(JSON.stringify({ ...message, id: 1, channel: "widget" }), MY_SEARCH_PLAYER_ORIGIN);
+    };
+    /** @type {(func: string, ...args: unknown[]) => void} */
+    const command = (func, ...args) => send({ event: "command", func, args });
+    /** load より前は別のオリジンの空のページなので送れない（送るとコンソールにエラーが出る）。 */
+    const listen = () => {
+        const startedAt = Date.now();
+        send({ event: "listening" });
+        retryTimer = window.setInterval(() => {
+            if (Date.now() - startedAt >= MY_SEARCH_PLAYER_GIVE_UP_MS) window.clearInterval(retryTimer);
+            else send({ event: "listening" });
+        }, MY_SEARCH_PLAYER_RETRY_MS);
+    };
+    /** @param {MessageEvent} event 届いたメッセージ */
+    const onMessage = (event) => {
+        if (event.source !== frame.contentWindow || event.origin !== MY_SEARCH_PLAYER_ORIGIN) return;
+        /** @type {any} */
+        let data;
+        try {
+            data = JSON.parse(event.data);
+        } catch {
+            return;
+        }
+        window.clearInterval(retryTimer);
+        if (data?.event === "onError") state.failed = true;
+        // info は状態のオブジェクトのほか、onError などでは数値で届く
+        const info = data?.info && typeof data.info === "object" ? data.info : {};
+        for (const key of MY_SEARCH_PLAYER_INFO_KEYS) {
+            if (key in info) Object.assign(state, { [key]: info[key] });
+        }
+        if (typeof info.videoData?.isLive === "boolean") state.live = info.videoData.isLive;
+        if (!ready && "availablePlaybackRates" in info) {
+            ready = true;
+            onReady();
+        }
+        player.onInfo?.();
+    };
+    /** @param {number} seconds 動かす位置（秒） */
+    const seekTo = (seconds) => {
+        const upper = state.duration > 0 ? state.duration : Infinity;
+        state.currentTime = Math.min(Math.max(0, seconds), upper);
+        command("seekTo", state.currentTime, true);
+    };
+    /** @type {MySearchPlayer} */
+    const player = {
+        state,
+        onInfo: null,
+        command,
+        seekTo,
+        seekBy: (seconds) => seekTo(state.currentTime + seconds),
+        stop() {
+            window.removeEventListener("message", onMessage);
+            frame.removeEventListener("load", listen);
+            window.clearInterval(retryTimer);
+        },
+    };
+    window.addEventListener("message", onMessage);
+    frame.addEventListener("load", listen, { once: true });
+    return player;
+}
+
+/** 続きの位置を残す localStorage のキー。値は動画 ID ごとの {position, duration, savedAt}。 */
+const MY_SEARCH_POSITIONS_KEY = "ylm.videoPositions";
+
+/** 続きの位置を残す動画の数。端末に増え続けないよう、古いものから捨てる。 */
+const MY_SEARCH_POSITIONS_LIMIT = 200;
+
+/**
+ * 残してある続きの位置を読む。録画と違ってサーバーには送らない（テーブルを足すほどの価値が今は無いため）。
+ *
+ * @returns {Record<string, {position: number, duration: number, savedAt: number}>} 動画 ID ごとの位置。読めなければ空
+ */
+function mySearchVideoPositions() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(MY_SEARCH_POSITIONS_KEY) ?? "{}");
+        return saved && typeof saved === "object" ? saved : {};
+    } catch {
+        return {};
+    }
+}
+
+/**
+ * 続きの位置を新しい順に上限まで残す。呼ぶ側は読み直した値へ足して渡すので、同じ動画を 2 つのタブで開いたら後から
+ * 残した位置が勝ち、別の動画の位置は消えない。
+ *
+ * @param {Record<string, {position: number, duration: number, savedAt: number}>} positions 動画 ID ごとの位置
+ */
+function mySearchWriteVideoPositions(positions) {
+    const newest = Object.entries(positions).sort(([, a], [, b]) => b.savedAt - a.savedAt).slice(0, MY_SEARCH_POSITIONS_LIMIT);
+    try {
+        localStorage.setItem(MY_SEARCH_POSITIONS_KEY, JSON.stringify(Object.fromEntries(newest)));
+    } catch {
+        // 残せなくても再生は続ける（プライベートブラウズなど）
+    }
+}
+
+/**
+ * 動画を開くときの続きの位置を決める。
+ *
+ * @param {string} videoId 動画 ID
+ * @returns {number} 始める位置（秒）。先頭から始めるなら 0
+ */
+function mySearchResumeStart(videoId) {
+    const saved = mySearchVideoPositions()[videoId];
+    return saved ? myResumeStartSeconds(saved.position, saved.duration) ?? 0 : 0;
+}
+
+/**
+ * 今の視聴画面を離れるときの後始末。{@link mySearchBindWatchControls} が入れ、YouTube の埋め込みが無い画面では null。
+ * @type {(() => void)|null}
+ */
+let mySearchLeaveWatch = null;
+
+/**
+ * プレーヤーの下の操作の列と、キー操作・続きの位置・説明の時刻を結びつける。
+ *
+ * 録画の再生画面と同じ操作を、埋め込みの外から行う。上に重ねるのは規約で禁じられているので、列はプレーヤーの下に
+ * 置く。すべてプレーヤーの応答（onReady）を待ってから効かせる。応答が来ないときは列を出さず、キーも横取りせず、
+ * 埋め込みの再生だけが残る。
+ *
+ * @param {HTMLElement} root 画面の入れ物
+ * @param {HTMLIFrameElement} frame 埋め込みの iframe（読み込みが終わる前に渡す）
+ * @param {string} videoId 動画 ID
+ */
+function mySearchBindWatchControls(root, frame, videoId) {
+    const controls = document.createElement("div");
+    controls.className = "watchControls";
+    controls.hidden = true;
+    controls.innerHTML = `<button type="button" class="watchBack10" title="10秒戻す（J キーでも）">-10秒</button>
+        <button type="button" class="watchForward10" title="10秒進める（L キーでも）">+10秒</button>
+        <label class="dockRateLabel">速度 <select title="再生速度（&lt; と &gt; のキーでも変えられます）"></select></label>`;
+    query(".watchPlayer", root).after(controls);
+    const rateLabel = /** @type {HTMLElement} */ (query(".dockRateLabel", controls));
+    const rateSelect = /** @type {HTMLSelectElement} */ (query("select", controls));
+    const description = query(".watchDescription", root);
+    /** 速度の選択肢。プレーヤーが使える速度のうち、録画の選択肢にもあるもの。 */
+    /** @type {number[]} */
+    let rates = [];
+    /** 保存された速度をプレーヤーへ頼んだか。状態が届くたびに頼むと、プレーヤーの歯車で変えた速度を戻してしまう。 */
+    let savedRateApplied = false;
+    /** 再生中に位置を残す間隔を数える起点（Date.now() の値）。 */
+    let positionSavedAt = Date.now();
+    let lastPlayerState = -1;
+
+    /**
+     * 続きの位置を残す。終わった動画は位置を消す（次は先頭から）。
+     * 配信中は戻る先が無いので残さない。冒頭は、広告の時間で前に見た位置を上書きしないよう残さない。
+     */
+    const savePosition = () => {
+        const { currentTime, duration, playerState, live } = player.state;
+        const ended = playerState === 0;
+        if (!ended && (live || duration <= 0 || currentTime < MY_RESUME_MIN_SECONDS)) return;
+        // 読み直してから足す（理由は mySearchWriteVideoPositions）
+        const positions = mySearchVideoPositions();
+        if (ended) delete positions[videoId];
+        else positions[videoId] = { position: Math.floor(currentTime), duration, savedAt: Date.now() };
+        mySearchWriteVideoPositions(positions);
+        positionSavedAt = Date.now();
+    };
+    /** @param {number} rate 使う速度（倍） */
+    const setRate = (rate) => {
+        player.command("setPlaybackRate", rate);
+        try {
+            localStorage.setItem(MY_PLAYBACK_RATE_KEY, String(rate));
+        } catch {
+            // 残せなくても、開いている間の速度は変わる
+        }
+    };
+    /**
+     * 速度の表示を状態に合わせ、保存された速度を頼む。
+     * 配信は使える速度が全部届くので、選択肢の数では見分けられない。配信の印（live）は再生が始まるまで届かないが、
+     * 配信の長さは再生が始まるまで 0 で届くので、長さが分かるまで速度を出さず、配信に保存された速度を頼まない。
+     */
+    const syncRate = () => {
+        const { duration, live, playbackRate } = player.state;
+        rateLabel.hidden = rates.length <= 1 || duration <= 0 || live;
+        // プレーヤーの歯車で変えた速度も映す。選択肢に無い速度（カスタムの速度）は録画と同じく表示しない
+        if (rates.includes(playbackRate) && rateSelect.value !== String(playbackRate)) rateSelect.value = String(playbackRate);
+        if (rateLabel.hidden || savedRateApplied) return;
+        savedRateApplied = true;
+        const saved = myLoadPlaybackRate();
+        if (saved !== 1 && rates.includes(saved)) player.command("setPlaybackRate", saved);
+    };
+    /** @param {KeyboardEvent} ev キー入力 */
+    const onKey = (ev) => {
+        // 応答が来ない・再生できないときは、スペースのスクロールなどを横取りしない
+        if (controls.hidden) return;
+        myPlayerShortcut(ev, {
+            // 読み込み中（3）も止める側に数える。再生を頼んだ後の待ち時間は、動画要素の paused と同じく再生中として扱う
+            togglePlay: () => player.command([1, 3].includes(player.state.playerState) ? "pauseVideo" : "playVideo"),
+            seekBy: player.seekBy,
+            stepRate: (step) => {
+                if (rateLabel.hidden) return;
+                const index = rates.indexOf(player.state.playbackRate);
+                const next = rates[(index === -1 ? rates.indexOf(1) : index) + step];
+                if (next !== undefined) setRate(next);
+            },
+            toggleMute: () => player.command(player.state.muted ? "unMute" : "mute"),
+            toggleFullscreen: () => myToggleFullscreen(frame),
+            seekToRatio: (ratio) => {
+                // 配信の duration は長さではない（数か月分の値が届き、戻れる範囲はその一部だけ）
+                if (player.state.duration > 0 && !player.state.live) player.seekTo(player.state.duration * ratio);
+            },
+        });
+    };
+
+    const player = mySearchBindPlayer(frame, () => {
+        rates = MY_PLAYBACK_RATES.filter((rate) => player.state.availablePlaybackRates.includes(rate));
+        for (const rate of rates) rateSelect.add(new Option(rate === 1 ? "標準" : `${rate}倍`, String(rate)));
+        controls.hidden = false;
+    });
+    player.onInfo = () => {
+        if (player.state.failed) controls.hidden = true;
+        description.classList.toggle("is-seekable", !controls.hidden);
+        syncRate();
+        const { playerState } = player.state;
+        const stopped = playerState !== lastPlayerState && (playerState === 0 || playerState === 2);
+        lastPlayerState = playerState;
+        if (stopped || (playerState === 1 && Date.now() - positionSavedAt >= MY_POSITION_SAVE_INTERVAL_MS)) savePosition();
+    };
+    query(".watchBack10", controls).addEventListener("click", () => player.seekBy(-10));
+    query(".watchForward10", controls).addEventListener("click", () => player.seekBy(10));
+    rateSelect.addEventListener("change", () => setRate(Number(rateSelect.value)));
+    description.addEventListener("click", (event) => {
+        const time = event.target instanceof Element ? event.target.closest(".watchTime") : null;
+        if (!(time instanceof HTMLElement) || controls.hidden) return;
+        const seconds = Number(time.dataset.seconds);
+        if (player.state.duration > 0 && seconds > player.state.duration) return;
+        player.seekTo(seconds);
+        // 長い説明を読み進めた所から押すと飛んだ先が見えないので、プレーヤーが画面の外なら戻す（見えていれば動かない）
+        frame.scrollIntoView({ block: "nearest" });
+    });
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("pagehide", savePosition);
+    mySearchLeaveWatch = () => {
+        savePosition();
+        player.stop();
+        document.removeEventListener("keydown", onKey, true);
+        window.removeEventListener("pagehide", savePosition);
+        mySearchLeaveWatch = null;
+    };
+}
+
 /**
  * 視聴画面にプレーヤーと、その下の案内を置く。
  *
@@ -643,8 +971,10 @@ function mySearchWatchLayout({ before = "", after = "", secondary = false } = {}
  * @param {string} source 埋め込みの URL
  * @param {string} title プレーヤーの読み上げ名
  * @param {string} allow プレーヤーに許す機能
+ * @param {{videoId: string, start: number}|null} [youtube] YouTube の埋め込みのときの動画 ID と、URL に入れた始める
+ *   位置（秒）。Twitch の埋め込みには公開された操作の仕組みが無いので、操作の列は YouTube にだけ出す
  */
-function mySearchPlaceWatchFrame(root, source, title, allow) {
+function mySearchPlaceWatchFrame(root, source, title, allow, youtube = null) {
     const frame = document.createElement("iframe");
     frame.src = source;
     frame.title = title;
@@ -655,9 +985,12 @@ function mySearchPlaceWatchFrame(root, source, title, allow) {
     query(".watchPlayer", root).append(frame);
     const hint = query(".watchHint", root);
     hint.hidden = false;
+    if (!youtube) return;
     // スクリプトが効くのは YouTube の埋め込みだけなので、Twitch には出さない
-    const adSkip = source.startsWith("https://www.youtube-nocookie.com/") ? adSkipNotice() : null;
+    const adSkip = adSkipNotice();
     if (adSkip) hint.before(adSkip);
+    mySearchBindWatchControls(root, frame, youtube.videoId);
+    if (youtube.start > 0) showToast(`前回の続き（${formatDuration(youtube.start)}）から再生します`);
 }
 
 /**
@@ -670,7 +1003,7 @@ function mySearchPlaceWatchFrame(root, source, title, allow) {
 function mySearchRenderWatchDescription(root, stats, description = null) {
     const box = query(".watchDescription", root);
     box.innerHTML = `<p class="watchStats">${escapeHtml(stats)}</p>
-        <div class="watchDescriptionText">${mySearchLinkify(description)}</div>
+        <div class="watchDescriptionText">${mySearchLinkify(description, mySearchTimeButtons)}</div>
         <button type="button" class="descriptionToggle" hidden>もっと見る</button>`;
     const text = query(".watchDescriptionText", box);
     const toggle = /** @type {HTMLButtonElement} */ (query(".descriptionToggle", box));
@@ -766,8 +1099,13 @@ const mySearchWatchView = {
             before: `<p class="watchBack"><a class="searchBack" href="${escapeHtml(back)}">← 検索結果に戻る</a></p>`,
             after: mySearchAttribution,
         });
-        mySearchPlaceWatchFrame(root, `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&playsinline=1`,
-            "YouTube の動画", "encrypted-media; fullscreen; picture-in-picture");
+        // 続きの位置は seekTo でなく start で渡す。頭出しの状態で seekTo を呼ぶと、再生が始まってしまうため。
+        // allow の autoplay は開いたときの自動再生には使わない（URL に autoplay=1 が無いので始まらない）。これが無いと、
+        // 操作の列・キー・説明の時刻からの再生を、利用者の操作の後でもブラウザが断る（押したのは親のページで、iframe の
+        // 中ではないため）
+        const start = mySearchResumeStart(videoId);
+        mySearchPlaceWatchFrame(root, youtubeEmbedUrl(videoId, { start }), "YouTube の動画",
+            "autoplay; encrypted-media; fullscreen; picture-in-picture", { videoId, start });
         // 直前の履歴がその検索結果なら、ブラウザの「戻る」と同じにする。リンクとして移ると履歴が 1 つ伸び、その後に
         // ブラウザの「戻る」を押すと視聴画面へ戻ってしまう。「戻る」で戻れば、結果の位置と「もっと見る」で足したページも戻る。
         // 直前の履歴がどこかはブラウザからは読めないので、ルーターが移るときに残した from（my-app.js の myNavigate）で見分ける。
@@ -810,6 +1148,9 @@ const mySearchWatchView = {
         mySearchRenderWatchActions(root, video, subscribed, watchUrl);
         mySearchRenderWatchDescription(root, [mySearchViews(video.viewCount), formatInstant(video.publishedAt)].filter(Boolean).join("・"),
             video.description);
+    },
+    leave() {
+        mySearchLeaveWatch?.();
     },
 };
 
@@ -965,19 +1306,25 @@ const myVideoWatchView = {
 
         document.title = `${video.title} - YouTube Live Monitor`;
         heading.textContent = video.title;
-        const source = video.playable ? embeddedVideoUrl(video.watchUrl) : null;
+        const youtube = video.platform === "YOUTUBE";
+        const videoId = video.id.replace(/^YOUTUBE_/, "");
+        const start = video.playable && youtube ? mySearchResumeStart(videoId) : 0;
+        const source = video.playable ? embeddedVideoUrl(video.watchUrl, { start }) : null;
         if (source) {
-            mySearchPlaceWatchFrame(root, source, video.title, "autoplay; encrypted-media; fullscreen; picture-in-picture");
+            mySearchPlaceWatchFrame(root, source, video.title, "autoplay; encrypted-media; fullscreen; picture-in-picture",
+                youtube ? { videoId, start } : null);
         } else {
             query(".watchPlayer", root).outerHTML = emptyState("この動画はここでは再生できません", "配信元で開いてください。");
         }
         query(".watchChannel", root).innerHTML = myVideoWatchChannel(video, video.channelIconUrl);
-        const youtube = video.platform === "YOUTUBE";
         query(".watchActions", root).innerHTML = externalLink(`${video.platformLabel} で開く`, video.watchUrl)
             + (youtube ? mySearchDeviceSaveLink(video.watchUrl) : "");
         mySearchRenderWatchDescription(root, myVideoWatchWhen(video));
         // YouTube API サービスのデータを出す画面に要る表示（mySearchAttribution）。Twitch の動画には当てはまらない
         if (youtube) query(".watchPage", root).insertAdjacentHTML("afterend", mySearchAttribution);
         await Promise.all([youtube ? myVideoWatchLoadDetail(root, video) : null, myVideoWatchLoadSecondary(root, video)]);
+    },
+    leave() {
+        mySearchLeaveWatch?.();
     },
 };

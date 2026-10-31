@@ -256,13 +256,34 @@ function myDockTogglePlay() {
 }
 
 /**
- * 再生画面のキー操作。パソコンで見る人は YouTube と同じキーで操作しようとするので、YouTube・FreeTube と同じキーにする。
- * K・スペースで再生と一時停止、J・L で 10 秒、←・→ で 5 秒戻す・進める、<・> で速度、0〜9 で長さの 0〜90% の位置、
- * M で消音、F で全画面。
+ * 全画面を切り替える（キーの F）。
  *
- * <p>ドックが再生画面の大きさ（is-full）のときだけ効かせる。ミニプレーヤーを出しているほかの画面では、スペースと矢印キーは
- * ページのスクロールに、文字は検索欄などの入力に使われるので、横取りすると困るため。
- * 入力欄・選択肢（速度の選択を含む）にフォーカスがあるとき、Ctrl・Alt・Meta 付きのとき（ブラウザのショートカット）、
+ * @param {HTMLElement} element 全画面にする要素
+ */
+function myToggleFullscreen(element) {
+    // 全画面にできなかった（断られた・対応していない）ことは、全画面にならないこと自体で分かるので何も出さない
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else if (typeof element.requestFullscreen === "function") element.requestFullscreen().catch(() => {});
+}
+
+/**
+ * {@link myPlayerShortcut} のキーで動かす先。録画は動画要素を、埋め込みは postMessage を動かすので、呼ぶ側が渡す。
+ *
+ * @typedef {object} MyPlayerActions
+ * @property {() => void} togglePlay 再生と一時停止を切り替える
+ * @property {(seconds: number) => void} seekBy 進める（負なら戻す）
+ * @property {(step: number) => void} stepRate 速度を選択肢の 1 つ隣へ変える（1 なら速く、-1 なら遅く）
+ * @property {() => void} toggleMute 消音を切り替える
+ * @property {() => void} toggleFullscreen 全画面を切り替える
+ * @property {(ratio: number) => void} seekToRatio 長さに対する割合（0〜0.9）の位置へ動かす
+ */
+
+/**
+ * 再生のキー操作の判定と振り分け。パソコンで見る人は YouTube と同じキーで操作しようとするので、YouTube・FreeTube と
+ * 同じキーにする。K・スペースで再生と一時停止、J・L で 10 秒、←・→ で 5 秒戻す・進める、<・> で速度、0〜9 で長さの
+ * 0〜90% の位置、M で消音、F で全画面。録画と埋め込みの視聴画面で同じキーにするため、動かす先だけを actions で受け取る。
+ *
+ * <p>入力欄・選択肢（速度の選択を含む）にフォーカスがあるとき、Ctrl・Alt・Meta 付きのとき（ブラウザのショートカット）、
  * 日本語入力の変換中、ダイアログを開いているときは何もしない。スペースは、ボタン・リンクにフォーカスがあるときも何もしない
  * （ボタンはスペースで押されるので、再生の切り替えと二重になる）。
  *
@@ -272,56 +293,75 @@ function myDockTogglePlay() {
  * （{@link myDockInit}。泡立ちで付けると、動画要素にフォーカスがあるときに Chrome で二重になった）。
  *
  * @param {KeyboardEvent} ev キー入力
+ * @param {MyPlayerActions} actions キーで動かす先
  */
-function myDockShortcut(ev) {
+function myPlayerShortcut(ev, actions) {
     if (ev.defaultPrevented || ev.ctrlKey || ev.altKey || ev.metaKey || ev.isComposing) return;
-    if (!myDockRecording || !el("playerDock").classList.contains("is-full")) return;
     if (document.querySelector("dialog[open]")) return;
     const target = ev.target instanceof Element ? ev.target : null;
     if (target?.closest("input, textarea, select") || (target instanceof HTMLElement && target.isContentEditable)) return;
     if (ev.key === " " && target?.closest("button, a, summary")) return;
-    const video = myDockVideo();
     // 文字のキーは Shift・CapsLock で大文字になっても同じに扱う
     const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
     switch (key) {
         case " ":
         case "k":
             // 押し続けたときの繰り返しで切り替え続けないよう、最初の 1 回だけ扱う（M・F も同じ）
-            if (!ev.repeat) myDockTogglePlay();
+            if (!ev.repeat) actions.togglePlay();
             break;
         case "j":
-            seekVideoBy(video, -10);
+            actions.seekBy(-10);
             break;
         case "l":
-            seekVideoBy(video, 10);
+            actions.seekBy(10);
             break;
         case "ArrowLeft":
-            seekVideoBy(video, -5);
+            actions.seekBy(-5);
             break;
         case "ArrowRight":
-            seekVideoBy(video, 5);
+            actions.seekBy(5);
             break;
         case "<":
-            myStepPlaybackRate(video, -1);
+            actions.stepRate(-1);
             break;
         case ">":
-            myStepPlaybackRate(video, 1);
+            actions.stepRate(1);
             break;
         case "m":
-            if (!ev.repeat) video.muted = !video.muted;
+            if (!ev.repeat) actions.toggleMute();
             break;
         case "f":
-            if (ev.repeat) break;
-            // 全画面にできなかった（断られた・対応していない）ことは、全画面にならないこと自体で分かるので何も出さない
-            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-            else if (typeof video.requestFullscreen === "function") video.requestFullscreen().catch(() => {});
+            if (!ev.repeat) actions.toggleFullscreen();
             break;
         default:
             if (!/^[0-9]$/.test(key)) return;
-            // 長さが分かる前（NaN）は動かせない
-            if (Number.isFinite(video.duration)) video.currentTime = video.duration * Number(key) / 10;
+            actions.seekToRatio(Number(key) / 10);
     }
     ev.preventDefault();
+}
+
+/**
+ * 録画の再生画面のキー操作（キーの割り当ては {@link myPlayerShortcut}）。
+ *
+ * <p>ドックが再生画面の大きさ（is-full）のときだけ効かせる。ミニプレーヤーを出しているほかの画面では、スペースと矢印キーは
+ * ページのスクロールに、文字は検索欄などの入力に使われるので、横取りすると困るため。
+ *
+ * @param {KeyboardEvent} ev キー入力
+ */
+function myDockShortcut(ev) {
+    if (!myDockRecording || !el("playerDock").classList.contains("is-full")) return;
+    const video = myDockVideo();
+    myPlayerShortcut(ev, {
+        togglePlay: myDockTogglePlay,
+        seekBy: (seconds) => seekVideoBy(video, seconds),
+        stepRate: (step) => myStepPlaybackRate(video, step),
+        toggleMute: () => { video.muted = !video.muted; },
+        toggleFullscreen: () => myToggleFullscreen(video),
+        seekToRatio: (ratio) => {
+            // 長さが分かる前（NaN）は動かせない
+            if (Number.isFinite(video.duration)) video.currentTime = video.duration * ratio;
+        },
+    });
 }
 
 /**
@@ -408,7 +448,7 @@ function myDockInit() {
     video.defaultPlaybackRate = savedRate;
     video.playbackRate = savedRate;
 
-    // 捕獲で付ける（理由は myDockShortcut の JSDoc）
+    // 捕獲で付ける（理由は myPlayerShortcut の JSDoc）
     document.addEventListener("keydown", myDockShortcut, true);
 }
 
