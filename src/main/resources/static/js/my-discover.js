@@ -60,7 +60,7 @@ function myDiscoverCard(item, subscribed) {
         ? `<p>見つけた動画：<a href="/my/search/watch/${encodeURIComponent(item.sampleVideoId)}">${escapeHtml(item.sampleVideoTitle || item.sampleVideoId)}</a></p>`
         : "";
     const found = [item.foundByTerm ? `見つけた語「${escapeHtml(item.foundByTerm)}」` : "手動で登録",
-        `見つけた日時 ${formatInstant(item.discoveredAt)}`, `${mySearchTimeAgo(item.refreshedAt) || "-"}に取得`];
+        `見つけた日時 ${formatInstant(item.discoveredAt)}`, `${formatTimeAgo(item.refreshedAt) || "-"}に取得`];
     const card = document.createElement("article");
     card.className = "discoverCard";
     card.dataset.channelId = item.channelId;

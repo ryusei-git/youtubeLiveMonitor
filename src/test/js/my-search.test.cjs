@@ -11,10 +11,10 @@ const assert = require('node:assert/strict');
 const {loadStatic} = require('./static-script.cjs');
 
 const {
-    mySearchChannelId, mySearchApiParams, mySearchPublishedRange, mySearchKeptRange, mySearchTimeAgo, mySearchLinkify,
+    mySearchChannelId, mySearchApiParams, mySearchPublishedRange, mySearchKeptRange, mySearchLinkify,
 } = loadStatic([
     'MY_SEARCH_PASSTHROUGH', 'MY_SEARCH_OFFICIAL_FIELDS', 'MY_SEARCH_KEEP_RANGE_MS', 'escapeHtml',
-    'mySearchChannelId', 'mySearchApiParams', 'mySearchPublishedRange', 'mySearchKeptRange', 'mySearchTimeAgo', 'mySearchLinkify',
+    'mySearchChannelId', 'mySearchApiParams', 'mySearchPublishedRange', 'mySearchKeptRange', 'mySearchLinkify',
 ]);
 
 /** 本来のチャンネル ID の形（UC で始まる 24 文字）の値 */
@@ -120,28 +120,6 @@ describe('mySearchKeptRange', () => {
         const broken = new URLSearchParams('q=ASMR&posted=day&publishedAfter=abc');
         assert.deepEqual(mySearchKeptRange(future, next, FRESH), FRESH);
         assert.deepEqual(mySearchKeptRange(broken, next, FRESH), FRESH);
-    });
-});
-
-describe('mySearchTimeAgo', () => {
-    beforeEach(() => mock.timers.enable({apis: ['Date'], now: Date.parse('2026-09-27T12:00:00.000Z')}));
-    afterEach(() => mock.timers.reset());
-
-    test('正常系：経過をいちばん大きな単位の整数で出す', () => {
-        assert.equal(mySearchTimeAgo('2026-09-27T11:55:00.000Z'), '5 分前');
-        assert.equal(mySearchTimeAgo('2026-09-27T09:00:00.000Z'), '3 時間前');
-        assert.equal(mySearchTimeAgo('2026-09-25T12:00:00.000Z'), '2 日前');
-        assert.equal(mySearchTimeAgo('2026-09-13T12:00:00.000Z'), '2 週間前');
-        assert.equal(mySearchTimeAgo('2026-08-01T12:00:00.000Z'), '1 か月前');
-        assert.equal(mySearchTimeAgo('2024-09-27T12:00:00.000Z'), '2 年前');
-    });
-    test('正常系：1 分未満と未来の日時は「たった今」にする', () => {
-        assert.equal(mySearchTimeAgo('2026-09-27T11:59:30.000Z'), 'たった今');
-        assert.equal(mySearchTimeAgo('2026-09-27T13:00:00.000Z'), 'たった今');
-    });
-    test('異常系：無い・読めない日時は空文字にする', () => {
-        assert.equal(mySearchTimeAgo(null), '');
-        assert.equal(mySearchTimeAgo('not a date'), '');
     });
 });
 
