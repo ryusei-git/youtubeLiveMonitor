@@ -441,19 +441,6 @@ function myWatchPath(rec) {
     return `/my/watch/${rec.id}`;
 }
 
-/**
- * 配信・動画のカード（common.js の buildOnlineVideoCard）を並べた入れ物で、埋め込みの再生を開いたらミニプレーヤーの録画を止める。
- * 再生はモーダルのダイアログで開くので、開いている間はダイアログの外（ミニプレーヤー）を押せず、録画と音が重なるため。
- * カードのボタンがダイアログを開いた後に届くので、開けなかったとき（埋め込めない URL）は止めない
- *
- * @param {Element} container カードを並べた入れ物。画面を描くたびに作り直すもの（main#view に付けると、離れた後も残る）
- */
-function myPauseDockOnVideoDialog(container) {
-    container.addEventListener("click", () => {
-        if (document.querySelector("dialog[open]")) myDockVideo().pause();
-    });
-}
-
 /** トップの自動更新を止める関数。トップを出していない間は null。 */
 /** @type {(() => void)|null} */
 let myTopStopRefresh = null;
@@ -464,6 +451,7 @@ let myTopStopRefresh = null;
  * 配信予定も一緒に読み直すのは、始まった配信が「配信予定」に残ったまま「配信中」にも並ぶのを避けるため。
  * 失敗は欄ごとに扱う。片方の API が失敗しても、取れた方の欄は出す
  * （まとめて扱うと、片方の失敗で両方の欄が消える）。
+ * カードは視聴画面へのリンクなので、「戻る」で押す前の位置へ戻れるよう、render は最初の読み込みを終えたら解決する Promise を返す。
  * @type {MyView}
  */
 const myTopView = {
@@ -481,7 +469,6 @@ const myTopView = {
             </section>`;
         const live = query(".livePanel .videoGrid", root);
         const upcoming = query(".upcomingPanel > div", root);
-        myPauseDockOnVideoDialog(live);
         /**
          * 前回描いた内容の要約。欄ごとに持ち、同じなら描き直さない（描き直すとフォーカスしていたカードが
          * DOM から外れ、body へ飛ぶため）。動画の要約は common.js の onlineVideosRenderKey で作る
@@ -525,8 +512,8 @@ const myTopView = {
             if (errors.length) showError(errors.join(" / "));
             else clearError();
         };
-        load();
         myTopStopRefresh = startVisibleRefresh(load);
+        return load();
     },
     leave() {
         myTopStopRefresh?.();
@@ -543,8 +530,9 @@ let myVideosStopRefresh = null;
  * 中身と動きは管理者の動画一覧（videos.html）と同じもの（common.js の bindOnlineVideoSections）で、API が購読で絞る。
  *
  * 絞り込みは URL（/my/videos?keyword=...&channelId=...）に残す。アーカイブと同じく「戻る」「進む」はルーターが拾って
- * 画面ごと描き直し、描き直した画面が URL から条件を戻す（render は Promise を返さないので、「戻る」「進む」でも先頭から出す。
- * ルーターが history.state に残す値は画面を離れるときに書き直すので、bindOnlineVideoSections が null で書いても困らない）。
+ * 画面ごと描き直し、描き直した画面が URL から条件を戻す。カードは視聴画面へのリンクなので、「戻る」で押す前の位置へ戻れるよう、
+ * render は 3 段を描き終えたら解決する Promise を返す（ルーターが history.state に残す値は画面を離れるときに書き直すので、
+ * bindOnlineVideoSections が null で書いても困らない）。
  * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直し、離れたら止める（トップと同じ）。
  * @type {MyView}
  */
@@ -561,7 +549,7 @@ const myVideosView = {
               <div id="${name}Grid" class="videoGrid"></div>
             </section>`).join("");
         root.innerHTML = `<div class="pageHead"><h1>動画・配信</h1><button type="button" id="refreshVideosBtn">表示を更新</button></div>
-            <p class="pageDescription">購読しているチャンネルの新着動画と配信を、この画面で再生できます。</p>
+            <p class="pageDescription">購読しているチャンネルの新着動画と配信を、この画面から再生できます。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <p id="collectionNotice" class="muted" role="status">取得状況を確認しています…</p>
             <p id="videoRefreshStatus" class="muted" role="status">表示を読み込み中…</p>
@@ -572,10 +560,9 @@ const myVideosView = {
             </form>
             ${sectionHtml}
             <p class="muted">新着動画は約10分ごとに取得します。収集を開始してから公開された動画と、監視中に見つかった配信を保存します。この一覧の収集では動画本体を保存しません（自動録画の設定は別です）。</p>`;
-        root.querySelectorAll(".videoGrid").forEach(myPauseDockOnVideoDialog);
         const videos = bindOnlineVideoSections();
-        videos.start();
         myVideosStopRefresh = startVisibleRefresh(() => videos.loadAll(false, false));
+        return videos.start();
     },
     leave() {
         myVideosStopRefresh?.();
@@ -2033,6 +2020,7 @@ const myNotFoundView = {
 const myRoutes = [
     [/^\/my\/?$/, myTopView],
     [/^\/my\/videos\/?$/, myVideosView],
+    [/^\/my\/videos\/watch\/([\w-]+)\/?$/, myVideoWatchView],
     [/^\/my\/download\/?$/, myDownloadView],
     [/^\/my\/search\/?$/, mySearchView],
     [/^\/my\/search\/watch\/([\w-]{11})\/?$/, mySearchWatchView],
@@ -2097,7 +2085,7 @@ function myRender({ initial = false, restoreScroll = false } = {}) {
         window.scrollTo(0, 0);
         myMarkNav(view.nav);
         const drawn = view.render(root, match, params);
-        // Promise を返さない画面（トップ・動画・配信・設定）は中身を読み込む前の短いページなので、戻すと途中の位置で止まる。
+        // Promise を返さない画面（設定など）は中身を読み込む前の短いページなので、戻すと途中の位置で止まる。
         // 今までどおり先頭から出す
         if (drawn instanceof Promise && typeof savedY === "number" && savedY > 0) {
             drawn.then(() => {
