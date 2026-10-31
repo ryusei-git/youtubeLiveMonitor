@@ -36,6 +36,9 @@ import java.time.LocalDateTime;
  * @param playCount      このサービスの画面で再生された回数（全員の合計。YouTube 上の再生数ではない）
  * @param thumbnailPath  サムネイル画像のパス（{@code monitor.recording.directory}からの相対パス）。
  *                       未生成なら {@code null}。画面はこれを {@code /recordings/} と連結して表示する
+ * @param audioPath      音声だけの MP3 のパス（{@code monitor.recording.directory}からの相対パス）。
+ *                       まだ作っていない・作れなかった・作る対象でない録画は {@code null}。
+ *                       将来の音声の配信のためのもので、今の画面は使わない
  * @param status         録画の状態（{@code RECORDING} / {@code COMPLETED} / {@code PARTIAL} / {@code FAILED}）
  * @param startedAt      録画を開始した時刻
  * @param completedAt    録画が完了・失敗した時刻。録画中は {@code null}
@@ -57,6 +60,7 @@ public record RecordingResponse(
         Integer durationSeconds,
         int playCount,
         String thumbnailPath,
+        String audioPath,
         String status,
         LocalDateTime startedAt,
         LocalDateTime completedAt,
@@ -119,6 +123,7 @@ public record RecordingResponse(
                 recording.getDurationSeconds(),
                 recording.getPlayCount(),
                 recording.getThumbnailPath(),
+                recording.getAudioPath(),
                 recording.getStatus().name(),
                 recording.getStartedAt(),
                 recording.getCompletedAt(),

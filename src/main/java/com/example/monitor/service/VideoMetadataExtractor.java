@@ -83,18 +83,44 @@ public class VideoMetadataExtractor {
      * @return 映像の長さ（秒）。読み取れなかった場合は {@link Optional#empty()}
      */
     public Optional<Integer> extractVideoStreamDurationSeconds(Path videoFile) {
-        if (!Files.isRegularFile(videoFile)) {
+        return extractStreamDurationSeconds(videoFile, "v:0");
+    }
+
+    /**
+     * 音声ストリームだけの長さ（秒）を読み取る。
+     *
+     * <p>MP3 が元の録画の音声とおおむね同じ長さかを確かめるのに使う
+     * （{@link RecordingAudioExtractor}）。コンテナの長さ（{@link #extractDurationSeconds}）と比べないのは、
+     * 途中で終わった録画では映像と音声の長さが食い違い、コンテナは長い方を申告するため
+     * （{@link #extractVideoStreamDurationSeconds} 参照）。
+     *
+     * @param file 対象のファイル（録画ファイルでも MP3 でもよい）
+     * @return 音声の長さ（秒）。音声が無い・読み取れなかった場合は {@link Optional#empty()}
+     */
+    public Optional<Integer> extractAudioStreamDurationSeconds(Path file) {
+        return extractStreamDurationSeconds(file, "a:0");
+    }
+
+    /**
+     * 指定したストリームの長さ（秒）を読み取る。
+     *
+     * @param file           対象のファイル
+     * @param streamSelector {@code ffprobe -select_streams} に渡す指定（{@code v:0}・{@code a:0}）
+     * @return 長さ（秒）。読み取れなかった場合は {@link Optional#empty()}
+     */
+    private Optional<Integer> extractStreamDurationSeconds(Path file, String streamSelector) {
+        if (!Files.isRegularFile(file)) {
             return Optional.empty();
         }
 
         List<String> command = List.of(
                 "ffprobe", "-v", "error",
-                "-select_streams", "v:0",
+                "-select_streams", streamSelector,
                 "-show_entries", "stream=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1",
-                videoFile.toString());
+                file.toString());
 
-        return externalCommandRunner.run(command, videoFile, COMMAND_TIMEOUT_SECONDS)
+        return externalCommandRunner.run(command, file, COMMAND_TIMEOUT_SECONDS)
                 .flatMap(this::parseDurationSeconds);
     }
 

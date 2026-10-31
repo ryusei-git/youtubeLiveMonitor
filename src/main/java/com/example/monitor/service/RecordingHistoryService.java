@@ -71,6 +71,8 @@ public class RecordingHistoryService {
                 .genre(TitleGenreExtractor.extract(videoTitle))
                 .filePath(filePath)
                 .status(RecordingStatus.RECORDING)
+                // 新しい録画だけ MP3 を自動で作る（理由は Recording#autoAudio）
+                .autoAudio(true)
                 .build();
         return recordingRepository.save(recording);
     }

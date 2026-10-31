@@ -18,6 +18,7 @@ import java.nio.file.Path;
  * <p>ほかのログ（{@code logback-spring.xml} の {@code logs/channels/}）と同じ {@code logs/} に置く。
  * 録画フォルダの下に置くと、録画ファイルの走査・削除・孤立ファイルの判定に混ざるため。
  * 動画 ID ごとのファイルにしているのは、録り直しも同じファイルに追記され、1 本の経緯を 1 か所で追えるようにするため。
+ * 同じ理由で、録画から MP3 を作る ffmpeg（{@code RecordingAudioExtractor}）の出力もここへ追記する。
  */
 public final class YtDlpLogFile {
 

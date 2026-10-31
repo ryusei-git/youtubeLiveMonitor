@@ -498,4 +498,28 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @return 対象の録画履歴
      */
     List<Recording> findByStatusInAndThumbnailPathIsNull(Collection<RecordingStatus> statuses);
+
+    /**
+     * MP3 を自動で作る対象（{@link Recording#autoAudio}）で、まだ MP3 の無い録画を取得する。
+     *
+     * <p>{@link com.example.monitor.service.RecordingReconciler} が後始末のたびに拾う。状態を引数で
+     * 受ける理由は {@link #findByStatusInAndThumbnailPathIsNull} と同じ（途中までの録画も再生できるので
+     * MP3 にする）。
+     *
+     * @param statuses 対象にする状態
+     * @return 対象の録画履歴
+     */
+    List<Recording> findByStatusInAndAutoAudioTrueAndAudioPathIsNull(Collection<RecordingStatus> statuses);
+
+    /**
+     * 作った MP3 のパスを記録する。
+     *
+     * @param id        録画履歴の主キー
+     * @param audioPath MP3 の相対パス（{@code monitor.recording.directory} から）
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Recording r SET r.audioPath = :audioPath WHERE r.id = :id")
+    int updateAudioPath(@Param("id") Long id, @Param("audioPath") String audioPath);
 }

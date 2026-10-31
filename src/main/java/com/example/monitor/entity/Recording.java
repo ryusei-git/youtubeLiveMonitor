@@ -130,6 +130,32 @@ public class Recording {
     private String thumbnailPath;
 
     /**
+     * 録画から作った音声だけの MP3 のパス（{@code monitor.recording.directory} からの相対パス、
+     * 例: {@code UCxxxxxxxx/videoId.mp3}）。まだ作っていない・作れなかった・作る対象でない録画は
+     * {@code null}。
+     *
+     * <p>将来の音声だけの配信に備えて、録画と同じフォルダーに置く（作るのは
+     * {@link com.example.monitor.service.RecordingAudioExtractor}）。既存の行のある表に足す列なので
+     * {@code null} を許す（{@code docs/pitfalls.md}「既存データがある状態で NOT NULL の boolean カラムを
+     * 追加すると失敗する」と同じ理由）。
+     */
+    private String audioPath;
+
+    /**
+     * 録画の後始末（{@link com.example.monitor.service.RecordingReconciler}）が MP3 を自動で作る対象か。
+     * この列を足した後に作られた録画だけ {@code true} にする
+     * （{@link com.example.monitor.service.RecordingHistoryService#recordStart}）。
+     *
+     * <p><b>既存の録画を自動の対象にしない理由。</b>列を足した時点（#819）で約 46 本・100 時間の録画が
+     * あり、全部を MP3 にすると約 8.6GB を足すことになる（ディスクは約 5.6 日で録画が止まる見込み
+     * だった。#816）。既存の録画は、管理者が CLI（{@code recording mp3 <録画の番号>}）で指定したもの
+     * だけ作る。列を足すときに DB の既定値 {@code false} が既存の行に入るので、新旧を日時で切り分けずに
+     * 済む。
+     */
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean autoAudio;
+
+    /**
      * 録画の状態。
      *
      * <p><b>{@code columnDefinition} で型を明示しているのは、H2 のネイティブ ENUM 型を
