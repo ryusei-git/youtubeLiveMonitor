@@ -19,6 +19,7 @@ html:has(#playerDock.is-mini) { scroll-padding-bottom: calc(var(--dock-mini-heig
     --navy-700: #5035ad;
     --rule: #6246c8;
     --shell-pad: 2rem;
+    --nav-width: 236px;
     --chart-1: #6950c7;
     --chart-2: #917dd7;
     --chart-3: #aba0de;
@@ -33,7 +34,7 @@ a { text-underline-offset: 3px; }
 .brand::before { content: '▶'; display: grid; place-items: center; background: var(--navy-800); color: #fff; width: 34px; height: 34px; border-radius: 10px; font-size: 15px; padding-left: 2px; }
 .brand-name { font-size: 16px; font-weight: 800; letter-spacing: .035em; color: var(--text); }
 .brand-sub { border-left: 1px solid var(--border); padding-left: 20px; font-size: 12px; color: var(--text-muted); letter-spacing: .02em; }
-.globalnav { position: fixed; top: 68px; bottom: 0; left: 0; width: 236px; border-right: 1px solid var(--border); border-bottom: 0; background: #fff; z-index: 20; overflow-y: auto; }
+.globalnav { position: fixed; top: 68px; bottom: 0; left: 0; width: var(--nav-width); border-right: 1px solid var(--border); border-bottom: 0; background: #fff; z-index: 20; overflow-y: auto; }
 .globalnav .shell { display: flex; flex-direction: column; gap: 5px; padding: 26px 14px; min-height: 100%; }
 /* HTML に直書きしたメニューは古い並びのことがあり、JS が作り直すまで見せると組み替わって見えるため隠す。 */
 .globalnav:not(.navReady) .shell { visibility: hidden; }
@@ -45,7 +46,7 @@ a { text-underline-offset: 3px; }
 .navGroupLabel { font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: .08em; margin-top: 14px; padding: 18px 14px 10px; border-top: 1px solid var(--border); }
 .navIcon { width: 19px; height: 19px; flex: 0 0 19px; }
 .globalnav a.navLogout { margin: auto 0 0; color: var(--text-muted); border-top: 1px solid var(--border); border-radius: 0; padding-top: 20px; }
-body:has(.globalnav) main.shell { margin: 0 0 0 236px; max-width: none; padding: 32px clamp(20px, 3vw, 48px) 56px; }
+body:has(.globalnav) main.shell { margin: 0 0 0 var(--nav-width); max-width: none; padding: 32px clamp(20px, 3vw, 48px) 56px; }
 main.shell > * { min-width: 0; }
 h1 { font-size: 26px; letter-spacing: -.04em; font-weight: 750; color: var(--text); border: 0; padding: 0; margin: 0; line-height: 1.5; }
 h2 { font-size: 16px; color: var(--text); border: 0; padding: 0; margin: 26px 0 14px; letter-spacing: -.02em; }
@@ -273,11 +274,8 @@ td .markBtn { margin-right: 0; }
 .lineLegend em { width: 12px; height: 3px; border-radius: 2px; }
 
 /* 利用者画面（my.html）の再生ドック。動画要素は 1 つのまま DOM から外さず、大きさだけをクラスで切り替える
-   （外すと再生が止まり、小窓も閉じるため）。is-full は再生画面で本文の上に、is-mini はほかの画面で画面下に固定する。 */
+   （外すと再生が止まり、小窓も閉じるため）。is-full は再生画面の左の列に（配置はこのファイルの末尾の .appColumns）、is-mini はほかの画面で画面下に固定する。 */
 :root { --dock-mini-height: 72px; }
-#playerDock.is-full { margin-left: 236px; padding: 32px clamp(20px, 3vw, 48px) 0; }
-#playerDock.is-full .player { margin-bottom: 12px; }
-#playerDock.is-full + main.shell { padding-top: 16px; }
 #playerDock.is-full .dockMiniOnly { display: none; }
 .dockBar { display: flex; align-items: center; gap: 8px; }
 /* 再生画面ではボタンが増えて、狭い画面では 1 行に収まらないので折り返す */
@@ -285,7 +283,7 @@ td .markBtn { margin-right: 0; }
 .dockRateLabel { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.83rem; color: var(--text-muted); white-space: nowrap; }
 /* 速度は一度決めれば変えないことが多い設定なので、再生画面でだけ出す（ミニプレーヤーは題名の幅を残す） */
 #playerDock.is-mini .dockRateLabel { display: none; }
-#playerDock.is-mini { position: fixed; left: 236px; right: 0; bottom: 0; z-index: 25; display: flex; align-items: center; gap: 14px; height: var(--dock-mini-height); padding: 8px 20px; background: #fff; border-top: 1px solid var(--border); box-shadow: 0 -6px 18px #23212d10; }
+#playerDock.is-mini { position: fixed; left: var(--nav-width); right: 0; bottom: 0; z-index: 25; display: flex; align-items: center; gap: 14px; height: var(--dock-mini-height); padding: 8px 20px; background: #fff; border-top: 1px solid var(--border); box-shadow: 0 -6px 18px #23212d10; }
 #playerDock.is-mini .player { width: 100px; height: 56px; max-height: none; margin: 0; border-radius: 6px; flex: none; }
 #playerDock.is-mini .dockBar { flex: 1; min-width: 0; }
 /* 小窓にできないときの案内は 1 行に収まらないので、ミニプレーヤーではトーストだけにする */
@@ -296,13 +294,11 @@ td .markBtn { margin-right: 0; }
 body:has(#playerDock.is-mini) { padding-bottom: var(--dock-mini-height); }
 body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height) + 12px); }
 @media (max-width: 1150px) {
-    #playerDock.is-full { padding: 24px 24px 0; }
     /* ミニプレーヤーの ±10 秒は、題名の幅が残る広い画面でだけ出す（狭いと題名が読めなくなり、760px 付近ではボタンがはみ出す） */
     #playerDock.is-mini .dockSeek { display: none; }
 }
 @media (max-width: 760px) {
     :root { --dock-mini-height: 60px; }
-    #playerDock.is-full { margin-left: 0; padding: 24px 16px 0; }
     #playerDock.is-mini { left: 0; gap: 8px; padding: 6px 10px; }
     #playerDock.is-mini .player { width: 80px; height: 45px; }
     .dockTitle { display: block; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
@@ -310,8 +306,7 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
     #playerDock.is-mini .dockBar button { min-height: 34px; padding: 5px 9px; font-size: 12px; }
 }
 
-/* 利用者の検索（/my/search、#489）。並び方（左にサムネイル・右に情報）だけを YouTube に近づけ、色と部品はこのサービスのものを使う
-   （YouTube API Services の規約で、YouTube に似せすぎないことが求められているため）。 */
+/* 利用者の検索（/my/search、#489）。左にサムネイル・右に情報の並び。どこまで YouTube に寄せるかは、このファイルの末尾の「利用者の画面」に書く。 */
 #searchForm { padding: 16px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
 #searchForm .inline { margin: 0 0 12px; }
 .searchMain input[type="search"] { flex: 1 1 240px; }
@@ -342,9 +337,11 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 }
 
 /* 視聴画面（/my/videos/watch/{id} と /my/search/watch/{videoId}、#876）。埋め込みプレーヤーの中は変えられないので、周りの並びを
-   YouTube の視聴ページに合わせて一体感を出す（左にプレーヤーと情報、右に関連の列）。色と部品はこのサービスのものを使う（理由は上の検索）。
-   左の列の上限は、ヘッダーと余白を除いた高さに 16:9 で収まる幅。縦に短い画面でも 480px は残す。余った幅は左右へ等分する。 */
-.watchPage { --watch-primary-max: max(480px, calc((100dvh - 236px) * 16 / 9)); display: grid; grid-template-columns: minmax(0, var(--watch-primary-max)); justify-content: center; gap: 24px; }
+   YouTube の視聴ページに合わせて一体感を出す（左にプレーヤーと情報、右に関連の列）。色と部品はこのファイルの末尾の「利用者の画面」で揃える。
+   左の列の上限は、ヘッダーと余白を除いた高さに 16:9 で収まる幅。縦に短い画面でも 480px は残す。余った幅は左右へ等分する。
+   録画の再生画面の枠（.appColumns）も同じ幅にするので、値は :root に置く。 */
+:root { --watch-primary-max: max(480px, calc((100dvh - 236px) * 16 / 9)); }
+.watchPage { display: grid; grid-template-columns: minmax(0, var(--watch-primary-max)); justify-content: center; gap: 24px; }
 .watchPage:has(> .watchSecondary) { grid-template-columns: minmax(0, var(--watch-primary-max)) clamp(300px, 28%, 402px); }
 .watchPrimary { min-width: 0; }
 .watchBack { margin: 0 0 12px; }
@@ -354,6 +351,8 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 .watchPlayer { border-radius: 12px; overflow: hidden; background: #000; }
 .watchPlayer:empty { aspect-ratio: 16 / 9; }
 .watchPlayer iframe { display: block; width: 100%; min-width: 200px; min-height: 200px; aspect-ratio: 16 / 9; border: 0; }
+/* 埋め込みの外から操作する列（#878）。プレーヤーの上に重ねる表示は規約で禁じられているので、すぐ下に置く。部品は録画のドックと同じ */
+.watchControls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .watchHint, .watchPrimary .adSkipNotice { font-size: 12px; margin: 8px 0 0; }
 .watchTitle { margin: 12px 0 0; font-size: 20px; font-weight: 700; line-height: 1.4; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .watchOwner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; margin-top: 12px; }
@@ -370,14 +369,25 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 .watchDescription { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: #eceef3; }
 .watchDescription:empty { display: none; }
 .watchStats { margin: 0; font-size: 13px; font-weight: 650; overflow-wrap: anywhere; }
+/* 録画の詳細（my-app.js の myWatchRenderDescription）。表にすると説明の箱が縦に伸びて耳キスの欄が遠くなるので、項目を詰めて並べる */
+.watchFacts { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
+.watchFacts div { display: flex; gap: 6px; min-width: 0; }
+.watchFacts dt { color: var(--text-muted); font-weight: 400; white-space: nowrap; }
+.watchFacts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .watchDescriptionText { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .watchDescriptionText.is-open { display: block; }
 .watchDescriptionText:empty { display: none; }
+/* 説明の時刻（#878）。プレーヤーが応答するまでは飛べないので、まわりの文字と同じに見せる。応答したらリンクの見た目にする。
+   文の中に置くので、ボタンの枠・余白・最小の高さ（mobile.css の 44px を含む）を外す */
+.watchTime, .watchTime:hover { min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font-weight: inherit; letter-spacing: inherit; cursor: inherit; }
+.watchDescription.is-seekable .watchTime { color: var(--link); cursor: pointer; }
+.watchDescription.is-seekable .watchTime:hover { text-decoration: underline; }
 .descriptionToggle, .descriptionToggle:hover { min-height: 0; margin-top: 4px; padding: 0; border: 0; background: none; color: var(--text); }
 .descriptionToggle:hover { text-decoration: underline; }
 .watchSecondary { min-width: 0; }
 .watchSecondary h2 { margin: 0 0 12px; font-size: 15px; }
 .watchNextList { display: flex; flex-direction: column; gap: 10px; }
+.watchNextAll { margin: 12px 0 0; font-size: 13px; }
 .watchNext { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 10px; color: var(--text); text-decoration: none; border-radius: 8px; }
 .watchNextThumb { width: 168px; height: 94px; border-radius: 8px; overflow: hidden; background: #eae8f1; }
 .watchNextThumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -387,8 +397,9 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
 .watchNextInfo .muted { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 右の列が細いときは状態と日時を 2 行に分ける。1 行のまま末尾を省くと、日時がまるごと見えなくなる */
 .watchNextInfo .watchNextStatus { display: flex; flex-wrap: wrap; gap: 0 8px; }
-/* 本文の幅はメニューの分だけ狭いので、この幅より下で 2 列にすると左の列が細くなりすぎる。右の列を説明の下へ回す */
-@media (max-width: 1240px) {
+/* 本文の幅はメニューの分だけ狭いので、この幅より下で 2 列にすると左の列が細くなりすぎる。右の列を説明の下へ回す。
+   この幅のメニューは細い形（body.userApp の --nav-width）で、左の列に 600px ほど残る */
+@media (max-width: 1050px) {
     .watchPage:has(> .watchSecondary) { grid-template-columns: minmax(0, var(--watch-primary-max)); }
 }
 
@@ -459,3 +470,184 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
     .channelHero .channelAvatar { width: 52px !important; height: 52px !important; font-size: 20px; }
     .channelFilter input[type="search"] { flex: 1 1 100%; }
 }
+
+/* 利用者の画面（my.html の body.userApp、#879）。普段使っている画面と同じ感覚で迷わず使えるよう、ヘッダーと左のメニューの配置・中央の検索欄・
+   カードの並びと大きさ・余白・ボタンの形・無彩色の配色を YouTube に寄せる（#485 の線引きを改めた）。ロゴ・名前の流用・赤い再生ボタン・赤の配色は
+   使わず、サービスの名前と紫のロゴ、リンクと焦点の紫は残す（Branding Guidelines が trade dress の模倣を、Developer Policies III.I.1 が体験の再現を
+   禁じているため）。「YouTube API サービスを使っています」の表示とチャンネル名のリンク、視聴画面の操作も残す（III.A・III.C.2）。
+   管理者の画面とログインの画面を変えないよう、規則はすべて body.userApp の下に書く。寸法は YouTube の画面を測った値。 */
+body.userApp {
+    --nav-width: 240px;
+    --bg: #fff;
+    --surface-sunken: #f2f2f2;
+    --text: #0f0f0f;
+    --text-muted: #606060;
+    --border: #e5e5e5;
+    --border-strong: #909090;
+}
+/* 幅 1312px 以下は細いメニュー。760px 以下のメニューは横に並び、--nav-width を使わない */
+@media (max-width: 1312px) {
+    body.userApp { --nav-width: 72px; }
+}
+@media (max-width: 760px) {
+    body.userApp { --mobile-header-height: 56px; }
+}
+body.userApp .brand-sub { display: none; }
+body.userApp .masthead { height: 56px; border-bottom: 0; }
+body.userApp .masthead .shell { padding: 0 16px; }
+/* 検索欄を画面の中央に置く。左の列は名前の幅より狭くせず、狭い幅では検索欄の幅を詰める */
+body.userApp .headerSearchLink { display: none; }
+@media (min-width: 761px) {
+    body.userApp .masthead .shell { display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, 640px) minmax(0, 1fr); gap: 16px; }
+}
+body.userApp .headerSearch { display: flex; min-width: 0; }
+body.userApp .headerSearch input { flex: 1 1 auto; min-width: 0; height: 40px; padding: 0 16px; border: 1px solid #ccc; border-right: 0; border-radius: 20px 0 0 20px; font-size: 16px; }
+body.userApp .headerSearch input::placeholder { font-size: 16px; }
+body.userApp .headerSearch input:focus { border-color: var(--navy-800); }
+body.userApp .headerSearch button { flex: none; display: grid; place-items: center; width: 64px; min-height: 40px; padding: 0; border: 1px solid #ccc; border-radius: 0 20px 20px 0; background: #f8f8f8; color: var(--text); }
+body.userApp .headerSearch button:hover { background: #f0f0f0; }
+body.userApp .headerSearch .navIcon { width: 24px; height: 24px; flex-basis: 24px; }
+@media (max-width: 760px) {
+    body.userApp .headerSearch { display: none; }
+    body.userApp .headerSearchLink { display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; color: var(--text); }
+    body.userApp .headerSearchLink .navIcon { width: 24px; height: 24px; flex-basis: 24px; }
+}
+
+body.userApp .globalnav a { color: var(--text); letter-spacing: 0; }
+body.userApp .globalnav a:hover { background: var(--surface-sunken); color: var(--text); }
+body.userApp .globalnav a.active { background: var(--surface-sunken); color: var(--text); font-weight: 700; }
+@media (min-width: 761px) {
+    body.userApp .globalnav { top: 56px; border-right: 0; }
+    body.userApp .globalnav .shell { gap: 0; padding: 12px 24px 12px 12px; }
+    body.userApp .globalnav a { flex: none; gap: 24px; height: 40px; padding: 0 12px; border-radius: 10px; font-size: 14px; font-weight: 400; line-height: 20px; }
+    body.userApp .globalnav a.navLogout { margin-top: auto; padding: 0 12px; border-top: 0; border-radius: 10px; color: var(--text); }
+    body.userApp .globalnav .navIcon { width: 24px; height: 24px; flex-basis: 24px; }
+    body.userApp:has(.globalnav) main.shell { padding: 16px 24px 48px; }
+}
+/* アイコンの下に小さい文字を置く形。長い項目は my.html の wbr の所で折り返し、語の途中で切らない */
+@media (min-width: 761px) and (max-width: 1312px) {
+    body.userApp .globalnav .shell { padding: 4px; }
+    body.userApp .globalnav a, body.userApp .globalnav a.navLogout { flex-direction: column; justify-content: center; gap: 6px; width: 64px; height: auto; min-height: 74px; padding: 8px 0; font-size: 10px; line-height: 14px; text-align: center; white-space: normal; word-break: keep-all; }
+}
+
+/* 部品。:where() で詳細度を上げないのは、文字だけに見せるボタン（.onlineTitle・.watchTime・.sortButton など）の規則を上書きしないため */
+:where(body.userApp) button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--surface-sunken); color: var(--text); letter-spacing: 0; }
+:where(body.userApp) button:hover { background: var(--border); border-color: transparent; color: var(--text); }
+:where(body.userApp) button:disabled:hover { background: var(--surface-sunken); }
+:where(body.userApp) button[type="submit"], :where(body.userApp) button.saveBtn, :where(body.userApp) button.filterSave { background: var(--text); color: #fff; }
+:where(body.userApp) button[type="submit"]:hover, :where(body.userApp) button.saveBtn:hover, :where(body.userApp) button.filterSave:hover { background: #272727; color: #fff; }
+:where(body.userApp) button.removeBtn { background: var(--surface-sunken); }
+:where(body.userApp) td button { padding: 0 12px; }
+body.userApp .watchActions a { padding: 0 16px; border: 0; border-radius: 999px; background: var(--surface-sunken); color: var(--text); }
+body.userApp .watchActions a:hover { background: var(--border); color: var(--text); }
+/* 再生画面の印のボタンは、同じ列のリンクと同じ大きさにする（小さい形はカードと表の行の中のためのもの） */
+body.userApp .watchActions .markBtn { margin-right: 0; padding: 0 16px; font-size: inherit; }
+body.userApp .viewToggle { gap: 8px; }
+body.userApp .viewToggle button, body.userApp .viewToggle button:first-child, body.userApp .viewToggle button:last-child { padding: 0 12px; border-radius: 8px; margin-left: 0; }
+body.userApp .viewToggle button[aria-pressed="true"], body.userApp .pager button[aria-current="page"], body.userApp .pager button[aria-current="page"]:hover { background: var(--text); color: #fff; }
+body.userApp .soundMarkOnly[aria-pressed="true"], body.userApp .markBtn[aria-pressed="true"] { background: var(--border); color: var(--text); }
+body.userApp .markBtn-favorite[aria-pressed="true"] { color: #b7791f; }
+body.userApp .discoverTabs { display: flex; flex-wrap: wrap; gap: 8px; }
+body.userApp .discoverTabs a, body.userApp .discoverTabs a:first-child, body.userApp .discoverTabs a:last-child { margin-left: 0; padding: 0 12px; border: 0; border-radius: 8px; background: var(--surface-sunken); }
+body.userApp .discoverTabs a[aria-current="page"] { background: var(--text); color: #fff; }
+/* 760px 以下は指で押す高さ（mobile.css の 44px）のままにする */
+@media (min-width: 761px) {
+    body.userApp .watchActions a, body.userApp .watchActions .markBtn { min-height: 36px; }
+    body.userApp .viewToggle button, body.userApp .discoverTabs a { min-height: 32px; }
+}
+
+/* 録画の再生画面（/my/watch/{id}、#882）の枠。動画要素を動かせないので（ドックの説明）、ドック・本文・右の列を .appColumns の中に並べ、
+   本文の余白は枠に持たせて .watchPage の画面と同じ位置に見せる（右の列の 28% も、余白を除いた同じ幅に対する割合になる）。
+   ドックが is-full でなく右の列も隠れているほかの画面は、どの規則にも当たらず 1 つの本文のまま（is-mini は position: fixed のまま）。
+   右の列の方が高いときの余りは本文の行に渡す（auto のままだとドックの行も伸び、動画の下に隙間ができる）。 */
+body.userApp .appColumns:has(> #playerDock.is-full), body.userApp .appColumns:has(> #viewAside:not([hidden])) { margin-left: var(--nav-width); padding: 16px 24px 48px; }
+body.userApp .appColumns:has(> #viewAside:not([hidden])) { display: grid; grid-template-areas: "dock aside" "main aside"; grid-template-columns: minmax(0, var(--watch-primary-max)) clamp(300px, 28%, 402px); grid-template-rows: auto 1fr; column-gap: 24px; justify-content: center; }
+body.userApp .appColumns > #playerDock { grid-area: dock; }
+body.userApp .appColumns > main.shell { grid-area: main; }
+body.userApp .appColumns > #viewAside { grid-area: aside; }
+body.userApp .appColumns:has(> #viewAside:not([hidden])) > main.shell { margin: 0; padding: 0; }
+/* 右の列が無い録画は、.watchPage の 1 列と同じ幅で中央に置く */
+body.userApp .appColumns:has(> #viewAside[hidden]) > #playerDock.is-full, body.userApp .appColumns:has(> #viewAside[hidden]) > #playerDock.is-full + main.shell { max-width: var(--watch-primary-max); margin: 0 auto; padding: 0; }
+/* 縦長の録画は黒地の中に収める。.player の高さの上限は外す（列の幅が --watch-primary-max で止まるので、16:9 のまま画面に収まる）。
+   下の余白は .watchControls の margin-top と同じ */
+body.userApp #playerDock.is-full .player { max-width: none; max-height: none; aspect-ratio: 16 / 9; margin-bottom: 8px; border: 0; object-fit: contain; }
+/* 3 つの値を区切りで読ませるので、.watchNextStatus の間隔を詰める。視聴済みの札は文字の行に合わせて低くする */
+body.userApp #viewAside .watchNextStatus { align-items: center; gap: 0 4px; }
+body.userApp #viewAside .statusLamp { padding: 0 6px; }
+@media (max-width: 1050px) {
+    body.userApp .appColumns:has(> #viewAside:not([hidden])) { grid-template-areas: "dock" "main" "aside"; grid-template-columns: minmax(0, var(--watch-primary-max)); grid-template-rows: none; }
+    body.userApp #viewAside { margin-top: 24px; }
+}
+
+/* 箱で囲まず、見出しと余白で区切る */
+body.userApp #filterForm, body.userApp #videoFilterForm, body.userApp #searchForm, body.userApp #addForm { padding: 0; border: 0; border-radius: 0; background: none; }
+body.userApp .emptyState { border: 0; }
+body.userApp .videoSection { margin: 24px 0 0; padding: 0; border: 0; border-radius: 0; background: none; }
+body.userApp .videoSectionHead { margin-bottom: 12px; padding-bottom: 0; border-bottom: 0; }
+body.userApp .utilityPanel { border: 0; border-radius: 0; padding: 0; background: none; }
+body.userApp .utilityPanel > summary { padding: 8px 0; }
+body.userApp .discoverList { gap: 24px; }
+body.userApp .discoverCard { padding: 0; border: 0; border-radius: 0; background: none; }
+body.userApp .discoverUndo { border: 0; background: var(--surface-sunken); }
+@media (min-width: 761px) {
+    /* style.css は 768px 以下で .inline を縦に積む。この画面の枠の切り替わりは 760px なので、それより広い間は横に並べる */
+    body.userApp .inline { flex-direction: row; align-items: center; }
+    body.userApp .inline label { flex-direction: row; align-items: center; }
+    body.userApp .inline input, body.userApp .inline select, body.userApp .inline button { width: auto; }
+    /* 語はヘッダーの欄で入れる（my-search.js）。760px 以下はヘッダーに欄が無いので、本文の欄を残す */
+    body.userApp .searchMain { display: none; }
+    body.userApp #videoFilterForm { flex-wrap: nowrap; }
+    body.userApp #videoFilterForm label { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; }
+    body.userApp #videoFilterForm input { flex: 1 1 auto; min-width: 0; width: 18em; }
+    body.userApp #videoFilterForm select { flex: 1 1 auto; min-width: 0; max-width: 18em; }
+}
+
+/* 最初の一画面にカードが見えるよう、見出しと案内を小さくまとめる */
+body.userApp h1 { font-size: 20px; letter-spacing: 0; }
+body.userApp .videoSectionHead h2, body.userApp .livePanel h2, body.userApp .upcomingPanel h2 { margin-top: 0; font-size: 20px; letter-spacing: 0; }
+body.userApp .livePanel h2 { margin-bottom: 12px; }
+body.userApp .pageDescription { margin: 2px 0 12px; font-size: 12px; }
+body.userApp .pageNotes { display: flex; flex-wrap: wrap; gap: 0 16px; margin: 2px 0 12px; font-size: 12px; }
+body.userApp .pageNotes p { margin: 0; }
+body.userApp .pageNotes .muted { font-size: 12px; }
+
+/* カード。サムネイルの下に、左へ丸いアイコン、右へ題名・チャンネル名・状態と相対時刻（common.js の userCardBody） */
+body.userApp .videoGrid { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 40px 16px; }
+body.userApp .videoCard .thumbLink, body.userApp .videoCard .thumbPlaceholder { background: var(--surface-sunken); color: var(--text-muted); }
+body.userApp .videoCard:hover img.thumb { transform: none; }
+body.userApp .onlinePlayButton { letter-spacing: 0; }
+body.userApp .onlinePlayButton .thumbPlaceholder:not([hidden]) { align-items: center; padding-bottom: 0; }
+body.userApp .videoCard .duration, body.userApp .searchThumb .duration, body.userApp .searchBadge { right: 8px; bottom: 8px; padding: 1px 4px; border-radius: 4px; background: #000000b3; color: #fff; font-size: 12px; font-weight: 600; line-height: 18px; letter-spacing: 0; }
+body.userApp .videoCard .duration.is-live, body.userApp .searchBadge.is-live { background: var(--text); }
+body.userApp .videoCard .cardBody { flex-direction: row; gap: 12px; padding: 12px 0 0; }
+body.userApp .cardChannelIcon { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 50%; overflow: hidden; background: var(--border); }
+body.userApp .cardChannelIcon .channelIcon { display: block; width: 36px; height: 36px; }
+body.userApp .cardText { flex: 1 1 0; min-width: 0; }
+body.userApp .videoCard .cardTitle { margin: 0 0 4px; font-size: 16px; font-weight: 600; line-height: 22px; overflow-wrap: anywhere; }
+body.userApp .onlineTitle { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; width: 100%; color: var(--text); text-decoration: none; letter-spacing: 0; }
+body.userApp .onlineTitle:hover { background: none; }
+body.userApp .videoCard .muted { font-size: 14px; line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.userApp .videoCard .muted a { color: inherit; text-decoration: none; }
+body.userApp .videoCard .muted a:hover { color: var(--text); text-decoration: underline; }
+body.userApp .videoCard .cardActions { display: flex; gap: 4px; margin-top: 0; padding-top: 4px; }
+body.userApp .videoCard .cardActions .markBtn { margin-right: 0; font-weight: 500; }
+@media (min-width: 761px) {
+    body.userApp .videoCard .cardActions .markBtn { min-height: 24px; padding: 0 8px; }
+}
+
+/* そのほかの地と色。紫がかった固定の色を無彩色にする */
+body.userApp .searchThumb, body.userApp .watchNextThumb, body.userApp .discoverIcon { background: var(--surface-sunken); }
+body.userApp .watchDescription { background: var(--surface-sunken); }
+/* チャンネル名のリンクは残し、一覧の中ではカードと同じ灰色で読む。長い名前は横にはみ出さないよう末尾を省く */
+body.userApp .searchInfo .channelWithIcon { display: flex; }
+body.userApp .searchInfo .channelWithIcon a { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: inherit; text-decoration: none; }
+body.userApp .searchInfo .channelWithIcon a:hover { color: var(--text); text-decoration: underline; }
+body.userApp th { background: #f9f9f9; }
+body.userApp thead th { border-bottom: 1px solid var(--border); }
+body.userApp td { vertical-align: middle; }
+body.userApp tbody tr:hover { background: #f9f9f9; }
+body.userApp .livePanel h2::before { background: var(--text); }
+body.userApp .statusLamp { background: var(--surface-sunken); }
+body.userApp .statusLamp.is-live, body.userApp .statusLamp.is-recording { background: var(--text); }
+body.userApp .statusLamp.is-live .lamp, body.userApp .statusLamp.is-recording .lamp { background: #fff; border-color: #fff; box-shadow: none; animation: none; }
+body.userApp .statusLamp.is-live .lampText, body.userApp .statusLamp.is-recording .lampText { color: #fff; }

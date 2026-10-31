@@ -256,13 +256,34 @@ function myDockTogglePlay() {
 }
 
 /**
- * 再生画面のキー操作。パソコンで見る人は YouTube と同じキーで操作しようとするので、YouTube・FreeTube と同じキーにする。
- * K・スペースで再生と一時停止、J・L で 10 秒、←・→ で 5 秒戻す・進める、<・> で速度、0〜9 で長さの 0〜90% の位置、
- * M で消音、F で全画面。
+ * 全画面を切り替える（キーの F）。
  *
- * <p>ドックが再生画面の大きさ（is-full）のときだけ効かせる。ミニプレーヤーを出しているほかの画面では、スペースと矢印キーは
- * ページのスクロールに、文字は検索欄などの入力に使われるので、横取りすると困るため。
- * 入力欄・選択肢（速度の選択を含む）にフォーカスがあるとき、Ctrl・Alt・Meta 付きのとき（ブラウザのショートカット）、
+ * @param {HTMLElement} element 全画面にする要素
+ */
+function myToggleFullscreen(element) {
+    // 全画面にできなかった（断られた・対応していない）ことは、全画面にならないこと自体で分かるので何も出さない
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else if (typeof element.requestFullscreen === "function") element.requestFullscreen().catch(() => {});
+}
+
+/**
+ * {@link myPlayerShortcut} のキーで動かす先。録画は動画要素を、埋め込みは postMessage を動かすので、呼ぶ側が渡す。
+ *
+ * @typedef {object} MyPlayerActions
+ * @property {() => void} togglePlay 再生と一時停止を切り替える
+ * @property {(seconds: number) => void} seekBy 進める（負なら戻す）
+ * @property {(step: number) => void} stepRate 速度を選択肢の 1 つ隣へ変える（1 なら速く、-1 なら遅く）
+ * @property {() => void} toggleMute 消音を切り替える
+ * @property {() => void} toggleFullscreen 全画面を切り替える
+ * @property {(ratio: number) => void} seekToRatio 長さに対する割合（0〜0.9）の位置へ動かす
+ */
+
+/**
+ * 再生のキー操作の判定と振り分け。パソコンで見る人は YouTube と同じキーで操作しようとするので、YouTube・FreeTube と
+ * 同じキーにする。K・スペースで再生と一時停止、J・L で 10 秒、←・→ で 5 秒戻す・進める、<・> で速度、0〜9 で長さの
+ * 0〜90% の位置、M で消音、F で全画面。録画と埋め込みの視聴画面で同じキーにするため、動かす先だけを actions で受け取る。
+ *
+ * <p>入力欄・選択肢（速度の選択を含む）にフォーカスがあるとき、Ctrl・Alt・Meta 付きのとき（ブラウザのショートカット）、
  * 日本語入力の変換中、ダイアログを開いているときは何もしない。スペースは、ボタン・リンクにフォーカスがあるときも何もしない
  * （ボタンはスペースで押されるので、再生の切り替えと二重になる）。
  *
@@ -272,56 +293,75 @@ function myDockTogglePlay() {
  * （{@link myDockInit}。泡立ちで付けると、動画要素にフォーカスがあるときに Chrome で二重になった）。
  *
  * @param {KeyboardEvent} ev キー入力
+ * @param {MyPlayerActions} actions キーで動かす先
  */
-function myDockShortcut(ev) {
+function myPlayerShortcut(ev, actions) {
     if (ev.defaultPrevented || ev.ctrlKey || ev.altKey || ev.metaKey || ev.isComposing) return;
-    if (!myDockRecording || !el("playerDock").classList.contains("is-full")) return;
     if (document.querySelector("dialog[open]")) return;
     const target = ev.target instanceof Element ? ev.target : null;
     if (target?.closest("input, textarea, select") || (target instanceof HTMLElement && target.isContentEditable)) return;
     if (ev.key === " " && target?.closest("button, a, summary")) return;
-    const video = myDockVideo();
     // 文字のキーは Shift・CapsLock で大文字になっても同じに扱う
     const key = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
     switch (key) {
         case " ":
         case "k":
             // 押し続けたときの繰り返しで切り替え続けないよう、最初の 1 回だけ扱う（M・F も同じ）
-            if (!ev.repeat) myDockTogglePlay();
+            if (!ev.repeat) actions.togglePlay();
             break;
         case "j":
-            seekVideoBy(video, -10);
+            actions.seekBy(-10);
             break;
         case "l":
-            seekVideoBy(video, 10);
+            actions.seekBy(10);
             break;
         case "ArrowLeft":
-            seekVideoBy(video, -5);
+            actions.seekBy(-5);
             break;
         case "ArrowRight":
-            seekVideoBy(video, 5);
+            actions.seekBy(5);
             break;
         case "<":
-            myStepPlaybackRate(video, -1);
+            actions.stepRate(-1);
             break;
         case ">":
-            myStepPlaybackRate(video, 1);
+            actions.stepRate(1);
             break;
         case "m":
-            if (!ev.repeat) video.muted = !video.muted;
+            if (!ev.repeat) actions.toggleMute();
             break;
         case "f":
-            if (ev.repeat) break;
-            // 全画面にできなかった（断られた・対応していない）ことは、全画面にならないこと自体で分かるので何も出さない
-            if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-            else if (typeof video.requestFullscreen === "function") video.requestFullscreen().catch(() => {});
+            if (!ev.repeat) actions.toggleFullscreen();
             break;
         default:
             if (!/^[0-9]$/.test(key)) return;
-            // 長さが分かる前（NaN）は動かせない
-            if (Number.isFinite(video.duration)) video.currentTime = video.duration * Number(key) / 10;
+            actions.seekToRatio(Number(key) / 10);
     }
     ev.preventDefault();
+}
+
+/**
+ * 録画の再生画面のキー操作（キーの割り当ては {@link myPlayerShortcut}）。
+ *
+ * <p>ドックが再生画面の大きさ（is-full）のときだけ効かせる。ミニプレーヤーを出しているほかの画面では、スペースと矢印キーは
+ * ページのスクロールに、文字は検索欄などの入力に使われるので、横取りすると困るため。
+ *
+ * @param {KeyboardEvent} ev キー入力
+ */
+function myDockShortcut(ev) {
+    if (!myDockRecording || !el("playerDock").classList.contains("is-full")) return;
+    const video = myDockVideo();
+    myPlayerShortcut(ev, {
+        togglePlay: myDockTogglePlay,
+        seekBy: (seconds) => seekVideoBy(video, seconds),
+        stepRate: (step) => myStepPlaybackRate(video, step),
+        toggleMute: () => { video.muted = !video.muted; },
+        toggleFullscreen: () => myToggleFullscreen(video),
+        seekToRatio: (ratio) => {
+            // 長さが分かる前（NaN）は動かせない
+            if (Number.isFinite(video.duration)) video.currentTime = video.duration * ratio;
+        },
+    });
 }
 
 /**
@@ -408,7 +448,7 @@ function myDockInit() {
     video.defaultPlaybackRate = savedRate;
     video.playbackRate = savedRate;
 
-    // 捕獲で付ける（理由は myDockShortcut の JSDoc）
+    // 捕獲で付ける（理由は myPlayerShortcut の JSDoc）
     document.addEventListener("keydown", myDockShortcut, true);
 }
 
@@ -583,10 +623,12 @@ const myVideosView = {
               <div id="${name}Grid" class="videoGrid"></div>
             </section>`).join("");
         root.innerHTML = `<div class="pageHead"><h1>動画・配信</h1><button type="button" id="refreshVideosBtn">表示を更新</button></div>
-            <p class="pageDescription">購読しているチャンネルの新着動画と配信を、この画面から再生できます。</p>
+            <div class="pageNotes">
+              <p class="pageDescription">購読しているチャンネルの新着動画と配信を、この画面から再生できます。</p>
+              <p id="collectionNotice" class="muted" role="status">取得状況を確認しています…</p>
+              <p id="videoRefreshStatus" class="muted" role="status">表示を読み込み中…</p>
+            </div>
             <p id="error" class="error" role="alert" style="display:none;"></p>
-            <p id="collectionNotice" class="muted" role="status">取得状況を確認しています…</p>
-            <p id="videoRefreshStatus" class="muted" role="status">表示を読み込み中…</p>
             <form id="videoFilterForm" class="inline">
               <label>検索 <input id="videoKeyword" type="search" placeholder="タイトル・チャンネル名" maxlength="200"></label>
               <label>チャンネル <select id="videoChannel"><option value="">すべて</option></select></label>
@@ -632,7 +674,7 @@ async function myToggleMark(recording, kind, button) {
 }
 
 /**
- * 録画のチャンネル名を、このサービスの中のチャンネルページへのリンクにする（表と再生画面の詳細）。
+ * 録画のチャンネル名を、このサービスの中のチャンネルページへのリンクにする（表と再生画面）。
  * チャンネルに紐づかない録画（URL を貼って取得したもの）は、チャンネルページが無いので配信元のリンクのままにする。
  *
  * @param {Recording} r 録画
@@ -1098,10 +1140,40 @@ const myChannelPageView = {
 /** @type {(() => void)|null} */
 let myWatchStopSoundMarks = null;
 
+/** 右の列（#viewAside）を空にして隠す。列は main の外にあり、画面を移っても残るので、再生画面の側で片付ける。 */
+function myWatchHideAside() {
+    const aside = el("viewAside");
+    aside.hidden = true;
+    aside.replaceChildren();
+}
+
 /**
- * 再生画面。録画をドックに読み込み、下に視聴済み・お気に入りのボタン、端末に保存のリンク、耳キスの欄、
- * 詳細と同じチャンネルの録画を出す。
- * ボタンはアーカイブのカードと同じもの（common.js の recordingMarkButton）で、押したときの動きも同じ（myToggleMark）。
+ * 再生画面の説明の箱を描く。詳細は表にせず、録画していない動画の視聴画面の説明と同じ箱に詰めて並べる。
+ *
+ * @param {HTMLElement} box 説明の箱（.watchDescription）
+ * @param {Recording} rec 再生画面の録画
+ * @param {boolean} playable 再生できる録画か。端末に保存の案内はリンクと一緒に、再生できる録画にだけ出す
+ */
+function myWatchRenderDescription(box, rec, playable) {
+    const facts = [
+        // 動画 ID から URL を推測しない。Twitch の録画は URL が null で、ID を文字で出す
+        ["元の配信", externalLink(rec.videoId, rec.videoUrl)],
+        ["録画開始", datetimeCell(rec.startedAt)],
+        ["録画終了", datetimeCell(rec.completedAt)],
+        ["再生時間", formatDuration(rec.durationSeconds)],
+        ["ファイルサイズ", formatFileSize(rec.fileSizeBytes)],
+    ].map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join("");
+    box.innerHTML = `<p class="watchStats">再生 ${Number(rec.playCount)} 回・<span title="${escapeHtml(formatDateTimeSimple(rec.startedAt))}">${escapeHtml(formatTimeAgo(rec.startedAt))}</span></p>
+        <dl class="watchFacts">${facts}</dl>
+        ${playable ? '<p class="muted watchHint">iPhone では「ファイル」アプリの「ダウンロード」に保存されます。写真に入れるときは、ファイルを開いて共有→「ビデオを保存」。</p>' : ""}`;
+    bindDatetimeCells(box);
+}
+
+/**
+ * 再生画面。録画していない動画の視聴画面（my-search.js の myVideoWatchView）と同じ配置にする（#882）。
+ * 動画はドックの要素をそのまま使うので、列の枠は my.html の .appColumns が持ち、ここは左の列の本文を main#view に、
+ * 右の列を #viewAside に描くだけにする（大きさと位置はクラスと CSS で変える。動画要素を動かさない理由はドックの説明）。
+ * 視聴済み・お気に入りのボタンはアーカイブのカードと同じもの（common.js の recordingMarkButton）で、押したときの動きも同じ（myToggleMark）。
  * @type {MyView}
  */
 const myWatchView = {
@@ -1109,12 +1181,10 @@ const myWatchView = {
     // 録画を選んで開く画面なので、アーカイブの中にいるものとして示す（管理画面の再生画面も同じ）
     nav: "/my/archive",
     async render(root, match) {
-        root.innerHTML = `<p id="error" class="error" role="alert" style="display:none;"></p>
-            <h1>読み込み中...</h1>
-            <p class="watchMarks"></p>
-            <div class="table-scroll"><table><tbody></tbody></table></div>
-            <div class="sectionHead"><h2>同じチャンネルの録画</h2></div>
-            <div class="videoGrid"></div>`;
+        const renderId = myRenderCount;
+        // 読み込んだ後に右の列が増えてプレーヤーの幅が変わらないよう、先に列を出して場所を取る
+        el("viewAside").hidden = false;
+        root.innerHTML = mySearchWatchLayout();
         const heading = query("h1", root);
         /** @type {Recording} */
         let rec;
@@ -1124,6 +1194,7 @@ const myWatchView = {
             const res = await authenticatedFetch(`/api/my/recordings/${match[1]}`);
             if (res.status === 404) {
                 if (heading.isConnected) {
+                    myWatchHideAside();
                     root.innerHTML = `<h1>この録画は見られません</h1>
                         <p class="pageDescription">削除されたか、存在しない録画です。</p>
                         <p><a href="/my/archive">アーカイブへ戻る</a></p>`;
@@ -1134,6 +1205,8 @@ const myWatchView = {
             rec = await res.json();
         } catch (e) {
             if (heading.isConnected) {
+                myWatchHideAside();
+                query(".watchPlayer", root).remove();
                 heading.textContent = "録画を読み込めませんでした";
                 heading.insertAdjacentHTML("afterend", '<p><a href="/my/archive">アーカイブへ戻る</a></p>');
                 showError(errorMessage(e));
@@ -1144,32 +1217,28 @@ const myWatchView = {
 
         document.title = `${rec.videoTitle} - YouTube Live Monitor`;
         heading.textContent = rec.videoTitle;
+        const playable = PLAYABLE_RECORDING_STATUSES.includes(rec.status);
+        // 読み込みの間の黒い箱。再生できる録画は同じ場所にドックが出る
+        const playerBox = query(".watchPlayer", root);
         // 録画中・失敗の録画には再生できるファイルが無い。ドックに読み込むと壊れた動画が残るため読み込まない
-        if (PLAYABLE_RECORDING_STATUSES.includes(rec.status)) {
+        if (playable) {
+            playerBox.remove();
             myDockLoad(rec);
             myDockShow("full");
-            // 端末のファイルとして保存させる。ブラウザの中（IndexedDB など）に貯める方式は、iPhone の Safari が
-            // しばらく使わないサイトのデータを消すことがあり、数 GB の録画を確実には残せないため採らない（#163）。
-            // 同じオリジンのファイルなので download 属性だけで保存になり、見てよいかの確認も再生と同じものが効く
-            query(".watchMarks", root).insertAdjacentHTML("afterend", `<p>
-                <a href="/recordings/${escapeHtml(encodeURI(rec.filePath))}" download="${escapeHtml(recordingDownloadName(rec))}">端末に保存（${formatFileSize(rec.fileSizeBytes)}）</a><br>
-                <span class="muted">iPhone では「ファイル」アプリの「ダウンロード」に保存されます。写真に入れるときは、ファイルを開いて共有→「ビデオを保存」。</span></p>`);
-            // 印を付ける・飛ぶにはドックの動画が要るので、耳キスの欄も再生できる録画にだけ出す
-            const soundMarks = document.createElement("section");
-            query(".table-scroll", root).before(soundMarks);
-            myWatchStopSoundMarks = myBindSoundMarks(rec, soundMarks);
         } else if (rec.status === "RECORDING") {
             // 録画中は待てば見られる。失敗と同じエラー帯に出すと、ファイルが消えたように読める
             // （管理者の再生画面の player.js の showUnplayableNotice と同じ分け方。
             // 文はマイチャンネルの「配信中・録画中」の説明にそろえる）
-            query(".watchMarks", root).insertAdjacentHTML("beforebegin", emptyState("録画中です",
-                "録画が終わるとアーカイブに並び、ここで再生できます。終わってからこのページを開き直してください。"));
+            playerBox.outerHTML = emptyState("録画中です",
+                "録画が終わるとアーカイブに並び、ここで再生できます。終わってからこのページを開き直してください。");
         } else {
+            playerBox.remove();
             showError("この録画は再生できるファイルが残っていません");
         }
-        // 入れ物は段落にする。.inline に入れると、狭い画面ではボタンが幅いっぱいに縦に積まれ（フォーム向けの決まり）、カードの印と見た目が変わる
+        query(".watchChannel", root).innerHTML = `<span class="channelWithIcon">${channelIcon(rec.channelIconUrl)}${myChannelCell(rec)}</span>`;
         const watchedButton = recordingMarkButton(rec, "watched", myToggleMark);
-        query(".watchMarks", root).append(watchedButton, recordingMarkButton(rec, "favorite", myToggleMark));
+        const actions = query(".watchActions", root);
+        actions.append(watchedButton, recordingMarkButton(rec, "favorite", myToggleMark));
         // 再生を始めて付いた視聴済みを、このボタンにも出す。rec も変えないと、次に押したときに外れず、視聴済みをもう一度送る。
         // 前の再生画面が入れた処理はここで置き換わる（離れた画面のボタンを書き換えても見えないので、離れるときに外さない）
         myDockOnWatched = (id) => {
@@ -1177,58 +1246,88 @@ const myWatchView = {
             rec.watched = true;
             renderRecordingMarkButton(watchedButton, "watched", true);
         };
-        query("tbody", root).innerHTML = [
-            ["チャンネル", myChannelCell(rec)],
-            // 動画 ID から URL を推測しない。Twitch の録画は URL が null で、ID を文字で出す
-            ["元の配信", externalLink(rec.videoId, rec.videoUrl)],
-            ["録画開始", datetimeCell(rec.startedAt)],
-            ["録画終了", datetimeCell(rec.completedAt)],
-            ["再生時間", formatDuration(rec.durationSeconds)],
-            ["ファイルサイズ", formatFileSize(rec.fileSizeBytes)],
-        ].map(([label, value]) => `<tr><th>${label}</th><td>${value}</td></tr>`).join("");
-        bindDatetimeCells(root);
-        // 12 件より前の録画は関連の欄に出ないので、チャンネルページで全部を見られるようにする
-        if (rec.channelId != null) {
-            query(".sectionHead", root).insertAdjacentHTML("beforeend",
-                `<a href="${myChannelPath(rec.channelId)}">チャンネルの録画をすべて見る</a>`);
+        myWatchRenderDescription(query(".watchDescription", root), rec, playable);
+        if (playable) {
+            // 端末のファイルとして保存させる。ブラウザの中（IndexedDB など）に貯める方式は、iPhone の Safari が
+            // しばらく使わないサイトのデータを消すことがあり、数 GB の録画を確実には残せないため採らない（#163）。
+            // 同じオリジンのファイルなので download 属性だけで保存になり、見てよいかの確認も再生と同じものが効く
+            actions.insertAdjacentHTML("beforeend", `<a href="/recordings/${escapeHtml(encodeURI(rec.filePath))}" download="${escapeHtml(recordingDownloadName(rec))}">端末に保存（${formatFileSize(rec.fileSizeBytes)}）</a>`);
+            // 印を付ける・飛ぶにはドックの動画が要るので、耳キスの欄も再生できる録画にだけ出す
+            const soundMarks = document.createElement("section");
+            query(".watchPrimary", root).append(soundMarks);
+            myWatchStopSoundMarks = myBindSoundMarks(rec, soundMarks);
         }
-        myLoadRelated(rec, query(".videoGrid", root));
+        myLoadRelated(rec, renderId);
     },
     leave() {
         myWatchStopSoundMarks?.();
         myWatchStopSoundMarks = null;
+        myWatchHideAside();
         myDockMinimize();
     },
 };
 
 /**
- * 同じチャンネルのほかの録画を並べる。1 本見終わった後に一覧へ戻らず次を選べるようにするため。
- * カードにはアーカイブと同じ印のボタンを出す（見たかどうかを見て次を選び、その場で印も付けられるように）。
+ * 右の列の 1 件。録画していない動画の視聴画面の右の列（my-search.js の myVideoWatchNextItem）と同じ見た目にする。
+ *
+ * @param {Recording} rec 録画
+ * @returns {HTMLElement} 差し込む要素
+ */
+function myWatchNextItem(rec) {
+    const link = document.createElement("a");
+    link.className = "watchNext";
+    link.href = myWatchPath(rec);
+    const thumbnail = rec.thumbnailPath ? `<img src="/recordings/${escapeHtml(encodeURI(rec.thumbnailPath))}" alt="" loading="lazy">` : "";
+    const watched = rec.watched ? `<span class="statusLamp">${RECORDING_MARK_LABEL.watched.on}</span>` : "";
+    // 細い列では値ごとに折り返す（.watchNextStatus）ので、区切りは前の値の側に付ける
+    link.innerHTML = `<span class="watchNextThumb">${thumbnail}</span>
+        <span class="watchNextInfo">
+          <span class="watchNextTitle">${escapeHtml(rec.videoTitle)}</span>
+          <span class="muted">${escapeHtml(rec.channelName)}</span>
+          <span class="muted watchNextStatus"><span>${recordingStatusLabel(rec.status)} ·</span><span>再生 ${Number(rec.playCount)} 回 ·</span><span title="${escapeHtml(formatDateTimeSimple(rec.startedAt))}">${escapeHtml(formatTimeAgo(rec.startedAt))}</span>${watched}</span>
+        </span>`;
+    // 読めない画像の枠は、代わりの地の色のままにする
+    link.querySelector("img")?.addEventListener("error", (event) => {
+        /** @type {HTMLElement} */ (event.currentTarget).remove();
+    });
+    return link;
+}
+
+/**
+ * 右の列に同じチャンネルのほかの録画を並べる。1 本見終わった後に一覧へ戻らず次を選べるようにするため。
+ * 補助の列なので、読めないとき・並べる録画が無いときは列を隠して 1 列の配置にし、エラー帯には出さない
+ * （録画していない動画の視聴画面の右の列と同じ）。
  *
  * @param {Recording} rec 再生画面の録画
- * @param {HTMLElement} grid 並べる先
+ * @param {number} renderId 再生画面を描き始めたときの {@link myRenderCount}。#viewAside は画面を移っても残り、isConnected では
+ *   見分けられないので、これで待つ間に別の画面へ移っていないことを確かめる
  */
-async function myLoadRelated(rec, grid) {
+async function myLoadRelated(rec, renderId) {
     // URL を貼って取得した録画はチャンネルに紐づかず、channelId が無い（API も絞り込めない。管理者の player.js と同じ）
     if (rec.channelId == null) {
-        grid.innerHTML = '<p class="muted">この録画はチャンネルに紐づいていないため、関連する録画はありません</p>';
+        myWatchHideAside();
         return;
     }
+    /** @type {Recording[]} */
+    let others = [];
     try {
         const data = await apiGet(`/api/my/recordings?channelId=${rec.channelId}&playableOnly=true&size=12`);
-        if (!grid.isConnected) return;
         // 今見ている録画を「ほかの録画」に並べても選ぶ意味が無いので除く
-        const others = /** @type {Recording[]} */ (data.content).filter((r) => r.id !== rec.id);
-        if (others.length === 0) {
-            grid.innerHTML = '<p class="muted">他の録画はありません</p>';
-            return;
-        }
-        grid.replaceChildren(...others.map((r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath,
-            myRecordingChannelPath)));
-        bindDatetimeCells(grid);
-    } catch (e) {
-        if (grid.isConnected) showError(errorMessage(e));
+        others = /** @type {Recording[]} */ (data.content).filter((r) => r.id !== rec.id);
+    } catch {
+        // 列を出さない
     }
+    if (renderId !== myRenderCount) return;
+    if (others.length === 0) {
+        myWatchHideAside();
+        return;
+    }
+    const aside = el("viewAside");
+    aside.innerHTML = '<h2 id="watchSecondaryHeading">同じチャンネルの録画</h2><div class="watchNextList"></div>';
+    query(".watchNextList", aside).append(...others.map(myWatchNextItem));
+    // 12 件より前の録画はこの列に出ないので、チャンネルページで全部を見られるようにする
+    aside.insertAdjacentHTML("beforeend",
+        `<p class="watchNextAll"><a href="${myChannelPath(Number(rec.channelId))}">チャンネルの録画をすべて見る</a></p>`);
 }
 
 /**
@@ -2483,6 +2582,35 @@ function myNavigate(url) {
 }
 
 /**
+ * ヘッダーの検索欄をつなぐ。ヘッダーは画面を移っても作り直さないので、ページを開いたときに 1 回だけ呼ぶ。
+ *
+ * 検索の画面では本文のフォームの語の欄へ写してから本文のフォームを送る。本文の条件（並び順・投稿日など）を保ったまま探し、
+ * 入力の確かめも同じものを通すため（語の欄は PC の幅では隠しているだけで、フォームの中に残している）。
+ * ほかの画面からは語だけを付けて検索の画面へ移る。語が空でも移るのは、詳しい条件から探す入口にもなるため。
+ */
+function myBindHeaderSearch() {
+    const input = inputEl("headerSearchInput");
+    const bodyWord = () => /** @type {HTMLInputElement|null} */ (document.querySelector('#searchForm [name="q"]'));
+    input.addEventListener("input", () => {
+        const word = bodyWord();
+        if (word) word.value = input.value;
+    });
+    formEl("headerSearchForm").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const word = bodyWord();
+        if (word?.form) {
+            word.value = input.value;
+            word.form.requestSubmit();
+            return;
+        }
+        const url = new URL("/my/search", location.origin);
+        const value = input.value.trim();
+        if (value) url.searchParams.set("q", value);
+        myNavigate(url);
+    });
+}
+
+/**
  * ログイン後の復帰で付く continue を URL から取り除く。Spring Security は保存した URL の末尾に
  * 付けて戻す（/my/archive?genre=x&continue）。検索条件ではなく、残すとブックマークにも付いて回る。
  */
@@ -2515,4 +2643,5 @@ window.addEventListener("popstate", () => myRender({ restoreScroll: true }));
 history.scrollRestoration = "manual";
 myDropContinueParam();
 myDockInit();
+myBindHeaderSearch();
 myRender({ initial: true });

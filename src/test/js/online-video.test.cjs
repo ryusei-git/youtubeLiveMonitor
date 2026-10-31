@@ -1,12 +1,8 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
-const fs = require('node:fs');
-const text = fs.readFileSync('src/main/resources/static/js/common.js','utf8');
-const start = text.indexOf('function embeddedVideoUrl(');
-const context = vm.createContext({URL, URLSearchParams});
-vm.runInContext(text.slice(start, text.indexOf('\n/**', start)), context);
-const embed = url => context.embeddedVideoUrl(url, 'localhost');
+const {loadStatic} = require('./static-script.cjs');
+const {embeddedVideoUrl} = loadStatic(['youtubeEmbedUrl', 'embeddedVideoUrl']);
+const embed = url => embeddedVideoUrl(url, {hostname: 'localhost', origin: 'http://localhost'});
 test('YouTubeの動画IDを公式埋め込みURLに変換する', () => {
  assert.match(embed('https://www.youtube.com/watch?v=abcdefghijk'), /^https:\/\/www.youtube-nocookie.com\/embed\/abcdefghijk\?/);
 });

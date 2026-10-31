@@ -22,6 +22,7 @@
  * @property {string|null} youtubeChannelId チャンネルID。未登録なら null
  * @property {string} channelName チャンネルの表示名。未登録なら "(未登録チャンネル)"
  * @property {string|null} channelUrl チャンネルページの URL。未登録、またはログイン名未取得の Twitch なら null
+ * @property {string|null} channelIconUrl チャンネルのアイコン URL。未登録・まだ読み取れていなければ null
  * @property {string} videoId 配信の動画ID
  * @property {string|null} videoUrl 配信の視聴ページの URL。YouTube の録画だけ入る。Twitch の録画と
  *   未登録チャンネルの録画は null（動画 ID から URL を推測しない）
@@ -595,6 +596,40 @@ function recordingDownloadName(recording) {
 }
 
 /**
+ * 今の画面が利用者の 1 枚のページ（my.html）か。カードは管理者の画面と共通の関数で作るが、利用者の画面だけ
+ * YouTube の並びに寄せる（#879）ので、中身を分けるために見る。
+ *
+ * @returns {boolean} 利用者の画面なら true
+ */
+function isUserApp() {
+    return document.body.classList.contains("userApp");
+}
+
+/**
+ * 利用者の画面のカードの下半分。左に丸いチャンネルのアイコン、右に題名などの文字を置く。
+ *
+ * <p>アイコンの枠は URL が無いときも残す。枠ごと消すと、アイコンの有る・無いで題名の左端が揃わなくなり、
+ * 読み込みに失敗したカードだけ題名の位置が変わるため。
+ *
+ * @param {string|null|undefined} iconUrl チャンネルのアイコン URL。まだ読み取れていなければ null
+ * @param {string} text 右の列へ差し込む HTML
+ * @returns {string} カードへ差し込む HTML
+ */
+function userCardBody(iconUrl, text) {
+    return `<div class="cardBody"><span class="cardChannelIcon">${channelIcon(iconUrl)}</span><div class="cardText">${text}</div></div>`;
+}
+
+/**
+ * {@link userCardBody} のアイコンが読めなかったときは画像を外し、枠だけを残す。外さないと、枠の中に壊れた画像の印が出る。
+ *
+ * @param {HTMLElement} card カード要素
+ */
+function dropBrokenCardIcon(card) {
+    const icon = card.querySelector(".cardChannelIcon img");
+    icon?.addEventListener("error", () => icon.remove());
+}
+
+/**
  * サムネイル枠の中身を組み立てる。
  * 完了していてサムネイルがある録画だけ画像を出し、それ以外は理由が分かる代替表示にする
  * （画像の生成は巡回のたびに後追いで行われるため、完了直後は未生成のことがある）。
@@ -615,6 +650,9 @@ function thumbnailContent(recording) {
 
 /**
  * 録画 1 件分のカードを組み立てる。録画一覧と再生画面の「同じチャンネルの録画」で共通して使う。
+ *
+ * <p>利用者の画面（{@link isUserApp}）では、下半分を {@link userCardBody} の形にする。日時は相対時刻にし、
+ * 正確な日時は title に残す（正確な日時とサイズはアーカイブのリスト表示でも見られる）。
  *
  * @param {Recording} recording 録画履歴 1 件
  * @param {(() => void)|null} onDelete 削除・停止の後に呼ぶ処理。省略（null）すると削除・停止のボタン自体を出さない（渡すのは管理画面のアーカイブ一覧だけ）
@@ -680,16 +718,28 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null,
           + ` title="${playable ? "" : "この録画は再生できるファイルが残っていません"}">再生</button>`
         : "";
 
-    card.innerHTML = `
+    const playCount = `<span class="playCount">再生 ${Number(recording.playCount)} 回</span>`;
+    const actions = `<div class="cardActions">${playButton}${deletable ? '<button class="deleteBtn">削除</button>' : ""}${stopButton}</div>`;
+    if (isUserApp()) {
+        const started = recording.startedAt ? formatDateTimeSimple(recording.startedAt) : "";
+        card.innerHTML = thumbnail + userCardBody(recording.channelIconUrl, `
+            <div class="cardTitle">${title}</div>
+            <div class="muted">${channelLink(recording.channelName, recording.channelUrl)}</div>
+            <div class="muted">${status} · ${playCount} · <span title="${escapeHtml(started)}">${escapeHtml(formatTimeAgo(recording.startedAt))}</span></div>
+            ${actions}`);
+        dropBrokenCardIcon(card);
+    } else {
+        card.innerHTML = `
         ${thumbnail}
         <div class="cardBody">
           <div class="cardTitle">${title}</div>
           <div class="muted">${channel}</div>
           <div class="muted">${datetimeCell(recording.startedAt)} ・ ${status}`
-        + ` ・ ${formatFileSize(recording.fileSizeBytes)} ・ <span class="playCount">再生 ${Number(recording.playCount)} 回</span></div>
-          <div class="cardActions">${playButton}${deletable ? '<button class="deleteBtn">削除</button>' : ""}${stopButton}</div>
+            + ` ・ ${formatFileSize(recording.fileSizeBytes)} ・ ${playCount}</div>
+          ${actions}
         </div>
     `;
+    }
 
     const playBtn = /** @type {HTMLButtonElement|null} */ (card.querySelector(".playBtn"));
     if (playBtn && onPlay) {
@@ -697,8 +747,7 @@ function buildVideoCard(recording, onDelete, linkToPlayer = true, onPlay = null,
     }
 
     if (onToggleMark) {
-        const actions = query(".cardActions", card);
-        actions.prepend(...RECORDING_MARK_KINDS.map((kind) => recordingMarkButton(recording, kind, onToggleMark)));
+        query(".cardActions", card).prepend(...RECORDING_MARK_KINDS.map((kind) => recordingMarkButton(recording, kind, onToggleMark)));
     }
 
     const deleteBtn = card.querySelector(".deleteBtn");
@@ -2262,12 +2311,33 @@ function csrfHeaders() {
     return cookie ? { "X-XSRF-TOKEN": decodeURIComponent(cookie.slice("XSRF-TOKEN=".length)) } : {};
 }
 
+/**
+ * YouTube の埋め込みの URL を組み立てる。
+ *
+ * enablejsapi と origin は、外から postMessage で操作するため（my-search.js の mySearchBindPlayer）。公式の
+ * iframe_api は CSP（script-src 'self'）で読めないが、この 2 つを付ければ外部スクリプト無しで操作でき、応答も
+ * origin 宛てに届く。
+ * start は秒の整数しか受け付けない。1 未満は先頭と同じなので付けない。
+ *
+ * @param {string} id 動画 ID
+ * @param {{autoplay?: boolean, start?: number}} [options] autoplay は開いたら再生するか、start は始める位置（秒）
+ * @param {string} [origin] 操作する画面のオリジン
+ * @returns {string} 埋め込みの URL
+ */
+function youtubeEmbedUrl(id, { autoplay = false, start = 0 } = {}, origin = location.origin) {
+    const required = `playsinline=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
+    const autoplayParam = autoplay ? "&autoplay=1" : "";
+    const startParam = start >= 1 ? `&start=${Math.floor(start)}` : "";
+    return `https://www.youtube-nocookie.com/embed/${id}?${required}${autoplayParam}${startParam}`;
+}
+
 /** 許可したサービスのURLだけを公式プレーヤーに変換する。
  * @param {string} watchUrl
- * @param {string} [hostname]
+ * @param {{hostname?: string, origin?: string, start?: number}} [options] hostname は Twitch の parent、origin は
+ *   YouTube の操作に使う画面のオリジン、start は YouTube を始める位置（秒）
  * @returns {string|null}
  */
-function embeddedVideoUrl(watchUrl, hostname = location.hostname) {
+function embeddedVideoUrl(watchUrl, { hostname = location.hostname, origin = location.origin, start = 0 } = {}) {
     try {
         const url = new URL(watchUrl);
         if (url.protocol !== "https:") return null;
@@ -2275,8 +2345,7 @@ function embeddedVideoUrl(watchUrl, hostname = location.hostname) {
         if (youtube) {
             const id = url.hostname === "youtu.be" ? url.pathname.slice(1)
                 : url.pathname === "/watch" ? url.searchParams.get("v") : null;
-            return id && /^[A-Za-z0-9_-]{11}$/.test(id)
-                ? `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&playsinline=1&rel=0` : null;
+            return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? youtubeEmbedUrl(id, { autoplay: true, start }, origin) : null;
         }
         if (!["www.twitch.tv", "twitch.tv"].includes(url.hostname)) return null;
         const vod = url.pathname.match(/^\/videos\/(\d+)\/?$/);
@@ -2346,6 +2415,10 @@ function onlineVideoStatus(video) {
 /**
  * タイトルや外部応答をHTMLとして解釈させず、再生できる動画は視聴画面（/my/videos/watch/{id}）へのリンクにする。
  * リンクなので、新しいタブで開け、ブラウザの「戻る」で一覧へ戻れる。
+ *
+ * <p>利用者の画面（{@link isUserApp}）では、▶ の代わりに配信中の札をサムネイルの右下に置き、下半分を {@link userCardBody} の形にする。
+ * 日時は相対時刻にし、正確な日時は title に残す。配信予定はこれからの時刻なので、開始予定をそのまま出す。
+ * 配信元はほとんどのカードで YouTube なので、それ以外のときだけ添える。
  * @param {any} video
  * @returns {HTMLElement}
  */
@@ -2356,9 +2429,12 @@ function buildOnlineVideoCard(video) {
     card.dataset.focusKey = video.id;
     const {state, when} = onlineVideoStatus(video);
     const title = escapeHtml(video.title);
+    const userApp = isUserApp();
+    const mark = !userApp ? '<span class="onlinePlayMark" aria-hidden="true">▶</span>'
+        : video.state === "LIVE" ? `<span class="duration is-live">${escapeHtml(state)}</span>` : "";
     const thumb = `<img class="thumb" ${video.thumbnailRetryExhausted ? "hidden" : `src="${escapeHtml(video.thumbnailUrl)}"`} alt="" loading="lazy">
         <span class="thumbPlaceholder" ${video.thumbnailRetryExhausted ? "" : "hidden"}>${video.thumbnailRetryExhausted ? "サムネイル取得失敗" : "サムネイル取得待ち"}</span>
-        <span class="onlinePlayMark" aria-hidden="true">▶</span>`;
+        ${mark}`;
     const watch = `/my/videos/watch/${encodeURIComponent(video.id)}`;
     const thumbControl = video.playable
         ? `<a class="thumbLink onlinePlayButton" href="${watch}" aria-label="${title}を再生">${thumb}</a>`
@@ -2366,9 +2442,18 @@ function buildOnlineVideoCard(video) {
     const titleControl = video.playable
         ? `<a class="onlineTitle" href="${watch}">${title}</a>`
         : `<button type="button" class="onlineTitle" disabled>${title}</button>`;
-    card.innerHTML = `${thumbControl}<div class="cardBody"><h3 class="cardTitle">${titleControl}</h3>
+    if (userApp) {
+        const platform = video.platform === "YOUTUBE" ? "" : ` · ${escapeHtml(video.platformLabel)}`;
+        const ago = video.contentKind === "UPCOMING" ? when : formatTimeAgo(video.publishedAt);
+        card.innerHTML = thumbControl + userCardBody(video.channelIconUrl, `<h3 class="cardTitle">${titleControl}</h3>
+            <div class="muted">${escapeHtml(video.channelName)}${platform}</div>
+            <div class="muted">${escapeHtml(state)}${ago ? ` · <span title="${escapeHtml(when)}">${escapeHtml(ago)}</span>` : ""}</div>`);
+        dropBrokenCardIcon(card);
+    } else {
+        card.innerHTML = `${thumbControl}<div class="cardBody"><h3 class="cardTitle">${titleControl}</h3>
         <div class="muted">${escapeHtml(video.channelName)} · ${escapeHtml(video.platformLabel)}</div>
         <div class="muted">${escapeHtml(state)}</div><div class="muted">${escapeHtml(when)}</div></div>`;
+    }
     const thumbnail = query("img", card);
     if (!video.thumbnailRetryExhausted) {
         thumbnail.addEventListener("error", () => { thumbnail.hidden = true; query(".thumbPlaceholder", card).hidden = false; });
@@ -2601,6 +2686,25 @@ function formatInstant(value) {
     return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString("ja-JP", {
         year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
     });
+}
+
+/**
+ * 投稿からの経過を「3 日前」のように出す。YouTube の一覧と同じく、日時より「どれだけ新しいか」が一目で分かるため。
+ * 利用者の画面のカード・検索・新人発掘で同じ言い方にするため、ここに置く。
+ *
+ * @param {string|null|undefined} iso 投稿日時
+ * @returns {string} 経過。読めなければ空
+ */
+function formatTimeAgo(iso) {
+    const time = iso ? new Date(iso).getTime() : NaN;
+    if (Number.isNaN(time)) return "";
+    const minutes = Math.max(0, Math.floor((Date.now() - time) / 60_000));
+    /** @type {Array<[number, string]>} */
+    const units = [[60 * 24 * 365, "年"], [60 * 24 * 30, "か月"], [60 * 24 * 7, "週間"], [60 * 24, "日"], [60, "時間"], [1, "分"]];
+    for (const [size, label] of units) {
+        if (minutes >= size) return `${Math.floor(minutes / size)} ${label}前`;
+    }
+    return "たった今";
 }
 
 /* ============================================================
