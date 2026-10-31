@@ -639,6 +639,8 @@ const mySearchWatchView = {
             <h1>読み込み中...</h1>
             <div class="searchWatchInfo"></div>
             ${mySearchAttribution}`;
+        const adSkip = adSkipNotice();
+        if (adSkip) query(".searchPlayerHint", root).before(adSkip);
         // 直前の履歴がその検索結果なら、ブラウザの「戻る」と同じにする。リンクとして移ると履歴が 1 つ伸び、その後に
         // ブラウザの「戻る」を押すと視聴画面へ戻ってしまう。「戻る」で戻れば、結果の位置と「もっと見る」で足したページも戻る。
         // 直前の履歴がどこかはブラウザからは読めないので、ルーターが移るときに残した from（my-app.js の myNavigate）で見分ける。
