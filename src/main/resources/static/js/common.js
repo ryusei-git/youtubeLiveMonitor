@@ -1454,12 +1454,13 @@ function rampColor(index) {
  *
  * @param {Date[]} times 各点の時刻（古い順、2 点以上）
  * @param {LineSeries[]} series 描く線
- * @param {{format: (value: number) => string, max?: number, height?: number}} options
- *        format は軸と凡例の値の書式。max を省くと値の最大から縦軸の上限を決める
+ * @param {{format: (value: number) => string, max?: number, height?: number, width?: number}} options
+ *        format は軸と凡例の値の書式。max を省くと値の最大から縦軸の上限を決める。
+ *        width は描く幅。SVG は枠の幅へ伸び縮みするので、表示する幅に近い値を渡すと軸の文字が同じ大きさで読める
  * @returns {string} 差し込む HTML
  */
 function lineChart(times, series, options) {
-    const width = 360;
+    const width = options.width ?? 360;
     const height = options.height ?? 150;
     const pad = { left: 46, right: 10, top: 8, bottom: 20 };
     const plotWidth = width - pad.left - pad.right;
@@ -1524,15 +1525,16 @@ function lineChart(times, series, options) {
             + `${escapeHtml(s.label)}: 最新 ${escapeHtml(latest === undefined || latest === null ? "-" : options.format(latest))}</title></path>${dots}`;
     }).join("");
 
-    const legend = series.map((s) =>
-        `<span><em style="background:${s.color}"></em>${escapeHtml(s.label)}</span>`).join("");
+    // 線が 1 本なら見出しで分かるので、凡例の 1 行を省いてグラフを詰める
+    const legend = series.length < 2 ? "" : `<div class="lineLegend">${series.map((s) =>
+        `<span><em style="background:${s.color}"></em>${escapeHtml(s.label)}</span>`).join("")}</div>`;
 
     return `<div class="lineChart">
         <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(series.map((s) => s.label).join("・"))}の推移">
           ${grid}${timeLabels}
           <g fill="none" stroke-width="2" stroke-linejoin="round">${lines}</g>
         </svg>
-        <div class="lineLegend">${legend}</div>
+        ${legend}
       </div>`;
 }
 
