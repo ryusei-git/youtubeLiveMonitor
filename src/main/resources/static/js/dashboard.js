@@ -286,7 +286,7 @@ function renderSystemCards(system, warned) {
         ${resourceCard("メモリ", `<span class="kpiNumber">${size(system.memoryUsedBytes)}</span><span class="kpiUnit">/ ${size(system.memoryTotalBytes)}</span>`,
             `空き ${size(system.memoryAvailableBytes)}`, warned.has("memory"), system.memoryUsedBytes / system.memoryTotalBytes)}
         ${swap}
-        ${resourceCard("ディスク（録画の保存先）", `<span class="kpiNumber">${size(system.diskFreeBytes)}</span><span class="kpiUnit">空き / ${size(system.diskTotalBytes)}</span>`,
+        ${resourceCard("録画ディスク", `<span class="kpiNumber">${size(system.diskFreeBytes)}</span><span class="kpiUnit">空き / ${size(system.diskTotalBytes)}</span>`,
             escapeHtml(system.diskPath), warned.has("disk"), diskUsedRatio)}
         ${resourceCard("ネットワーク", `<span class="resourceRate">↓ ${rate(system.networkReceiveBytesPerSecond)}</span>`
             + `<span class="resourceRate">↑ ${rate(system.networkSendBytesPerSecond)}</span>`, "受信・送信", false)}
@@ -346,12 +346,37 @@ function renderServiceProcesses(service) {
     </div>`;
 }
 
+/** 推移のグラフの高さ。画面の幅によらず同じにする */
+const RESOURCE_CHART_HEIGHT = 84;
+/** 推移のグラフの列の最小の幅。`studio.css` の `.resourceCharts` と同じ値 */
+const RESOURCE_CHART_MIN_WIDTH = 200;
+/** 推移のグラフの列の間隔と、枠の左右の余白と線の合計。`studio.css` の `.resourceCharts` と同じ値 */
+const RESOURCE_CHART_GAP = 10;
+const RESOURCE_CHART_INSET = 26;
+
+/**
+ * 推移のグラフを描く幅を、今の画面で 1 列が取る幅から決める。
+ *
+ * <p>SVG は枠の幅へ比率を保って伸びるので、固定の幅で描くと大きい画面ではグラフも軸の文字も拡大され（1920px で高さ 266px・文字 18px）、
+ * 狭い画面では文字が読めないほど縮む。表示する幅で描けば、どの画面でも高さと文字の大きさが同じになる。
+ * 画面の幅を変えた直後は次の自動更新までの間だけ、前の幅のまま伸び縮みする。
+ *
+ * @param {number} count グラフの数
+ * @returns {number} 描く幅
+ */
+function resourceChartWidth(count) {
+    const box = el("resources").clientWidth;
+    const columns = Math.min(count, Math.max(1,
+        Math.floor((box + RESOURCE_CHART_GAP) / (RESOURCE_CHART_MIN_WIDTH + RESOURCE_CHART_GAP))));
+    return Math.max(200, Math.floor((box - RESOURCE_CHART_GAP * (columns - 1)) / columns) - RESOURCE_CHART_INSET);
+}
+
 /**
  * 直近 24 時間の推移を折れ線にする。
  *
  * <p>「異常な消費」は今の値よりも推移のほうが見つけやすい（じわじわ増えるメモリなど）。
  * 端末全体とこのサービスを同じ CPU のグラフに重ね、端末の負荷のうちどれだけがこのサービス由来かを読めるようにする。
- * メモリは単位が違う（% とバイト）ため、2 本目の縦軸を作らず小さな別のグラフに分ける。
+ * メモリは単位が違う（% とバイト）ため、2 本目の縦軸を作らず別のグラフに分ける。
  *
  * @param {ResourceHistoryPoint[]} history 古い順の記録
  * @returns {string} 差し込む HTML
@@ -362,23 +387,27 @@ function renderResourceHistory(history) {
         return '<p class="muted">記録を集めています（1 分ごと）</p>';
     }
     const times = history.map((p) => new Date(p.at));
-    const percent = { max: 100, format: (/** @type {number} */ v) => `${Math.round(v)}%` };
+    const size = { width: resourceChartWidth(3), height: RESOURCE_CHART_HEIGHT };
+    const percent = { max: 100, format: (/** @type {number} */ v) => `${Math.round(v)}%`, ...size };
     return `<div class="chartRow resourceCharts">
         <div class="chartCard">
-            <h2>CPU（直近 24 時間）</h2>
+            <h2>CPU（24 時間）</h2>
             ${lineChart(times, [
-                { label: "端末全体", color: "var(--chart-3)", values: history.map((p) => p.systemCpuPercent) },
-                { label: "このサービス", color: "var(--chart-1)", values: history.map((p) => p.serviceCpuPercent) },
+                { label: "端末", color: "var(--chart-3)", values: history.map((p) => p.systemCpuPercent) },
+                { label: "サービス", color: "var(--chart-1)", values: history.map((p) => p.serviceCpuPercent) },
             ], percent)}
         </div>
         <div class="chartCard">
-            <h2>メモリ（直近 24 時間）</h2>
+            <h2>端末全体のメモリ（24 時間）</h2>
             ${lineChart(times, [
                 { label: "端末全体の使用率", color: "var(--chart-3)", values: history.map((p) => p.systemMemoryUsedPercent) },
             ], percent)}
+        </div>
+        <div class="chartCard">
+            <h2>このサービスのメモリ（24 時間）</h2>
             ${lineChart(times, [
                 { label: "このサービスの使用量", color: "var(--chart-1)", values: history.map((p) => p.serviceMemoryBytes) },
-            ], { format: formatFileSize, height: 100 })}
+            ], { format: formatFileSize, ...size })}
         </div>
     </div>`;
 }
@@ -678,23 +707,14 @@ function renderNotificationFailures(failureCount) {
 let dashboardRequest = 0;
 /** @type {Date|null} */
 let dashboardLastUpdatedAt = null;
-/**
- * 配信中のカードと配信予定の表を前回描いた内容の要約。同じなら描き直さない（利用者のトップと同じ。#279）。
- * 1 分ごとの自動更新で毎回描き直すと、カードや表のリンクにフォーカスしていた人のフォーカスが body へ飛ぶため。
- */
-let dashboardVideosKey = "";
 
 async function loadDashboard() {
     const request = ++dashboardRequest;
-    // 下の Promise.all に入れると、片方の失敗で KPI やグラフまで更新されなくなるため別に読む
+    // 下の /api/dashboard と一緒に待つと、片方の失敗で KPI やグラフまで更新されなくなるため別に読む
     loadRecordingFailures();
     loadResources();
     try {
-        const [data, livePage, upcoming] = await Promise.all([
-            apiGet("/api/dashboard"),
-            apiGet("/api/videos?liveOnly=true&size=100"),
-            apiGet("/api/channels/upcoming"),
-        ]);
+        const data = await apiGet("/api/dashboard");
         if (request !== dashboardRequest) return;
         el("totalChannels").textContent = data.totalChannels;
         el("liveNowCount").textContent = data.liveNowCount;
@@ -711,12 +731,6 @@ async function loadDashboard() {
         startedAtCell.innerHTML = datetimeCell(data.serviceStartedAt);
         bindDatetimeCells(startedAtCell);
 
-        const videosKey = JSON.stringify([onlineVideosRenderKey(livePage.content), upcoming]);
-        if (videosKey !== dashboardVideosKey) {
-            dashboardVideosKey = videosKey;
-            renderLiveVideoCards(el("liveVideos"), livePage);
-            renderUpcomingStreams(upcoming);
-        }
         dashboardLastUpdatedAt = new Date();
         renderRefreshStatus(el("dashboardRefreshStatus"), dashboardLastUpdatedAt, false);
     } catch {

@@ -4,7 +4,19 @@
 const videoPage = bindOnlineVideoSections();
 window.addEventListener("popstate", () => { videoPage.restore(); videoPage.loadAll(true); });
 startVisibleRefresh(() => videoPage.loadAll(false, false));
-videoPage.start();
+
+// カードは利用者の画面の視聴画面へ移るので、ここへ「戻る」とページを読み込み直す。一覧は読み込んでから描くため、ブラウザの
+// 位置の復元では押す前の位置まで届かない。押すときに位置を今の履歴の項目へ残し、描き終えてから戻す（利用者の画面はルーターが同じことをする）
+document.addEventListener("click", (event) => {
+    if (event.target instanceof Element && event.target.closest(".onlineVideoCard a")) {
+        history.replaceState({ ...history.state, scrollY: Math.round(window.scrollY) }, "");
+    }
+});
+/** @type {unknown} */
+const videoPageScrollY = history.state?.scrollY;
+videoPage.start().then(() => {
+    if (typeof videoPageScrollY === "number") window.scrollTo(0, videoPageScrollY);
+});
 
 // 管理者の動画一覧。一般利用者は 1 枚のページの動画・配信（/my/videos）へ移す（#178）。
 // サーバーで転送しないのは、同じ URL を管理者も使うため。絞り込みは /my/videos も同じ名前で URL から読むので引き継ぐ。

@@ -1461,12 +1461,13 @@ function rampColor(index) {
  *
  * @param {Date[]} times 各点の時刻（古い順、2 点以上）
  * @param {LineSeries[]} series 描く線
- * @param {{format: (value: number) => string, max?: number, height?: number}} options
- *        format は軸と凡例の値の書式。max を省くと値の最大から縦軸の上限を決める
+ * @param {{format: (value: number) => string, max?: number, height?: number, width?: number}} options
+ *        format は軸と凡例の値の書式。max を省くと値の最大から縦軸の上限を決める。
+ *        width は描く幅。SVG は枠の幅へ伸び縮みするので、表示する幅に近い値を渡すと軸の文字が同じ大きさで読める
  * @returns {string} 差し込む HTML
  */
 function lineChart(times, series, options) {
-    const width = 360;
+    const width = options.width ?? 360;
     const height = options.height ?? 150;
     const pad = { left: 46, right: 10, top: 8, bottom: 20 };
     const plotWidth = width - pad.left - pad.right;
@@ -1531,15 +1532,16 @@ function lineChart(times, series, options) {
             + `${escapeHtml(s.label)}: 最新 ${escapeHtml(latest === undefined || latest === null ? "-" : options.format(latest))}</title></path>${dots}`;
     }).join("");
 
-    const legend = series.map((s) =>
-        `<span><em style="background:${s.color}"></em>${escapeHtml(s.label)}</span>`).join("");
+    // 線が 1 本なら見出しで分かるので、凡例の 1 行を省いてグラフを詰める
+    const legend = series.length < 2 ? "" : `<div class="lineLegend">${series.map((s) =>
+        `<span><em style="background:${s.color}"></em>${escapeHtml(s.label)}</span>`).join("")}</div>`;
 
     return `<div class="lineChart">
         <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(series.map((s) => s.label).join("・"))}の推移">
           ${grid}${timeLabels}
           <g fill="none" stroke-width="2" stroke-linejoin="round">${lines}</g>
         </svg>
-        <div class="lineLegend">${legend}</div>
+        ${legend}
       </div>`;
 }
 
@@ -1891,8 +1893,8 @@ function setBusy(target, busy) {
  *
  * <p>作り直す前にフォーカスが一覧の外にあったとき、戻す時点で利用者がほかの場所へ移っていたときは何もしない
  * （自動更新でページの別の場所からフォーカスを奪い、そこまでスクロールさせないため）。
- * 戻すときはスクロールさせない（preventScroll）。Chrome はマウスで押したボタンにもフォーカスを置くので、再生のダイアログを
- * 閉じた後に下へスクロールして読んでいる人のページが、自動更新のたびにそのカードの位置まで引き戻されるため。
+ * 戻すときはスクロールさせない（preventScroll）。Chrome はマウスで押したボタンにもフォーカスを置くので、押した後に
+ * 下へスクロールして読んでいる人のページが、自動更新のたびにそのカードの位置まで引き戻されるため。
  * ボタンを disabled にしてから作り直す処理では、disabled にする前に呼ぶ（disabled にした時点でフォーカスを body へ落とす
  * ブラウザがあり、落ちた後に呼んでも覚える場所が無い）。
  *
@@ -2287,74 +2289,90 @@ function embeddedVideoUrl(watchUrl, hostname = location.hostname) {
     } catch { return null; }
 }
 
-/** 一覧を離れず一つの動画だけ再生し、閉じた時に音声も確実に止める。
- * @param {any} video
+/** 広告スキップの案内を閉じたことを残す localStorage のキー。動画を開くたびに出さないよう、端末ごとに残す */
+const AD_SKIP_NOTICE_DISMISSED_KEY = "ylm.adSkipNoticeDismissed";
+
+/**
+ * 広告スキップのユーザースクリプトの導入の案内。埋め込みは別オリジンの iframe でアプリの JS は中に触れないので、
+ * 利用者のブラウザに入れてもらうしかない。導入済みの印（スクリプトが付ける data-ad-skip）があるか、閉じた後なら出さない。
+ * @returns {HTMLElement|null} 案内の要素。出さないときは null（`after`・`before` へそのまま渡すと文字の null が入る）
  */
-function openOnlineVideo(video) {
-    const source = embeddedVideoUrl(video.watchUrl);
-    if (!source || !video.playable) { showError("この配信のアーカイブはまだ取得できていません。", { reveal: true }); return; }
-    const opener = document.activeElement;
-    document.querySelector("#onlinePlayerDialog")?.remove();
-    const dialog = document.createElement("dialog");
-    dialog.id = "onlinePlayerDialog";
-    dialog.className = "onlinePlayerDialog";
-    dialog.setAttribute("aria-labelledby", "onlinePlayerTitle");
-    dialog.innerHTML = `<div class="onlinePlayerHead"><h2 id="onlinePlayerTitle">${escapeHtml(video.title)}</h2><button type="button" class="closeOnlinePlayer">閉じる</button></div>
-        <div class="onlinePlayerFrame"></div>
-        <p class="muted">${escapeHtml(video.channelName)} · ${escapeHtml(video.platformLabel)}</p>
-        <p class="muted">投稿者が埋め込みを許可していない動画、非公開・削除済みの動画は再生できません。 <a href="${escapeHtml(video.watchUrl)}" target="_blank" rel="noopener noreferrer">配信元で開く ↗</a></p>`;
-    const frame = document.createElement("iframe");
-    frame.src = source;
-    frame.title = video.title;
-    frame.allow = "autoplay; encrypted-media; fullscreen; picture-in-picture";
-    frame.allowFullscreen = true;
-    // サイト全体のsame-origin方針は維持し、埋め込みだけ必要なRefererを送る。
-    frame.referrerPolicy = "strict-origin-when-cross-origin";
-    query(".onlinePlayerFrame", dialog).append(frame);
-    query(".closeOnlinePlayer", dialog).addEventListener("click", () => dialog.close());
-    // 閉じるとブラウザは開く前のボタンへフォーカスを戻す。開いている間に自動更新で一覧が作り直されていると、そのボタンは
-    // DOM に無く body へ落ちるので、同じ動画のカード（data-focus-key）の最初の押せるボタンへ戻す
-    dialog.addEventListener("close", () => {
-        dialog.remove();
-        if (!(opener instanceof HTMLElement) || opener.isConnected) return;
-        const card = [...document.querySelectorAll(".onlineVideoCard")]
-            .find((element) => element instanceof HTMLElement && element.dataset.focusKey === video.id);
-        const button = card?.querySelector("button:not(:disabled)");
-        if (button instanceof HTMLElement) button.focus();
+function adSkipNotice() {
+    if (document.documentElement.dataset.adSkip) return null;
+    try {
+        if (localStorage.getItem(AD_SKIP_NOTICE_DISMISSED_KEY) === "1") return null;
+    } catch {
+        // 閉じたかどうか読めないときは、案内を出す。出ても再生の邪魔にはならない
+    }
+    const notice = document.createElement("p");
+    notice.className = "muted adSkipNotice";
+    const link = document.createElement("a");
+    link.href = "/userscripts/youtube-ad-skip.user.js";
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "広告スキップを導入";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "閉じる";
+    // 「閉じる」だけでは、読み上げで何を閉じるのかが分からない
+    close.setAttribute("aria-label", "広告スキップの案内を閉じる");
+    close.addEventListener("click", () => {
+        try {
+            localStorage.setItem(AD_SKIP_NOTICE_DISMISSED_KEY, "1");
+        } catch {
+            // 残せなくても、今の案内は消す
+        }
+        notice.remove();
     });
-    dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
-    document.body.append(dialog);
-    dialog.showModal();
-    query(".closeOnlinePlayer", dialog).focus();
+    notice.append(link, " Tampermonkey か Violentmonkey が必要です。一度入れると、次からは接続するだけで動きます。 ", close);
+    return notice;
 }
 
-/** タイトルや外部応答をHTMLとして解釈させず、共通の再生操作を提供する。
+/**
+ * 動画の状態と日時の文言。カードと視聴画面（my-search.js）で同じ言い方にするため、ここにまとめる。
  * @param {any} video
- * @returns {HTMLElement}
+ * @returns {{state: string, when: string}} 状態と、公開日時（配信予定は開始予定）
  */
-function buildOnlineVideoCard(video) {
-    const card = document.createElement("article");
-    card.className = "videoCard onlineVideoCard";
-    // 作り直した後に同じ動画のカードへフォーカスを戻すための目印（rememberFocus・openOnlineVideo）
-    card.dataset.focusKey = video.id;
+function onlineVideoStatus(video) {
     const upcoming = video.contentKind === "UPCOMING";
     const state = upcoming ? "配信予定" : video.state === "LIVE" ? "配信中" : video.state === "UNKNOWN" ? "配信状態を確認中" : video.playable ? "動画・アーカイブ" : "配信終了・アーカイブ未取得";
     // 待機所の公開日時は枠を作った時刻で、視聴者が知りたいのは開始予定のほうなので差し替える。
     const start = upcoming && video.scheduledStartTime ? new Date(video.scheduledStartTime) : null;
     const when = !upcoming ? formatInstant(video.publishedAt) : !start || Number.isNaN(start.getTime()) ? "開始時刻不明"
         : `${start.getMonth() + 1}/${start.getDate()}(${"日月火水木金土"[start.getDay()]}) ${String(start.getHours()).padStart(2, "0")}:${String(start.getMinutes()).padStart(2, "0")} 開始予定`;
-    card.innerHTML = `<button type="button" class="thumbLink onlinePlayButton" aria-label="${escapeHtml(video.title)}を再生" ${video.playable ? "" : "disabled"}>
-        <img class="thumb" ${video.thumbnailRetryExhausted ? "hidden" : `src="${escapeHtml(video.thumbnailUrl)}"`} alt="" loading="lazy">
+    return {state, when};
+}
+
+/**
+ * タイトルや外部応答をHTMLとして解釈させず、再生できる動画は視聴画面（/my/videos/watch/{id}）へのリンクにする。
+ * リンクなので、新しいタブで開け、ブラウザの「戻る」で一覧へ戻れる。
+ * @param {any} video
+ * @returns {HTMLElement}
+ */
+function buildOnlineVideoCard(video) {
+    const card = document.createElement("article");
+    card.className = "videoCard onlineVideoCard";
+    // 作り直した後に同じ動画のカードへフォーカスを戻すための目印（rememberFocus）
+    card.dataset.focusKey = video.id;
+    const {state, when} = onlineVideoStatus(video);
+    const title = escapeHtml(video.title);
+    const thumb = `<img class="thumb" ${video.thumbnailRetryExhausted ? "hidden" : `src="${escapeHtml(video.thumbnailUrl)}"`} alt="" loading="lazy">
         <span class="thumbPlaceholder" ${video.thumbnailRetryExhausted ? "" : "hidden"}>${video.thumbnailRetryExhausted ? "サムネイル取得失敗" : "サムネイル取得待ち"}</span>
-        <span class="onlinePlayMark" aria-hidden="true">▶</span>
-        </button><div class="cardBody"><h3 class="cardTitle"><button type="button" class="onlineTitle" ${video.playable ? "" : "disabled"}>${escapeHtml(video.title)}</button></h3>
+        <span class="onlinePlayMark" aria-hidden="true">▶</span>`;
+    const watch = `/my/videos/watch/${encodeURIComponent(video.id)}`;
+    const thumbControl = video.playable
+        ? `<a class="thumbLink onlinePlayButton" href="${watch}" aria-label="${title}を再生">${thumb}</a>`
+        : `<button type="button" class="thumbLink onlinePlayButton" aria-label="${title}を再生" disabled>${thumb}</button>`;
+    const titleControl = video.playable
+        ? `<a class="onlineTitle" href="${watch}">${title}</a>`
+        : `<button type="button" class="onlineTitle" disabled>${title}</button>`;
+    card.innerHTML = `${thumbControl}<div class="cardBody"><h3 class="cardTitle">${titleControl}</h3>
         <div class="muted">${escapeHtml(video.channelName)} · ${escapeHtml(video.platformLabel)}</div>
         <div class="muted">${escapeHtml(state)}</div><div class="muted">${escapeHtml(when)}</div></div>`;
     const thumbnail = query("img", card);
     if (!video.thumbnailRetryExhausted) {
         thumbnail.addEventListener("error", () => { thumbnail.hidden = true; query(".thumbPlaceholder", card).hidden = false; });
     }
-    card.querySelectorAll("button").forEach(button => button.addEventListener("click", () => openOnlineVideo(video)));
     return card;
 }
 
@@ -2600,7 +2618,7 @@ function formatInstant(value) {
  *
  * @typedef {object} OnlineVideoSections
  * @property {() => Promise<void>} start 開いたときに呼ぶ。チャンネルの選択肢を読んでから URL の条件を戻し、3 段を読む
- *           （先に戻すと、URL のチャンネルが選択肢に無い値として捨てられる）
+ *           （先に戻すと、URL のチャンネルが選択肢に無い値として捨てられる）。履歴の項目に段のページがあれば、そのページを読む
  * @property {() => void} restore URL の条件を入力欄へ戻す。「戻る」「進む」を自分で拾う画面が呼ぶ
  * @property {(resetPage: boolean, showAlert?: boolean) => Promise<void>} loadAll 3 段を読み直す。resetPage は各段を
  *           先頭に戻すか（絞り込みを変えたとき。自動更新では今のページを保つ）、showAlert は失敗をエラー帯に出すか
@@ -2642,6 +2660,14 @@ function bindOnlineVideoSections() {
         if (keyword.value.trim()) url.searchParams.set("keyword", keyword.value.trim());
         if (channel.value) url.searchParams.set("channelId", channel.value);
         if (url.href !== location.href) history[replace ? "replaceState" : "pushState"](null, "", url);
+    }
+
+    /**
+     * 段ごとのページを今の履歴の項目に残す。カードから視聴画面へ移って「戻る」で開き直したとき、同じページへ戻すため
+     * （URL に残さない理由は syncUrl の上）。ルーターが残すスクロール位置を消さないよう、history.state に足す。
+     */
+    function rememberPages() {
+        history.replaceState({ ...history.state, videoSectionPages: sections.map(section => section.page) }, "");
     }
 
     function restore() {
@@ -2699,7 +2725,10 @@ function bindOnlineVideoSections() {
      * @param {boolean} showAlert
      */
     async function loadAll(resetPage, showAlert = true) {
-        if (resetPage) for (const section of sections) section.page = 0;
+        if (resetPage) {
+            for (const section of sections) section.page = 0;
+            rememberPages();
+        }
         if (showAlert) clearError();
         const results = await Promise.all(sections.map(section => loadSection(section, showAlert)));
         // 新しい読み直しに追い越された段は undefined を返す。その回の結果で表示時刻を決めない。
@@ -2733,10 +2762,10 @@ function bindOnlineVideoSections() {
     });
     for (const section of sections) {
         buttonEl(section.name + "Prev").addEventListener("click", () => {
-            if (section.page > 0) { section.page--; clearError(); loadSection(section); }
+            if (section.page > 0) { section.page--; rememberPages(); clearError(); loadSection(section); }
         });
         buttonEl(section.name + "Next").addEventListener("click", () => {
-            if (section.page + 1 < section.totalPages) { section.page++; clearError(); loadSection(section); }
+            if (section.page + 1 < section.totalPages) { section.page++; rememberPages(); clearError(); loadSection(section); }
         });
     }
     buttonEl("refreshVideosBtn").addEventListener("click", async () => {
@@ -2748,10 +2777,13 @@ function bindOnlineVideoSections() {
 
     return {
         async start() {
+            // restore の URL の整えは history.state を null で置き換えることがあるので、先に読む
+            const pages = history.state?.videoSectionPages;
             await loadChannels();
             if (!form.isConnected) return;
             restore();
-            await loadAll(true);
+            sections.forEach((section, index) => { section.page = pages?.[index] ?? 0; });
+            await loadAll(false);
         },
         restore,
         loadAll,

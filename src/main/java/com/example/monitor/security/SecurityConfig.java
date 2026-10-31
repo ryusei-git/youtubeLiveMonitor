@@ -287,6 +287,9 @@ public class SecurityConfig {
                 // （<link rel="manifest"> に crossorigin="use-credentials" を付けない限り）、ログインを求めると
                 // ログイン画面の HTML を manifest として読んで追加に失敗する。中身は名前・色・画像だけで秘密は無い
                 .requestMatchers("/manifest.json", "/icons/**").permitAll()
+                // 広告スキップのユーザースクリプトの配布。拡張機能は Cookie なしで取りに行くことがあり、ログイン画面へ
+                // 転送するとログイン画面の HTML を読んで導入できない。中身は公開してよいスクリプトで秘密は無い
+                .requestMatchers("/userscripts/**").permitAll()
                 // 巡回の生存（#412）。外の見張り（cron・bin/service.sh status）がログイン無しで叩く。
                 // 返すのは状態と経過秒だけ
                 .requestMatchers(HttpMethod.GET, "/api/health").permitAll()

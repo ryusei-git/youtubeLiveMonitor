@@ -1,9 +1,10 @@
 // @ts-check
 /*
- * 利用者画面の「検索」（/my/search）と、検索から開く視聴画面（/my/search/watch/{videoId}）（#489。API は #487）。
+ * 利用者画面の「検索」（/my/search）と、検索から開く視聴画面（/my/search/watch/{videoId}）（#489。API は #487）、
+ * 動画・配信のカードから開く視聴画面（/my/videos/watch/{id}。#876）。
  *
  * my-app.js は別の作業が並行して触るため、画面はこのファイルに分け、my-app.js の myRoutes には行を足すだけにしている。
- * jsconfig.json はすべての js を 1 つのスコープで型検査するので、グローバルの名前は mySearch で始める。
+ * jsconfig.json はすべての js を 1 つのスコープで型検査するので、グローバルの名前は mySearch か myVideoWatch で始める。
  *
  * 並び方（左にサムネイル・右に情報、視聴画面は大きなプレーヤーと下に情報）だけを YouTube に近づけ、
  * 配色・ロゴ・赤い再生ボタンは真似しない。YouTube API Services の規約で、似せすぎないことが求められているため（#485）。
@@ -214,7 +215,7 @@ async function mySearchSubscribedChannelIds() {
 }
 
 /**
- * チャンネルの監視の札とボタン（検索の視聴画面と新人発掘の候補で使う）。
+ * チャンネルの監視の札とボタン（視聴画面と新人発掘の候補で使う）。
  * 自分が購読していれば「マイチャンネル」の札だけを出す。購読していなければ登録のボタンを出し、このサービスの誰かが
  * 監視していれば「サービスで監視中」の札を前に添える。registered だけでボタンを消さないのは、別の人が監視していても
  * 自分には通知が届かず、ここで登録できないと困るため。
@@ -612,6 +613,137 @@ function mySearchLinkify(text) {
 }
 
 /**
+ * 視聴画面の骨組み。検索から開く画面と動画・配信から開く画面で、同じ配置（YouTube の視聴ページの並び）にする。
+ * 埋め込みプレーヤーの中の見た目は変えられず、上に重ねる表示も規約で禁じられているので、周りの配置で一体感を出す。
+ * h1 は最初から置く。ルーターが描いた直後にフォーカスを移す先で、読み込んだ後も作り直さず文字だけを変える。
+ *
+ * @param {{before?: string, after?: string, secondary?: boolean}} [options] before は左の列の先頭（プレーヤーと左端をそろえる）、
+ *   after は配置の下に置く HTML。secondary は右の列の場所を取るか（読み込んだ後に列が増えてプレーヤーの幅が変わらないよう、
+ *   先に 2 列にしておく）
+ * @returns {string} 差し込む HTML
+ */
+function mySearchWatchLayout({ before = "", after = "", secondary = false } = {}) {
+    return `<div class="watchPage">
+          <div class="watchPrimary">
+            ${before}<p id="error" class="error" role="alert" style="display:none;"></p>
+            <div class="watchPlayer"></div>
+            <p class="muted watchHint" hidden>再生できないときは配信元で開いてください。</p>
+            <h1 class="watchTitle">読み込み中...</h1>
+            <div class="watchOwner"><div class="watchChannel"></div><div class="watchActions"></div></div>
+            <div class="watchDescription"></div>
+          </div>
+          ${secondary ? '<aside class="watchSecondary" aria-labelledby="watchSecondaryHeading" hidden></aside>' : ""}
+        </div>${after}`;
+}
+
+/**
+ * 視聴画面にプレーヤーと、その下の案内を置く。
+ *
+ * @param {HTMLElement} root 画面の入れ物
+ * @param {string} source 埋め込みの URL
+ * @param {string} title プレーヤーの読み上げ名
+ * @param {string} allow プレーヤーに許す機能
+ */
+function mySearchPlaceWatchFrame(root, source, title, allow) {
+    const frame = document.createElement("iframe");
+    frame.src = source;
+    frame.title = title;
+    frame.allow = allow;
+    frame.allowFullscreen = true;
+    // サイト全体の same-origin の方針は保ち、埋め込みにだけ必要な Referer を送る
+    frame.referrerPolicy = "strict-origin-when-cross-origin";
+    query(".watchPlayer", root).append(frame);
+    const hint = query(".watchHint", root);
+    hint.hidden = false;
+    // スクリプトが効くのは YouTube の埋め込みだけなので、Twitch には出さない
+    const adSkip = source.startsWith("https://www.youtube-nocookie.com/") ? adSkipNotice() : null;
+    if (adSkip) hint.before(adSkip);
+}
+
+/**
+ * 視聴画面の説明の箱を描く。
+ *
+ * @param {HTMLElement} root 画面の入れ物
+ * @param {string} stats 1 行目（再生回数と日時）
+ * @param {string|null} [description] 説明文
+ */
+function mySearchRenderWatchDescription(root, stats, description = null) {
+    const box = query(".watchDescription", root);
+    box.innerHTML = `<p class="watchStats">${escapeHtml(stats)}</p>
+        <div class="watchDescriptionText">${mySearchLinkify(description)}</div>
+        <button type="button" class="descriptionToggle" hidden>もっと見る</button>`;
+    const text = query(".watchDescriptionText", box);
+    const toggle = /** @type {HTMLButtonElement} */ (query(".descriptionToggle", box));
+    // 3 行に収まる短い説明には「もっと見る」を出さない
+    toggle.hidden = text.scrollHeight <= text.clientHeight;
+    toggle.addEventListener("click", () => {
+        const open = text.classList.toggle("is-open");
+        toggle.textContent = open ? "一部だけ表示" : "もっと見る";
+    });
+}
+
+/**
+ * 「端末に保存」のリンク。動画ダウンロードの画面へ、URL と保存先を入れた状態で移る。
+ *
+ * @param {string} watchUrl 動画の URL
+ * @returns {string} 差し込む HTML
+ */
+function mySearchDeviceSaveLink(watchUrl) {
+    return `<a href="/my/download?${escapeHtml(String(new URLSearchParams({ url: watchUrl, destination: "device" })))}">端末に保存</a>`;
+}
+
+/**
+ * 視聴画面の操作のボタンを描き、押したときの動きを付ける。
+ *
+ * @param {HTMLElement} root 画面の入れ物
+ * @param {any} video 動画の詳細（/api/my/youtube/videos/{videoId} の応答）
+ * @param {Set<string>} subscribed 自分が購読している YouTube のチャンネル ID
+ * @param {string} watchUrl 動画の URL
+ */
+function mySearchRenderWatchActions(root, video, subscribed, watchUrl) {
+    const actions = query(".watchActions", root);
+    const saved = video.saved && video.recordingId
+        ? `<a href="/my/watch/${encodeURIComponent(video.recordingId)}">アーカイブで見る</a>`
+        : '<button type="button" class="saveBtn">サービスに保存</button>';
+    actions.innerHTML = `${externalLink("YouTube で開く", watchUrl)}
+        ${saved}
+        ${mySearchDeviceSaveLink(watchUrl)}
+        ${mySearchWatchChannel(video, subscribed)}`;
+
+    actions.querySelector(".saveBtn")?.addEventListener("click", async (event) => {
+        const button = /** @type {HTMLButtonElement} */ (event.currentTarget);
+        button.disabled = true;
+        try {
+            await apiPost("/api/my/downloads", { url: watchUrl });
+            if (!actions.isConnected) return;
+            clearError();
+            showToast("保存を始めました。終わるとアーカイブに出ます");
+        } catch (e) {
+            // 配信中・同時に 2 件目・空き容量不足は、サーバーの文言をそのまま出す
+            if (actions.isConnected) showError(errorMessage(e), { reveal: true });
+            button.disabled = false;
+        }
+    });
+    actions.querySelector(".watchChannelBtn")?.addEventListener("click", async (event) => {
+        const button = /** @type {HTMLButtonElement} */ (event.currentTarget);
+        button.disabled = true;
+        try {
+            await apiPost("/api/my/channels", {
+                platform: "YOUTUBE", channelInput: video.channelId, channelName: video.channelTitle,
+            });
+            if (!actions.isConnected) return;
+            clearError();
+            showToast(`${video.channelTitle} をマイチャンネルに登録しました`);
+            actions.querySelector(".serviceWatchLamp")?.remove();
+            button.outerHTML = MY_SEARCH_SUBSCRIBED_LAMP;
+        } catch (e) {
+            if (actions.isConnected) showError(errorMessage(e), { reveal: true });
+            button.disabled = false;
+        }
+    });
+}
+
+/**
  * 検索から開く視聴画面。YouTube の埋め込みプレーヤーで再生し、下に動画の情報と、保存・監視のボタンを出す。
  *
  * プレーヤーは youtube-nocookie（再生するまで Cookie を置かない）にし、自動再生はしない（子ども向けの動画
@@ -624,21 +756,18 @@ const mySearchWatchView = {
     nav: "/my/search",
     async render(root, match) {
         // ミニプレーヤーで録画を流したまま開くと、埋め込みの再生と音が重なる。埋め込みの中で再生を押したことはこのページから
-        // 見えないので、開いた時点で止める（埋め込みの再生ダイアログを開いたときと同じ。my-app.js の myPauseDockOnVideoDialog）。
-        // 自動再生はしないので、開いただけでは音は出ない。録画の続きは、ミニプレーヤーの ▶ で利用者が再開できる
+        // 見えないので、開いた時点で止める。自動再生はしないので、開いただけでは音は出ない。録画の続きは、ミニプレーヤーの ▶ で
+        // 利用者が再開できる
         myDockVideo().pause();
         const videoId = match[1];
         let back = "/my/search";
         try { back = sessionStorage.getItem(MY_SEARCH_LAST_URL_KEY) || back; } catch { /* 検索画面の最初へ戻す */ }
-        root.innerHTML = `<p><a class="searchBack" href="${escapeHtml(back)}">← 検索結果に戻る</a></p>
-            <p id="error" class="error" role="alert" style="display:none;"></p>
-            <div class="searchPlayer"><iframe src="https://www.youtube-nocookie.com/embed/${videoId}?rel=0&amp;playsinline=1"
-              title="YouTube の動画" allow="encrypted-media; fullscreen; picture-in-picture" allowfullscreen
-              referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
-            <p class="muted searchPlayerHint">再生できないときは YouTube で開いてください。</p>
-            <h1>読み込み中...</h1>
-            <div class="searchWatchInfo"></div>
-            ${mySearchAttribution}`;
+        root.innerHTML = mySearchWatchLayout({
+            before: `<p class="watchBack"><a class="searchBack" href="${escapeHtml(back)}">← 検索結果に戻る</a></p>`,
+            after: mySearchAttribution,
+        });
+        mySearchPlaceWatchFrame(root, `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&playsinline=1`,
+            "YouTube の動画", "encrypted-media; fullscreen; picture-in-picture");
         // 直前の履歴がその検索結果なら、ブラウザの「戻る」と同じにする。リンクとして移ると履歴が 1 つ伸び、その後に
         // ブラウザの「戻る」を押すと視聴画面へ戻ってしまう。「戻る」で戻れば、結果の位置と「もっと見る」で足したページも戻る。
         // 直前の履歴がどこかはブラウザからは読めないので、ルーターが移るときに残した from（my-app.js の myNavigate）で見分ける。
@@ -650,7 +779,6 @@ const mySearchWatchView = {
             history.back();
         });
         const heading = query("h1", root);
-        const info = query(".searchWatchInfo", root);
         const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
         /** @type {any} */
         let video;
@@ -678,59 +806,178 @@ const mySearchWatchView = {
         document.title = `${video.title} - YouTube Live Monitor`;
         heading.textContent = video.title;
         query("iframe", root).title = video.title;
-        const saved = video.saved && video.recordingId
-            ? `<a href="/my/watch/${encodeURIComponent(video.recordingId)}">アーカイブで見る</a>`
-            : '<button type="button" class="saveBtn">サービスに保存</button>';
-        info.innerHTML = `<p>${mySearchChannel(video)}</p>
-            <p class="muted">${[mySearchViews(video.viewCount), formatInstant(video.publishedAt)].filter(Boolean).join("・")}</p>
-            <p class="searchWatchActions">
-              <a href="${watchUrl}" target="_blank" rel="noopener noreferrer">YouTube で開く</a>
-              ${saved}
-              <a href="/my/download?${new URLSearchParams({ url: watchUrl, destination: "device" })}">端末に保存</a>
-              ${mySearchWatchChannel(video, subscribed)}
-            </p>
-            <div class="searchWatchDescription">${mySearchLinkify(video.description)}</div>
-            <button type="button" class="descriptionToggle" hidden>もっと見る</button>`;
+        query(".watchChannel", root).innerHTML = mySearchChannel(video);
+        mySearchRenderWatchActions(root, video, subscribed, watchUrl);
+        mySearchRenderWatchDescription(root, [mySearchViews(video.viewCount), formatInstant(video.publishedAt)].filter(Boolean).join("・"),
+            video.description);
+    },
+};
 
-        const description = query(".searchWatchDescription", info);
-        const toggle = /** @type {HTMLButtonElement} */ (query(".descriptionToggle", info));
-        // 3 行に収まる短い説明には「もっと見る」を出さない
-        toggle.hidden = description.scrollHeight <= description.clientHeight;
-        toggle.addEventListener("click", () => {
-            const open = description.classList.toggle("is-open");
-            toggle.textContent = open ? "一部だけ表示" : "もっと見る";
-        });
+/**
+ * 動画・配信の視聴画面の、状態の 1 行。
+ *
+ * @param {any} video /api/my/videos/{id} の応答
+ * @returns {string} 配信中なら「配信中」、配信予定なら開始予定、それ以外は公開日時
+ */
+function myVideoWatchWhen(video) {
+    return video.state === "LIVE" ? "配信中" : onlineVideoStatus(video).when;
+}
 
-        info.querySelector(".saveBtn")?.addEventListener("click", async (event) => {
-            const button = /** @type {HTMLButtonElement} */ (event.currentTarget);
-            button.disabled = true;
-            try {
-                await apiPost("/api/my/downloads", { url: watchUrl });
-                if (!info.isConnected) return;
-                clearError();
-                showToast("保存を始めました。終わるとアーカイブに出ます");
-            } catch (e) {
-                // 配信中・同時に 2 件目・空き容量不足は、サーバーの文言をそのまま出す
-                if (info.isConnected) showError(errorMessage(e), { reveal: true });
-                button.disabled = false;
+/**
+ * チャンネルのアイコンと名前。名前は配信元のチャンネルへのリンクにする（規約については mySearchChannel）。
+ *
+ * @param {any} video /api/my/videos/{id} の応答
+ * @param {string|null} iconUrl アイコンの URL
+ * @returns {string} 差し込む HTML
+ */
+function myVideoWatchChannel(video, iconUrl) {
+    return `<span class="channelWithIcon">${channelIcon(iconUrl)}${externalLink(video.channelName, video.channelUrl)}</span>`;
+}
+
+/**
+ * YouTube の動画の詳細を読み、説明文・再生回数・アイコン・操作のボタンを埋める。
+ *
+ * 再生はできるので、読めなくても（429・503・404 など）エラー帯には出さず、手元の情報で描いたままにする。
+ * 回数を使い切った日や API キーの無い環境で、再生の画面にエラーが出続けないようにするため。
+ *
+ * @param {HTMLElement} root 画面の入れ物
+ * @param {any} video /api/my/videos/{id} の応答
+ * @returns {Promise<void>} 描き終えたら解決する
+ */
+async function myVideoWatchLoadDetail(root, video) {
+    const box = query(".watchDescription", root);
+    /** @type {any} */
+    let detail;
+    try {
+        detail = await apiGet(`/api/my/youtube/videos/${encodeURIComponent(video.id.replace(/^YOUTUBE_/, ""))}`);
+    } catch {
+        return;
+    }
+    if (!box.isConnected) return;
+    const subscribed = await mySearchSubscribedChannelIds();
+    if (!box.isConnected) return;
+    if (detail.channelIconUrl && detail.channelIconUrl !== video.channelIconUrl) {
+        query(".watchChannel", root).innerHTML = myVideoWatchChannel(video, detail.channelIconUrl);
+    }
+    mySearchRenderWatchActions(root, detail, subscribed, video.watchUrl);
+    mySearchRenderWatchDescription(root, [mySearchViews(detail.viewCount), myVideoWatchWhen(video)].filter(Boolean).join("・"),
+        detail.description);
+}
+
+/**
+ * 右の列の 1 件。全体を 1 つのリンクにする。
+ *
+ * @param {any} video /api/videos の 1 件
+ * @returns {HTMLElement} 差し込む要素
+ */
+function myVideoWatchNextItem(video) {
+    const { state, when } = onlineVideoStatus(video);
+    const link = document.createElement("a");
+    link.className = "watchNext";
+    link.href = `/my/videos/watch/${encodeURIComponent(video.id)}`;
+    link.innerHTML = `<span class="watchNextThumb">${video.thumbnailRetryExhausted ? "" : `<img src="${escapeHtml(video.thumbnailUrl)}" alt="" loading="lazy">`}</span>
+        <span class="watchNextInfo">
+          <span class="watchNextTitle">${escapeHtml(video.title)}</span>
+          <span class="muted">${escapeHtml(video.channelName)}</span>
+          <span class="muted watchNextStatus"><span>${escapeHtml(state)}</span><span>${escapeHtml(when)}</span></span>
+        </span>`;
+    // 読めない画像の枠は、代わりの地の色のままにする
+    link.querySelector("img")?.addEventListener("error", (event) => {
+        /** @type {HTMLElement} */ (event.currentTarget).remove();
+    });
+    return link;
+}
+
+/**
+ * 右の列（同じチャンネルの動画）を読んで描く。補助の列なので、読めないとき・並べる動画が無いときは列ごと消して
+ * 1 列の配置にし、エラー帯には出さない。
+ *
+ * @param {HTMLElement} root 画面の入れ物
+ * @param {any} video /api/my/videos/{id} の応答
+ * @returns {Promise<void>} 描き終えたら解決する
+ */
+async function myVideoWatchLoadSecondary(root, video) {
+    const aside = query(".watchSecondary", root);
+    /** @type {any[]} */
+    let videos = [];
+    try {
+        const page = await apiGet(`/api/videos?channelId=${encodeURIComponent(video.channelId)}&size=13`);
+        videos = page.content.filter(/** @param {any} other */ (other) => other.id !== video.id && other.playable
+            && other.contentKind !== "UPCOMING" && other.contentKind !== "MISSING");
+    } catch {
+        // 列を出さない
+    }
+    if (!aside.isConnected) return;
+    if (videos.length === 0) {
+        aside.remove();
+        return;
+    }
+    aside.innerHTML = '<h2 id="watchSecondaryHeading">同じチャンネルの動画</h2><div class="watchNextList"></div>';
+    query(".watchNextList", aside).append(...videos.map(myVideoWatchNextItem));
+    aside.hidden = false;
+}
+
+/**
+ * 動画・配信のカードから開く視聴画面。録画していない動画を、公式の埋め込みプレーヤーで再生する。
+ *
+ * 一覧の上に出すダイアログをやめて通常の画面にしたのは、サービスの枠の中で再生し、新しいタブで開けて、ブラウザの
+ * 「戻る」で一覧の同じ位置へ戻れるようにするため（#876）。カードを押して開く画面なので自動再生する
+ * （検索から開く画面は自動再生しない。理由は mySearchWatchView）。
+ * 動画本体の読み取りの失敗だけをエラー帯に出す。詳細と右の列は補助なので、失敗しても再生と題名は残す。
+ * @type {MyView}
+ */
+const myVideoWatchView = {
+    title: "再生",
+    nav: "/my/videos",
+    async render(root, match) {
+        // 録画と音が重なるので止める（理由は mySearchWatchView）。録画の続きは、ミニプレーヤーの ▶ で利用者が再開できる
+        myDockVideo().pause();
+        root.innerHTML = mySearchWatchLayout({ secondary: true });
+        const heading = query("h1", root);
+        /** 動画を出せないときは、プレーヤーと右の列の場所を片付ける。 */
+        const clearPlayer = () => {
+            query(".watchPlayer", root).remove();
+            query(".watchSecondary", root).remove();
+        };
+        /** @type {any} */
+        let video;
+        try {
+            // 無い・見る権限の無い動画は 404 で返る。ほかの失敗と分けて伝えるため、状態コードを見られるよう apiGet を使わない
+            const res = await authenticatedFetch(`/api/my/videos/${encodeURIComponent(match[1])}`);
+            if (res.status === 404) {
+                if (!heading.isConnected) return;
+                clearPlayer();
+                heading.textContent = "この動画は見られません";
+                heading.insertAdjacentHTML("afterend", '<p><a href="/my/videos">動画・配信へ戻る</a></p>');
+                return;
             }
-        });
-        info.querySelector(".watchChannelBtn")?.addEventListener("click", async (event) => {
-            const button = /** @type {HTMLButtonElement} */ (event.currentTarget);
-            button.disabled = true;
-            try {
-                await apiPost("/api/my/channels", {
-                    platform: "YOUTUBE", channelInput: video.channelId, channelName: video.channelTitle,
-                });
-                if (!info.isConnected) return;
-                clearError();
-                showToast(`${video.channelTitle} をマイチャンネルに登録しました`);
-                info.querySelector(".serviceWatchLamp")?.remove();
-                button.outerHTML = MY_SEARCH_SUBSCRIBED_LAMP;
-            } catch (e) {
-                if (info.isConnected) showError(errorMessage(e), { reveal: true });
-                button.disabled = false;
+            if (!res.ok) throw new Error(await extractError(res));
+            video = await res.json();
+        } catch (e) {
+            if (heading.isConnected) {
+                clearPlayer();
+                heading.textContent = "動画の情報を読み込めませんでした";
+                showError(errorMessage(e));
             }
-        });
+            return;
+        }
+        if (!heading.isConnected) return;
+
+        document.title = `${video.title} - YouTube Live Monitor`;
+        heading.textContent = video.title;
+        const source = video.playable ? embeddedVideoUrl(video.watchUrl) : null;
+        if (source) {
+            mySearchPlaceWatchFrame(root, source, video.title, "autoplay; encrypted-media; fullscreen; picture-in-picture");
+        } else {
+            query(".watchPlayer", root).outerHTML = emptyState("この動画はここでは再生できません", "配信元で開いてください。");
+        }
+        query(".watchChannel", root).innerHTML = myVideoWatchChannel(video, video.channelIconUrl);
+        const youtube = video.platform === "YOUTUBE";
+        query(".watchActions", root).innerHTML = externalLink(`${video.platformLabel} で開く`, video.watchUrl)
+            + (youtube ? mySearchDeviceSaveLink(video.watchUrl) : "");
+        mySearchRenderWatchDescription(root, myVideoWatchWhen(video));
+        // YouTube API サービスのデータを出す画面に要る表示（mySearchAttribution）。Twitch の動画には当てはまらない
+        if (youtube) query(".watchPage", root).insertAdjacentHTML("afterend", mySearchAttribution);
+        await Promise.all([youtube ? myVideoWatchLoadDetail(root, video) : null, myVideoWatchLoadSecondary(root, video)]);
     },
 };

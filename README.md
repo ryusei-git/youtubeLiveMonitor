@@ -522,6 +522,14 @@ CLI も起動時にテーブルを自分の版の形に合わせる（`ddl-auto:
 セッションは 30 分使わないと切れるため、一時停止したまま置くとログインが切れて流れなくなります。
 読み込めない録画は飛ばし、5 本続けて読み込めないとき（本番の反映中など）は 1 分待ってから続けます。
 
+YouTube の埋め込み再生（動画・配信のカードと検索から開く視聴画面）では、スキップボタンが出た広告を飛ばす
+ユーザースクリプトを配布しています。ブラウザに Tampermonkey か Violentmonkey を入れ、再生画面に出る
+「広告スキップを導入」（`/userscripts/youtube-ad-skip.user.js`）を開いて導入してください。一度入れると、
+次からは接続するだけで動きます。埋め込みは YouTube の別オリジンの iframe で、アプリの JS は中に触れないため、
+ブラウザに入れずに接続するだけでは動きません（ユーザースクリプトは iframe の中でも動きます）。
+案内は「閉じる」を押すと、そのブラウザでは出なくなります。導入済みの判定は `*.ts.net` の画面でだけ働くので、
+`localhost` などで開くと、導入済みでも閉じるまで案内が出ます。
+
 素の HTML・CSS・JavaScript のみで作られており（フレームワーク不使用）、上記の REST API を
 `fetch` で叩いているだけです。npm や webpack のようなフロントエンドのビルドは必要ありません。
 
@@ -846,6 +854,7 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
 | GET | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS` | 今の版の検出の実行記録（`status`・`candidateCount`・`attempts`・`message` など。まだ一度も検出していなければ 404） |
 | GET | `/api/my/recordings/channel-summaries` | 全チャンネルの録画の要約（再生できる録画の件数・合計の長さ・最新の録画日・最新のサムネイル・購読しているか）を、最新の録画が新しい順に返す。利用者のアーカイブの「チャンネル」（`/my/archive/channels`）が使う |
 | GET | `/api/my/recordings/channel-summaries/{channelId}` | 1 チャンネルの録画の要約（チャンネルページ `/my/archive/channels/{channelId}` の見出し。無いチャンネルは 404） |
+| GET | `/api/my/videos/{id}` | 録画していない動画 1 件を返す（視聴画面 `/my/videos/watch/{id}` が読む。ログインしていれば誰でも使える。無い・購読していないチャンネルの動画は 404。管理者はすべての動画を読める） |
 | GET | `/api/my/recordings/{recordingId}/sound-marks?kind=EAR_KISS` | 録画に付いた耳キスの印（全員の分）を位置の順に返す（ログインしていれば誰でも使える。以下の `/api/my/**` も同じ） |
 | POST | `/api/my/recordings/{recordingId}/sound-marks` | 印を付ける（本文 `{"kind":"EAR_KISS","positionMs":123456}`。同じ人が前後 1 秒以内に付け直すと前の印を返す） |
 | DELETE | `/api/my/recordings/{recordingId}/sound-marks/{markId}` | 自分の印を消す（ほかの人の印は 404） |
