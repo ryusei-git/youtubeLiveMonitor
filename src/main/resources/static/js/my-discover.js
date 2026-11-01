@@ -237,12 +237,14 @@ const myDiscoverView = {
                     showToast(`${title} を${done[status]}`);
                 } else {
                     await apiPost("/api/my/channels", { platform: "YOUTUBE", channelInput: channelId, channelName: title });
+                    // 画面を離れた後でも購読は変わっているので、下で戻る前にメニューの行を合わせる
+                    myLoadNavChannels({ force: true });
                     if (!list.isConnected) return;
                     card.querySelector(".serviceWatchLamp")?.remove();
                     button.outerHTML = MY_SEARCH_SUBSCRIBED_LAMP;
                     restoreFocus();
                     (await subscribedLoad).add(channelId);
-                    showToast(`${title} をマイチャンネルに登録しました`);
+                    showToast(`${title} を登録チャンネルに追加しました`);
                 }
                 clearError();
             } catch (e) {

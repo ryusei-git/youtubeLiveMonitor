@@ -479,17 +479,39 @@ body.userApp .globalnav a:hover { background: var(--surface-sunken); color: var(
 body.userApp .globalnav a.active { background: var(--surface-sunken); color: var(--text); font-weight: 700; }
 @media (min-width: 761px) {
     body.userApp .globalnav { top: 56px; border-right: 0; }
-    body.userApp .globalnav .shell { gap: 0; padding: 12px 24px 12px 12px; }
+    /* flex-wrap: style.css の wrap のままだと、縦の並びの列の幅が最も長い項目に合わせて広がり、長いチャンネル名でメニューの全項目がはみ出す */
+    body.userApp .globalnav .shell { flex-wrap: nowrap; gap: 0; padding: 12px 24px 12px 12px; }
     body.userApp .globalnav a { flex: none; gap: 24px; height: 40px; padding: 0 12px; border-radius: 10px; font-size: 14px; font-weight: 400; line-height: 20px; }
-    body.userApp .globalnav a.navLogout { margin-top: auto; padding: 0 12px; border-top: 0; border-radius: 10px; color: var(--text); }
+    /* margin-top は省かない。省くと管理者の画面の .globalnav a.navLogout の auto が効き、下端へ押し下げられる */
+    body.userApp .globalnav a.navLogout { margin-top: 0; padding: 0 12px; border-top: 0; border-radius: 10px; color: var(--text); }
     body.userApp .globalnav .navIcon { width: 24px; height: 24px; flex-basis: 24px; }
     body.userApp:has(.globalnav) main.shell { padding: 16px 24px 48px; }
 }
 /* アイコンの下に小さい文字を置く形。長い項目は my.html の wbr の所で折り返し、語の途中で切らない */
 @media (min-width: 761px) and (max-width: 1312px) {
+    /* 窓が低いと縦のスクロールバーが出る。場所を取る環境（Windows など）では 72px の幅が削られ、文字が切れて横のスクロールバーまで出るので、
+       バーを隠す。ホイールと指では今までどおり動く */
+    body.userApp .globalnav { overflow-x: hidden; scrollbar-width: none; }
     body.userApp .globalnav .shell { padding: 4px; }
     body.userApp .globalnav a, body.userApp .globalnav a.navLogout { flex-direction: column; justify-content: center; gap: 6px; width: 64px; height: auto; min-height: 74px; padding: 8px 0; font-size: 10px; line-height: 14px; text-align: center; white-space: normal; word-break: keep-all; }
+    /* 見出しとチャンネルの行を置く場所が無い。「登録チャンネル」は隠すと /my/videos へ行けなくなるので、リンクだけを普通の項目で残す
+       （見出しの形は下の規則でこの幅を除いてあるので、ここで打ち消さない） */
+    body.userApp .navGroupLabel, body.userApp #navChannels { display: none; }
 }
+/* メニューの見出し（登録チャンネル・マイページ）。線が角丸にならないよう、線のある上側だけ角を落とす */
+@media (min-width: 1313px), (max-width: 760px) {
+    body.userApp .navGroupLabel, body.userApp .globalnav a.navGroupLink { margin: 12px 0 0; padding: 12px; border-top: 1px solid var(--border); color: var(--text); font-size: 16px; font-weight: 700; letter-spacing: 0; line-height: 22px; }
+    body.userApp .globalnav a.navGroupLink { gap: 8px; height: auto; border-radius: 0 0 10px 10px; }
+    body.userApp .globalnav a.navGroupLink .navIcon { display: none; }
+    body.userApp .globalnav a.navGroupLink::after { content: "›"; }
+}
+/* チャンネルの行。名前は残りの幅に収めて末尾を省く（全文は my-app.js の myNavChannelLink が title に入れる）。
+   アイコンの丸は common.js の channelIcon が付ける .channelIcon の規則で付く */
+body.userApp .navChannelName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.userApp .navChannelFallback { display: grid; place-items: center; border-radius: 50%; background: var(--surface-sunken); font-size: 12px; line-height: 1; }
+/* 色は .statusLamp.is-live .lamp の style.css の赤。body.userApp の白は黒い札の中の色で、白いメニューでは見えない。
+   margin-left は、アイコンのための行の gap（24px）を名前との間だけ 8px に詰めて、名前の幅を残す */
+body.userApp .navLiveDot { flex: none; width: 8px; height: 8px; margin-left: -16px; border-radius: 50%; background: var(--danger); }
 
 /* 部品。:where() で詳細度を上げないのは、文字だけに見せるボタン（.onlineTitle・.watchTime・.sortButton など）の規則を上書きしないため */
 :where(body.userApp) button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--surface-sunken); color: var(--text); letter-spacing: 0; }

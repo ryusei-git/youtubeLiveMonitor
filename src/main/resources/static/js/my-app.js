@@ -487,7 +487,7 @@ function myWatchPath(rec) {
 let myTopStopRefresh = null;
 
 /**
- * トップ。購読しているチャンネルの配信中と配信予定を出す。
+ * ホーム。購読しているチャンネルの配信中と配信予定を出す。
  * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直す（管理画面のダッシュボードと同じ間隔）。
  * 配信予定も一緒に読み直すのは、始まった配信が「配信予定」に残ったまま「配信中」にも並ぶのを避けるため。
  * 失敗は欄ごとに扱う。片方の API が失敗しても、取れた方の欄は出す
@@ -496,10 +496,10 @@ let myTopStopRefresh = null;
  * @type {MyView}
  */
 const myTopView = {
-    title: "トップ",
+    title: "ホーム",
     nav: "/my",
     render(root) {
-        root.innerHTML = `<h1>トップ</h1>
+        root.innerHTML = `<h1>ホーム</h1>
             <p class="pageDescription">購読しているチャンネルの配信中と配信予定。開いている間は 1 分ごとに更新します。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <section class="livePanel"><h2>配信中</h2><div class="videoGrid"><p class="muted">読み込み中...</p></div></section>
@@ -567,18 +567,18 @@ const myTopView = {
 let myVideosStopRefresh = null;
 
 /**
- * 動画・配信。購読しているチャンネルの YouTube・Twitch 上の配信中・配信予定、配信済み、投稿済み（録画ではない）。
+ * 登録チャンネル。購読しているチャンネルの YouTube・Twitch 上の配信中・配信予定、配信済み、投稿済み（録画ではない）。
  * 中身と動きは管理者の動画一覧（videos.html）と同じもの（common.js の bindOnlineVideoSections）で、API が購読で絞る。
  *
  * 絞り込みは URL（/my/videos?keyword=...&channelId=...）に残す。アーカイブと同じく「戻る」「進む」はルーターが拾って
  * 画面ごと描き直し、描き直した画面が URL から条件を戻す。カードは視聴画面へのリンクなので、「戻る」で押す前の位置へ戻れるよう、
  * render は 3 段を描き終えたら解決する Promise を返す（ルーターが history.state に残す値は画面を離れるときに書き直すので、
  * bindOnlineVideoSections が null で書いても困らない）。
- * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直し、離れたら止める（トップと同じ）。
+ * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直し、離れたら止める（ホームと同じ）。
  * @type {MyView}
  */
 const myVideosView = {
-    title: "動画・配信",
+    title: "登録チャンネル",
     nav: "/my/videos",
     render(root) {
         const sectionHtml = [["now", "配信中・配信予定"], ["streams", "配信済み"], ["uploads", "投稿済み"]].map(([name, label]) => `
@@ -589,7 +589,7 @@ const myVideosView = {
               </div>
               <div id="${name}Grid" class="videoGrid"></div>
             </section>`).join("");
-        root.innerHTML = `<div class="pageHead"><h1>動画・配信</h1><button type="button" id="refreshVideosBtn">表示を更新</button></div>
+        root.innerHTML = `<div class="pageHead"><h1>登録チャンネル</h1><button type="button" id="refreshVideosBtn">表示を更新</button></div>
             <div class="pageNotes">
               <p class="pageDescription">購読しているチャンネルの新着動画と配信を、この画面から再生できます。</p>
               <p id="collectionNotice" class="muted" role="status">取得状況を確認しています…</p>
@@ -755,7 +755,7 @@ const myArchiveView = {
             buildCard: (r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath),
             buildRow: myArchiveRow,
             empty: emptyState("該当する録画はありません",
-                "絞り込みを外してお試しください。マイチャンネルで自動録画をオンにすると、条件に合う配信が自動で保存されます"),
+                "絞り込みを外してお試しください。「すべての登録チャンネル」で自動録画をオンにすると、条件に合う配信が自動で保存されます"),
             // ページ送り・条件の変更で履歴を積む前に今の位置を残し、「戻る」で前のページの同じ位置へ戻す。
             // 読み込み直後の整え（replace）は、今の項目に残した値（位置・from）を消さない
             writeUrl: (url, replace) => {
@@ -1619,7 +1619,7 @@ function myChannelRow(ch, reload) {
 }
 
 /**
- * マイチャンネル。購読しているチャンネルの表と、購読の追加・解除・録画の希望・キーワード。
+ * すべての登録チャンネル。購読しているチャンネルの表と、購読の追加・解除・録画の希望・キーワード。
  *
  * 並べ替えは全件を持っている表の中だけで行い（common.js の makeTableSortable）、選んだ列と向きを URL の sort に残す。
  * 残すのは replaceState にする。見出しを押すたびに履歴を積むと、「戻る」で並べ替えを 1 つずつ戻ることになり、
@@ -1630,10 +1630,10 @@ function myChannelRow(ch, reload) {
  * @type {MyView}
  */
 const myChannelsView = {
-    title: "マイチャンネル",
+    title: "すべての登録チャンネル",
     nav: "/my/channels",
     render(root, match, params) {
-        root.innerHTML = `<h1>マイチャンネル</h1>
+        root.innerHTML = `<h1>すべての登録チャンネル</h1>
             <p class="pageDescription">購読しているチャンネルと、自分の録画の希望。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <h2>チャンネルを追加</h2>
@@ -1692,6 +1692,8 @@ const myChannelsView = {
             try {
                 /** @type {MySubscribedChannel[]} */
                 const channels = await apiGet("/api/my/channels");
+                // 追加・解除の後にメニューの行を合わせる。画面を離れた後でも購読は変わっているので、下で戻る前に呼ぶ
+                myLoadNavChannels({ force: true });
                 if (current !== request || !table.isConnected) return;
                 const restoreFocus = rememberFocus(tbody, query(".subscribedHeading", root));
                 tbody.replaceChildren(...channels.map((ch) => myChannelRow(ch, load)));
@@ -1764,7 +1766,7 @@ const myNotificationSettingsView = {
     nav: "/my/settings/notifications",
     render(root) {
         root.innerHTML = `<h1>通知の設定</h1>
-            <p class="pageDescription">購読しているチャンネルの配信が始まると、登録した Discord の Webhook へ知らせます（マイチャンネルで通知をオンにしているチャンネルが対象）。通知が要らなければ登録しなくてかまいません。</p>
+            <p class="pageDescription">購読しているチャンネルの配信が始まると、登録した Discord の Webhook へ知らせます（「すべての登録チャンネル」で通知をオンにしているチャンネルが対象）。通知が要らなければ登録しなくてかまいません。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <h2>Discord の Webhook</h2>
             <p>状態: <strong id="webhookState">読み込み中...</strong></p>
@@ -1887,10 +1889,10 @@ const myNotificationSettingsView = {
  * @type {MyView}
  */
 const myAccountSettingsView = {
-    title: "アカウント",
+    title: "アカウント設定",
     nav: "/my/settings/account",
     render(root) {
-        root.innerHTML = `<h1>アカウント</h1>
+        root.innerHTML = `<h1>アカウント設定</h1>
             <p class="pageDescription">ログインのパスワードを変えます。変えると、ほかの端末やブラウザではログインし直しが必要になります。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <h2>パスワードの変更</h2>
@@ -2107,7 +2109,7 @@ const myNotFoundView = {
     title: "ページが見つかりません",
     render(root) {
         root.innerHTML = `<h1>ページが見つかりません</h1>
-            <p class="pageDescription">URL を確かめてください。<a href="/my">トップへ</a></p>`;
+            <p class="pageDescription">URL を確かめてください。<a href="/my">ホームへ</a></p>`;
     },
 };
 
@@ -2158,6 +2160,94 @@ function myMarkNav(href) {
     decorateStudioNavigation();
 }
 
+/** メニューに出すチャンネルの数。多いと下の「マイページ」の段が遠くなるので、残りは「すべての登録チャンネル」から見る。 */
+const MY_NAV_CHANNELS_LIMIT = 7;
+
+/** メニューのチャンネルを読み直す間隔の下限（ミリ秒）。画面を移るたびに読まないため。配信中の印はホームと同じ 1 分の遅れでよい。 */
+const MY_NAV_CHANNELS_INTERVAL_MS = 60000;
+
+/** メニューのチャンネルの読み込みの番号。遅れて届いた古い一覧で新しい行を上書きしないため（myChannelsView の request と同じ）。 */
+let myNavChannelsRequest = 0;
+
+/** メニューのチャンネルを最後に読み始めた時刻（performance.now() の値）。読めなかったら戻して、次の画面移動で読み直す。 */
+let myNavChannelsReadAt = -Infinity;
+
+/** メニューのチャンネルの、前回描いた内容の要約。空文字は「まだ一度も描けていない」を表す。 */
+let myNavChannelsKey = "";
+
+/**
+ * メニューのチャンネルの 1 行。絞り込みの URL は登録チャンネルの画面（common.js の bindOnlineVideoSections）が読む。
+ * アイコンが無い・読めない（Twitch のアイコンは CSP の外にある）ときは、名前の 1 文字目の丸に置き換える。1 文字目は名前と
+ * 2 回読まれないよう読み上げから外す。絵文字で始まる名前を半分に切らないよう、文字（コードポイント）の単位で取る。
+ *
+ * @param {MySubscribedChannel} channel 購読しているチャンネル
+ * @returns {HTMLAnchorElement} 行のリンク
+ */
+function myNavChannelLink(channel) {
+    const link = document.createElement("a");
+    link.href = `/my/videos?channelId=${channel.id}`;
+    const label = channel.currentlyLive ? `${channel.channelName}（配信中）` : channel.channelName;
+    // 長い名前は末尾を省くので、title で全文を読めるようにする
+    link.title = label;
+    if (channel.currentlyLive) link.setAttribute("aria-label", label);
+    const fallback = () => {
+        const initial = document.createElement("span");
+        initial.className = "navIcon navChannelFallback";
+        initial.setAttribute("aria-hidden", "true");
+        initial.textContent = Array.from(channel.channelName)[0] ?? "";
+        return initial;
+    };
+    link.innerHTML = channelIcon(channel.channelIconUrl);
+    const icon = link.querySelector("img");
+    if (icon) {
+        icon.classList.add("navIcon");
+        icon.addEventListener("error", () => icon.replaceWith(fallback()), { once: true });
+    } else {
+        link.append(fallback());
+    }
+    const name = document.createElement("span");
+    name.className = "navChannelName";
+    name.textContent = channel.channelName;
+    link.append(name);
+    if (channel.currentlyLive) {
+        const dot = document.createElement("span");
+        dot.className = "navLiveDot";
+        link.append(dot);
+    }
+    return link;
+}
+
+/**
+ * メニューのチャンネルの行（#navChannels）を読み直す。配信中を先にして、残りは API の順で先頭から出す。
+ *
+ * タイマーは置かず、画面を移るときと購読を変えたときだけ読む。裏で読み続けると、入力中の画面でログイン切れの転送が起きるため。
+ * 前回と同じ内容なら描き直さない（フォーカスが飛ぶため。onlineVideosRenderKey と同じ考え方）。
+ * メニューは補助なので、読めなくてもエラー帯は出さず前回の行を残す（myLoadRelated と同じ）。読み始めた時刻を戻すので、
+ * 読めるようになれば次の画面移動で出る。
+ *
+ * @param {{ force?: boolean }} [options] force は購読を変えた直後に付け、前回の読み込みからの間隔を待たずに読む
+ * @returns {Promise<void>} 読み終えたら解決する。失敗しても拒否しない
+ */
+async function myLoadNavChannels({ force = false } = {}) {
+    const startedAt = performance.now();
+    if (!force && startedAt - myNavChannelsReadAt < MY_NAV_CHANNELS_INTERVAL_MS) return;
+    myNavChannelsReadAt = startedAt;
+    const current = ++myNavChannelsRequest;
+    try {
+        /** @type {MySubscribedChannel[]} */
+        const channels = await apiGet("/api/my/channels");
+        if (current !== myNavChannelsRequest) return;
+        const shown = [...channels.filter((ch) => ch.currentlyLive), ...channels.filter((ch) => !ch.currentlyLive)]
+            .slice(0, MY_NAV_CHANNELS_LIMIT);
+        const key = JSON.stringify(shown.map((ch) => [ch.id, ch.channelName, ch.channelIconUrl, ch.currentlyLive]));
+        if (key === myNavChannelsKey) return;
+        myNavChannelsKey = key;
+        el("navChannels").replaceChildren(...shown.map(myNavChannelLink));
+    } catch {
+        if (current === myNavChannelsRequest) myNavChannelsReadAt = -Infinity;
+    }
+}
+
 /**
  * 今の URL の画面を描く。リンクの横取り・戻る／進む・起動時のすべてがここを通る。
  * 切り替えたら新しい画面の見出しへフォーカスを移す。移さないと、スクリーンリーダーには画面が
@@ -2190,6 +2280,7 @@ function myRender({ initial = false, restoreScroll = false } = {}) {
         window.scrollTo(0, 0);
         myMarkNav(view.nav);
         const drawn = view.render(root, match, params);
+        myLoadNavChannels();
         // Promise を返さない画面（設定など）は中身を読み込む前の短いページなので、戻すと途中の位置で止まる。
         // 今までどおり先頭から出す
         if (drawn instanceof Promise && typeof savedY === "number" && savedY > 0) {
