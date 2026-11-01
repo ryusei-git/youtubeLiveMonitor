@@ -284,8 +284,8 @@ function myToggleFullscreen(element) {
  * 0〜90% の位置、M で消音、F で全画面。録画と埋め込みの視聴画面で同じキーにするため、動かす先だけを actions で受け取る。
  *
  * <p>入力欄・選択肢（速度の選択を含む）にフォーカスがあるとき、Ctrl・Alt・Meta 付きのとき（ブラウザのショートカット）、
- * 日本語入力の変換中、ダイアログを開いているときは何もしない。スペースは、ボタン・リンクにフォーカスがあるときも何もしない
- * （ボタンはスペースで押されるので、再生の切り替えと二重になる）。
+ * 日本語入力の変換中、ダイアログ・メニューの引き出しを開いているときは何もしない。スペースは、ボタン・リンクにフォーカスが
+ * あるときも何もしない（ボタンはスペースで押されるので、再生の切り替えと二重になる）。
  *
  * <p>扱ったキーは preventDefault する。しないと、スペースでページがスクロールし、動画にフォーカスがあるときは
  * ブラウザ標準の操作も同じキーで動いて、二重に進む・切り替わる。
@@ -298,6 +298,7 @@ function myToggleFullscreen(element) {
 function myPlayerShortcut(ev, actions) {
     if (ev.defaultPrevented || ev.ctrlKey || ev.altKey || ev.metaKey || ev.isComposing) return;
     if (document.querySelector("dialog[open]")) return;
+    if (document.body.classList.contains("navOpen")) return;
     const target = ev.target instanceof Element ? ev.target : null;
     if (target?.closest("input, textarea, select") || (target instanceof HTMLElement && target.isContentEditable)) return;
     if (ev.key === " " && target?.closest("button, a, summary")) return;
@@ -474,7 +475,7 @@ function myDockInit() {
 /**
  * 録画の再生画面の URL。
  *
- * @param {Recording} rec 録画
+ * @param {{id: number}} rec 録画（上げた動画も同じ画面で再生する）
  * @returns {string} 再生画面のパス
  */
 function myWatchPath(rec) {
@@ -520,7 +521,7 @@ function myArchiveTabs(current) {
 let myTopStopRefresh = null;
 
 /**
- * トップ。購読しているチャンネルの配信中と配信予定を出す。
+ * ホーム。購読しているチャンネルの配信中と配信予定を出す。
  * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直す（管理画面のダッシュボードと同じ間隔）。
  * 配信予定も一緒に読み直すのは、始まった配信が「配信予定」に残ったまま「配信中」にも並ぶのを避けるため。
  * 失敗は欄ごとに扱う。片方の API が失敗しても、取れた方の欄は出す
@@ -529,10 +530,10 @@ let myTopStopRefresh = null;
  * @type {MyView}
  */
 const myTopView = {
-    title: "トップ",
+    title: "ホーム",
     nav: "/my",
     render(root) {
-        root.innerHTML = `<h1>トップ</h1>
+        root.innerHTML = `<h1>ホーム</h1>
             <p class="pageDescription">購読しているチャンネルの配信中と配信予定。開いている間は 1 分ごとに更新します。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <section class="livePanel"><h2>配信中</h2><div class="videoGrid"><p class="muted">読み込み中...</p></div></section>
@@ -600,18 +601,18 @@ const myTopView = {
 let myVideosStopRefresh = null;
 
 /**
- * 動画・配信。購読しているチャンネルの YouTube・Twitch 上の配信中・配信予定、配信済み、投稿済み（録画ではない）。
+ * 登録チャンネル。購読しているチャンネルの YouTube・Twitch 上の配信中・配信予定、配信済み、投稿済み（録画ではない）。
  * 中身と動きは管理者の動画一覧（videos.html）と同じもの（common.js の bindOnlineVideoSections）で、API が購読で絞る。
  *
  * 絞り込みは URL（/my/videos?keyword=...&channelId=...）に残す。アーカイブと同じく「戻る」「進む」はルーターが拾って
  * 画面ごと描き直し、描き直した画面が URL から条件を戻す。カードは視聴画面へのリンクなので、「戻る」で押す前の位置へ戻れるよう、
  * render は 3 段を描き終えたら解決する Promise を返す（ルーターが history.state に残す値は画面を離れるときに書き直すので、
  * bindOnlineVideoSections が null で書いても困らない）。
- * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直し、離れたら止める（トップと同じ）。
+ * 配信は分単位で始まり・終わるため、開いている間は 1 分ごとに読み直し、離れたら止める（ホームと同じ）。
  * @type {MyView}
  */
 const myVideosView = {
-    title: "動画・配信",
+    title: "登録チャンネル",
     nav: "/my/videos",
     render(root) {
         const sectionHtml = [["now", "配信中・配信予定"], ["streams", "配信済み"], ["uploads", "投稿済み"]].map(([name, label]) => `
@@ -622,7 +623,7 @@ const myVideosView = {
               </div>
               <div id="${name}Grid" class="videoGrid"></div>
             </section>`).join("");
-        root.innerHTML = `<div class="pageHead"><h1>動画・配信</h1><button type="button" id="refreshVideosBtn">表示を更新</button></div>
+        root.innerHTML = `<div class="pageHead"><h1>登録チャンネル</h1><button type="button" id="refreshVideosBtn">表示を更新</button></div>
             <div class="pageNotes">
               <p class="pageDescription">購読しているチャンネルの新着動画と配信を、この画面から再生できます。</p>
               <p id="collectionNotice" class="muted" role="status">取得状況を確認しています…</p>
@@ -724,7 +725,9 @@ const myArchiveView = {
             <p class="pageDescription">この端末に録画したすべての録画。再生中にほかの画面へ移っても、画面下で再生を続けます。</p>
             ${myArchiveTabs("all")}
             <p id="error" class="error" role="alert" style="display:none;"></p>
+            <div class="archiveChips" role="group" aria-label="分類"></div>
             <form id="filterForm" class="inline">
+              <input type="hidden" name="category">
               <input type="search" name="keyword" placeholder="タイトル・チャンネル名で検索" aria-label="タイトル・チャンネル名で検索">
               <button type="submit">検索</button>
               <details class="filterMore">
@@ -775,10 +778,16 @@ const myArchiveView = {
             </nav>`;
         const grid = query(".videoGrid", root);
         const summary = query(".resultSummary", root);
+        const chips = query(".archiveChips", root);
+        const categoryField = /** @type {HTMLInputElement} */ (query('input[name="category"]', root));
         /** 読み込みの番号。条件を続けて変えたとき、遅れて届いた古い応答で上書きしないため（管理画面と同じ）。 */
         let request = 0;
         const load = async () => {
             const current = ++request;
+            // URL からの復元・条件のクリア・ボタンのどれで分類が変わっても、読み直す前に必ずここを通る
+            for (const chip of chips.querySelectorAll("button")) {
+                chip.setAttribute("aria-pressed", String(chip.value === categoryField.value));
+            }
             try {
                 const params = search.apiParams();
                 params.set("playableOnly", "true");
@@ -802,7 +811,7 @@ const myArchiveView = {
             buildCard: (r) => buildVideoCard(r, null, true, null, myToggleMark, myWatchPath, myRecordingChannelPath),
             buildRow: myArchiveRow,
             empty: emptyState("該当する録画はありません",
-                "絞り込みを外してお試しください。マイチャンネルで自動録画をオンにすると、条件に合う配信が自動で保存されます"),
+                "絞り込みを外してお試しください。「すべての登録チャンネル」で自動録画をオンにすると、条件に合う配信が自動で保存されます"),
             // ページ送り・条件の変更で履歴を積む前に今の位置を残し、「戻る」で前のページの同じ位置へ戻す。
             // 読み込み直後の整え（replace）は、今の項目に残した値（位置・from）を消さない
             writeUrl: (url, replace) => {
@@ -829,8 +838,39 @@ const myArchiveView = {
                 if (select.isConnected) showError(errorMessage(e));
             }
         };
+        /**
+         * 分類のボタンを 1 つ足す。押したら検索ボタンと同じく 1 ページ目から読み直す。
+         *
+         * @param {string} key 分類の key。「すべて」は空
+         * @param {string} text ボタンの文字
+         */
+        const addChip = (key, text) => {
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.value = key;
+            chip.textContent = text;
+            chip.addEventListener("click", () => {
+                categoryField.value = key;
+                search.goToPage(0);
+            });
+            chips.appendChild(chip);
+        };
+        /** 分類のボタンを API から作る。失敗しても一覧は出す（ボタンが出ないだけ。addOptions と同じ）。 */
+        const addChips = async () => {
+            try {
+                /** @type {{key: string, label: string, count: number}[]} */
+                const categories = await apiGet("/api/my/recordings/categories");
+                addChip("", "すべて");
+                for (const c of categories) {
+                    if (c.count > 0) addChip(c.key, `${c.label} ${c.count}`);
+                }
+            } catch (e) {
+                if (chips.isConnected) showError(errorMessage(e));
+            }
+        };
         // 選択肢が揃ってから URL の条件を戻す（先に戻すと、チャンネル・ジャンルが選択肢に無い値として捨てられる）
         return Promise.all([
+            addChips(),
             // 購読しているチャンネルだけだと、一覧に出ている購読外の録画のチャンネルで絞り込めない
             addOptions("channelId", "/api/my/recordings/channels", (ch) => new Option(ch.channelName, String(ch.id))),
             // 件数を添えるのは、選ぶ前にどれだけ当たるか分かるようにするため（管理画面と同じ）
@@ -1403,6 +1443,27 @@ function myMergeSoundRanges(ranges) {
     return merged;
 }
 
+/** 自動の検出が長さで対象外になる再生時間（秒）。サーバーの SoundDetectionService.MAX_DURATION_SECONDS と同じ値にする。 */
+const MY_SOUND_DETECTION_MAX_SECONDS = 6 * 3600;
+
+/**
+ * 自動の検出の対象外（UNSUPPORTED）の理由の文言。
+ *
+ * API の state は「長すぎる録画」と「上げた動画」を分けず、録画の応答にも上げた動画を表す項目が無いので、長さで見分ける。
+ * サーバーが UNSUPPORTED にするのはこの 2 つだけなので、6 時間以下（長さが分からないときを含む）なら上げた動画と決まる。
+ * 6 時間を超える上げた動画には長さの文言が出るが、それも正しい。
+ *
+ * チャンネル名の「アップロード」で見分けない（同じ名前のチャンネルがありうる）。動画 ID の形でも見分けない（ID の形から推測しない）。
+ *
+ * @param {Recording} rec 再生画面の録画
+ * @returns {string} 画面に出す文言
+ */
+function mySoundUnsupportedText(rec) {
+    return (rec.durationSeconds ?? 0) > MY_SOUND_DETECTION_MAX_SECONDS
+        ? "6 時間を超える録画は、自動の検出の対象外です"
+        : "アップロードした動画は、自動の検出の対象外です";
+}
+
 /**
  * 再生画面の耳キスの欄（#459）。聞きながら「ここは耳キス」の印を付け、印の一覧と前後の印へ飛ぶボタンを出す。
  * 印は全員で共有し、消せるのは付けた本人だけ（API も本人の印しか消さない）。
@@ -1721,7 +1782,7 @@ function myBindSoundMarks(rec, container) {
         state.hidden = candidateState === null;
         state.textContent = (candidateState === "PENDING" ? "自動の検出を待っています"
             : candidateState === "FAILED" ? "自動の検出に失敗しました"
-            : candidateState === "UNSUPPORTED" ? "6 時間を超える録画は、自動の検出の対象外です"
+            : candidateState === "UNSUPPORTED" ? mySoundUnsupportedText(rec)
             : `自動の候補 ${candidates.length} 件（未確認 ${unreviewed} 件）`)
             + (candidates.length ? "。自動の候補は外れが多いので、聞いて答えてください。答えは精度を上げるのに使います。" : "");
         const restoreFocus = rememberFocus(list);
@@ -1962,7 +2023,7 @@ function myChannelRow(ch, reload) {
 }
 
 /**
- * マイチャンネル。購読しているチャンネルの表と、購読の追加・解除・録画の希望・キーワード。
+ * すべての登録チャンネル。購読しているチャンネルの表と、購読の追加・解除・録画の希望・キーワード。
  *
  * 並べ替えは全件を持っている表の中だけで行い（common.js の makeTableSortable）、選んだ列と向きを URL の sort に残す。
  * 残すのは replaceState にする。見出しを押すたびに履歴を積むと、「戻る」で並べ替えを 1 つずつ戻ることになり、
@@ -1973,10 +2034,10 @@ function myChannelRow(ch, reload) {
  * @type {MyView}
  */
 const myChannelsView = {
-    title: "マイチャンネル",
+    title: "すべての登録チャンネル",
     nav: "/my/channels",
     render(root, match, params) {
-        root.innerHTML = `<h1>マイチャンネル</h1>
+        root.innerHTML = `<h1>すべての登録チャンネル</h1>
             <p class="pageDescription">購読しているチャンネルと、自分の録画の希望。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <h2>チャンネルを追加</h2>
@@ -2035,6 +2096,8 @@ const myChannelsView = {
             try {
                 /** @type {MySubscribedChannel[]} */
                 const channels = await apiGet("/api/my/channels");
+                // 追加・解除の後にメニューの行を合わせる。画面を離れた後でも購読は変わっているので、下で戻る前に呼ぶ
+                myLoadNavChannels({ force: true });
                 if (current !== request || !table.isConnected) return;
                 const restoreFocus = rememberFocus(tbody, query(".subscribedHeading", root));
                 tbody.replaceChildren(...channels.map((ch) => myChannelRow(ch, load)));
@@ -2107,7 +2170,7 @@ const myNotificationSettingsView = {
     nav: "/my/settings/notifications",
     render(root) {
         root.innerHTML = `<h1>通知の設定</h1>
-            <p class="pageDescription">購読しているチャンネルの配信が始まると、登録した Discord の Webhook へ知らせます（マイチャンネルで通知をオンにしているチャンネルが対象）。通知が要らなければ登録しなくてかまいません。</p>
+            <p class="pageDescription">購読しているチャンネルの配信が始まると、登録した Discord の Webhook へ知らせます（「すべての登録チャンネル」で通知をオンにしているチャンネルが対象）。通知が要らなければ登録しなくてかまいません。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <h2>Discord の Webhook</h2>
             <p>状態: <strong id="webhookState">読み込み中...</strong></p>
@@ -2230,10 +2293,10 @@ const myNotificationSettingsView = {
  * @type {MyView}
  */
 const myAccountSettingsView = {
-    title: "アカウント",
+    title: "アカウント設定",
     nav: "/my/settings/account",
     render(root) {
-        root.innerHTML = `<h1>アカウント</h1>
+        root.innerHTML = `<h1>アカウント設定</h1>
             <p class="pageDescription">ログインのパスワードを変えます。変えると、ほかの端末やブラウザではログインし直しが必要になります。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
             <h2>パスワードの変更</h2>
@@ -2445,12 +2508,318 @@ const myDownloadView = {
     },
 };
 
+/** 題名の上限（文字数）。サーバーの VideoUploadService.MAX_TITLE_LENGTH と同じ値にする。 */
+const MY_UPLOAD_TITLE_MAX_LENGTH = 200;
+
+/**
+ * 上げた動画 1 本（Java の {@code MyUploadResponse} に対応）。
+ *
+ * @typedef {object} MyUpload
+ * @property {number} id 録画の主キー。再生は録画と同じ画面で行う
+ * @property {string} title 題名
+ * @property {number} fileSizeBytes 取り込んだファイルのサイズ（バイト）
+ * @property {number|null} durationSeconds 再生時間（秒）。読み取れていなければ null
+ * @property {string} uploadedAt 取り込んだ時刻
+ */
+
+/**
+ * 上げた動画の一覧と上限（Java の {@code MyUploadListResponse} に対応）。
+ *
+ * @typedef {object} MyUploadList
+ * @property {number} maxFileBytes 1 本の大きさの上限（バイト）
+ * @property {number} quotaBytes 1 人が置ける合計の上限（バイト）
+ * @property {number} usedBytes いま置いている合計（バイト）
+ * @property {MyUpload[]} items 上げた動画（新しい順）
+ */
+
+/**
+ * 上げている最中の 1 本。
+ *
+ * @typedef {object} MyUploadJob
+ * @property {XMLHttpRequest} xhr 送っている要求。中止に使う
+ * @property {string} fileName 元のファイル名
+ * @property {number} loaded 送ったバイト数
+ * @property {number} total ファイルの大きさ（バイト）
+ */
+
+/**
+ * 動画アップロードの画面の描き先。画面を開くたびに作り直す。
+ *
+ * @typedef {object} MyUploadScreen
+ * @property {HTMLElement} panel 進み具合の枠。画面が開いているかを isConnected で見分ける
+ * @property {() => void} paint 進み具合を描き直す
+ * @property {(succeeded: boolean) => void} settle 送信が終わったときに、フォームと一覧を戻す
+ */
+
+/** 上げている動画。同時に 1 本だけ。画面を移っても送り続けるので、画面の外に持つ。上げていなければ null。 */
+/** @type {MyUploadJob|null} */
+let myUploadJob = null;
+
+/**
+ * 最後に開いた動画アップロードの画面。送信の処理はこれを通して描く（移って戻ると、送り始めたときの要素はページから外れている）。
+ * 別の画面へ移っても残るので、{@link myOpenUploadScreen} を通して使う。
+ * @type {MyUploadScreen|null}
+ */
+let myUploadScreen = null;
+
+/** 別の画面にいる間に失敗した文言。エラー帯は画面の中にあるので、戻ったときに出す。無ければ空。 */
+let myUploadMissedError = "";
+
+/**
+ * @returns {MyUploadScreen|null} 動画アップロードの画面を開いていれば描き先。別の画面なら null
+ */
+function myOpenUploadScreen() {
+    return myUploadScreen?.panel.isConnected ? myUploadScreen : null;
+}
+
+/**
+ * 上げている間、ページを閉じる・読み込み直す前に確かめる。閉じると送信が切れ、サーバーは受け取った分を消すため。
+ * 上げていない間は外す（付けたままだと、ブラウザーによっては「戻る」のキャッシュが効かなくなる）。
+ *
+ * @param {BeforeUnloadEvent} event イベント
+ */
+function myConfirmUnloadWhileUploading(event) {
+    event.preventDefault();
+    // preventDefault だけでは確認を出さないブラウザーがある
+    event.returnValue = "";
+}
+
+/**
+ * 動画を送り始める。結果の知らせも含めて、画面を移っても動くようにしてある（DOM には {@link myOpenUploadScreen} を通して触る）。
+ *
+ * fetch でなく XMLHttpRequest なのは、fetch では送信の進み具合を取れないため。本文に File をそのまま渡すと、ブラウザーは
+ * 読みながら送り、ファイルをメモリへ読み込まない。応答は取り込みが終わるまで返らない（数分かかる）ので、タイムアウトは付けない。
+ *
+ * ログイン切れの転送より先に確認を外す（finish）。残すと、終わった送信のことをページを移るときに聞いてしまう。
+ *
+ * @param {File} file 送る動画
+ * @param {string} title 題名。空ならサーバーがファイル名から決める
+ */
+function myStartUpload(file, title) {
+    const xhr = new XMLHttpRequest();
+    /** @type {MyUploadJob} */
+    const job = { xhr, fileName: file.name, loaded: 0, total: file.size };
+    /** @param {boolean} succeeded 取り込めたか */
+    const finish = (succeeded) => {
+        myUploadJob = null;
+        window.removeEventListener("beforeunload", myConfirmUnloadWhileUploading);
+        myOpenUploadScreen()?.settle(succeeded);
+    };
+    /** @param {string} message 失敗の文言 */
+    const fail = (message) => {
+        finish(false);
+        if (myOpenUploadScreen()) {
+            showError(message, { reveal: true });
+            return;
+        }
+        // 移った先の画面のエラー帯には書かない。トーストは消えるので、理由は戻ったときにエラー帯へ出す
+        myUploadMissedError = message;
+        showToast("動画をアップロードできませんでした。理由は「動画アップロード」の画面に出ています", "danger");
+    };
+    xhr.upload.addEventListener("progress", (event) => {
+        job.loaded = event.loaded;
+        myOpenUploadScreen()?.paint();
+    });
+    xhr.addEventListener("load", () => {
+        if (xhr.status === 401) {
+            finish(false);
+            redirectToLogin();
+        } else if (xhr.status === 201) {
+            finish(true);
+            showToast(`「${xhr.response.title}」をアップロードしました`);
+        } else {
+            fail(xhr.response?.error || `アップロードできませんでした（HTTP ${xhr.status}）`);
+        }
+    });
+    xhr.addEventListener("error", () => fail(NETWORK_ERROR_MESSAGE));
+    xhr.addEventListener("abort", () => {
+        finish(false);
+        showToast("アップロードを中止しました");
+    });
+
+    const params = new URLSearchParams({ fileName: file.name, title });
+    xhr.open("PUT", `/api/my/uploads?${params}`);
+    xhr.responseType = "json";
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    Object.entries(csrfHeaders()).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+    myUploadJob = job;
+    window.addEventListener("beforeunload", myConfirmUnloadWhileUploading);
+    xhr.send(file);
+}
+
+/**
+ * 上げた動画 1 本を一覧の行にする。
+ *
+ * @param {MyUpload} upload 上げた動画
+ * @returns {string} li 要素の HTML
+ */
+function myUploadItemHtml(upload) {
+    return `<li data-focus-key="${upload.id}">
+        <div class="uploadItemText">
+          <a href="${myWatchPath(upload)}">${escapeHtml(upload.title)}</a>
+          <span class="muted">${formatDuration(upload.durationSeconds)} · ${formatFileSize(upload.fileSizeBytes)} · ${escapeHtml(formatTimeAgo(upload.uploadedAt))}</span>
+        </div>
+        <button type="button" class="removeBtn" data-upload-id="${upload.id}">削除</button>
+      </li>`;
+}
+
+/**
+ * 動画アップロード（#888。API は #887）。手元の動画を選んで上げ、進み具合を見て、自分の分を一覧で確かめて消す。
+ *
+ * 送信は画面より長く続く。画面を離れても止めず（leave を持たない）、戻ったら {@link myUploadJob} から進み具合を描く。
+ *
+ * 100% の後は中止のボタンを隠す。送り終えた後の取り込みは接続が切れても止まらず、動画は一覧に増える。中止と言って止まらないため。
+ *
+ * 1 本の上限はサーバーも確かめるが、画面でも先に断る。このファイルの大きさを添えて伝えられるため。一覧を読めていない間は
+ * サーバーの判定（413）に任せる。
+ *
+ * @type {MyView}
+ */
+const myUploadView = {
+    title: "動画アップロード",
+    nav: "/my/upload",
+    render(root) {
+        root.innerHTML = `<h1>動画アップロード</h1>
+            <p class="pageDescription">手元の動画をこのサービスへ上げて、アーカイブで再生します。ログインできる全員に見えます。</p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <p id="uploadLimits" class="muted"></p>
+            <form id="uploadForm">
+              <p><label>動画ファイル<br><input type="file" id="uploadFile" accept="video/*,.mkv,.mov,.webm" required></label></p>
+              <p class="muted">対応形式: MP4・MOV・WebM・MKV</p>
+              <p><label>題名<br><input type="text" id="uploadTitle" maxlength="${MY_UPLOAD_TITLE_MAX_LENGTH}" size="60"></label></p>
+              <p><button type="submit">アップロード</button></p>
+            </form>
+            <div id="uploadJob" class="uploadJob" hidden>
+              <p id="uploadJobName"></p>
+              <progress max="1" value="0" aria-label="アップロードの進み具合"></progress>
+              <p id="uploadJobAmount"></p>
+              <!-- 読み上げは段階が変わったときだけにする。上の割合は送っている間ずっと変わるので、ここに入れない -->
+              <p id="uploadJobPhase" role="status"></p>
+              <button type="button" id="uploadAbort">中止</button>
+            </div>
+            <h2>アップロードした動画</h2>
+            <div id="uploadList"><p class="muted">読み込み中...</p></div>`;
+        const form = formEl("uploadForm");
+        const fileInput = inputEl("uploadFile");
+        const titleInput = inputEl("uploadTitle");
+        const submitButton = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
+        const panel = el("uploadJob");
+        const progress = /** @type {HTMLProgressElement} */ (query("progress", panel));
+        const abortButton = buttonEl("uploadAbort");
+        const list = el("uploadList");
+        /** 1 本の上限（バイト）。一覧を読むまでは null */
+        /** @type {number|null} */
+        let maxFileBytes = null;
+        // 読み込みの番号。遅れて届いた古い一覧で、新しい一覧を上書きしないため
+        let request = 0;
+
+        const paint = () => {
+            const job = myUploadJob;
+            panel.hidden = !job;
+            fileInput.disabled = titleInput.disabled = submitButton.disabled = job !== null;
+            if (!job) return;
+            const processing = job.loaded >= job.total;
+            el("uploadJobName").textContent = job.fileName;
+            // value を外すと、終わりの見えない待ちの表示になる
+            if (processing) progress.removeAttribute("value");
+            else progress.value = job.loaded / job.total;
+            el("uploadJobAmount").textContent = processing ? ""
+                : `${Math.floor(job.loaded / job.total * 100)}%（${formatFileSize(job.loaded)} / ${formatFileSize(job.total)}）`;
+            el("uploadJobPhase").textContent = processing ? "サーバーで処理しています…（数分かかることがあります）" : "";
+            abortButton.hidden = processing;
+        };
+
+        const reload = async () => {
+            const current = ++request;
+            try {
+                /** @type {MyUploadList} */
+                const uploads = await apiGet("/api/my/uploads");
+                if (current !== request || !list.isConnected) return;
+                maxFileBytes = uploads.maxFileBytes;
+                el("uploadLimits").textContent = `1 本 ${formatFileSize(uploads.maxFileBytes)} まで。使っている容量 ${formatFileSize(uploads.usedBytes)} / ${formatFileSize(uploads.quotaBytes)}`;
+                const restoreFocus = rememberFocus(list, root);
+                list.innerHTML = uploads.items.length === 0
+                    ? emptyState("アップロードした動画はまだありません", "上のフォームから動画を選んでください。")
+                    : `<ul class="uploadList">${uploads.items.map(myUploadItemHtml).join("")}</ul>`;
+                restoreFocus();
+            } catch (e) {
+                if (current !== request || !list.isConnected) return;
+                list.innerHTML = '<p class="muted">読み込めませんでした。</p>';
+                showError(errorMessage(e));
+            }
+        };
+
+        myUploadScreen = {
+            panel,
+            paint,
+            settle(succeeded) {
+                if (succeeded) {
+                    clearError();
+                    form.reset();
+                }
+                paint();
+                reload();
+            },
+        };
+
+        fileInput.addEventListener("change", () => {
+            const file = fileInput.files?.[0];
+            // value へ入れた値には maxlength が効かない
+            if (file) titleInput.value = file.name.replace(/\.[^.]*$/, "").slice(0, MY_UPLOAD_TITLE_MAX_LENGTH);
+        });
+
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            const file = fileInput.files?.[0];
+            if (!file || myUploadJob) return;
+            if (file.size === 0) {
+                showError("空のファイルはアップロードできません", { reveal: true });
+                return;
+            }
+            if (maxFileBytes !== null && file.size > maxFileBytes) {
+                showError(`ファイルが大きすぎます。1 本 ${formatFileSize(maxFileBytes)} までです（このファイルは ${formatFileSize(file.size)}）`, { reveal: true });
+                return;
+            }
+            clearError();
+            myStartUpload(file, titleInput.value);
+            paint();
+        });
+
+        abortButton.addEventListener("click", () => {
+            if (myUploadJob && confirm("アップロードを中止しますか？（送った分は消えます）")) myUploadJob.xhr.abort();
+        });
+
+        list.addEventListener("click", async (event) => {
+            const button = event.target instanceof Element ? event.target.closest("[data-upload-id]") : null;
+            if (!(button instanceof HTMLButtonElement)) return;
+            if (!confirm("この動画を削除しますか？（アーカイブからも消えます）")) return;
+            const title = button.closest("li")?.querySelector("a")?.textContent ?? "";
+            try {
+                await apiDelete(`/api/my/uploads/${button.dataset.uploadId}`);
+                showToast(`「${title}」を削除しました`, "danger");
+                if (!list.isConnected) return;
+                clearError();
+                await reload();
+            } catch (e) {
+                if (list.isConnected) showError(errorMessage(e), { reveal: true });
+            }
+        });
+
+        paint();
+        if (myUploadMissedError) {
+            showError(myUploadMissedError);
+            myUploadMissedError = "";
+        }
+        return reload();
+    },
+};
+
 /** @type {MyView} */
 const myNotFoundView = {
     title: "ページが見つかりません",
     render(root) {
         root.innerHTML = `<h1>ページが見つかりません</h1>
-            <p class="pageDescription">URL を確かめてください。<a href="/my">トップへ</a></p>`;
+            <p class="pageDescription">URL を確かめてください。<a href="/my">ホームへ</a></p>`;
     },
 };
 
@@ -2468,6 +2837,7 @@ const myRoutes = [
     [/^\/my\/videos\/?$/, myVideosView],
     [/^\/my\/videos\/watch\/([\w-]+)\/?$/, myVideoWatchView],
     [/^\/my\/download\/?$/, myDownloadView],
+    [/^\/my\/upload\/?$/, myUploadView],
     [/^\/my\/search\/?$/, mySearchView],
     [/^\/my\/search\/watch\/([\w-]{11})\/?$/, mySearchWatchView],
     [/^\/my\/discover\/?$/, myDiscoverView],
@@ -2499,8 +2869,96 @@ function myMarkNav(href) {
         link.classList.toggle("active", link.getAttribute("href") === href);
         link.removeAttribute("aria-current");
     });
-    // aria-current を付け直すのと、狭い画面で今いる項目を見える位置へ寄せるのは共通の処理に任せる
+    // aria-current を付け直すのは共通の処理に任せる
     decorateStudioNavigation();
+}
+
+/** メニューに出すチャンネルの数。多いと下の「マイページ」の段が遠くなるので、残りは「すべての登録チャンネル」から見る。 */
+const MY_NAV_CHANNELS_LIMIT = 7;
+
+/** メニューのチャンネルを読み直す間隔の下限（ミリ秒）。画面を移るたびに読まないため。配信中の印はホームと同じ 1 分の遅れでよい。 */
+const MY_NAV_CHANNELS_INTERVAL_MS = 60000;
+
+/** メニューのチャンネルの読み込みの番号。遅れて届いた古い一覧で新しい行を上書きしないため（myChannelsView の request と同じ）。 */
+let myNavChannelsRequest = 0;
+
+/** メニューのチャンネルを最後に読み始めた時刻（performance.now() の値）。読めなかったら戻して、次の画面移動で読み直す。 */
+let myNavChannelsReadAt = -Infinity;
+
+/** メニューのチャンネルの、前回描いた内容の要約。空文字は「まだ一度も描けていない」を表す。 */
+let myNavChannelsKey = "";
+
+/**
+ * メニューのチャンネルの 1 行。絞り込みの URL は登録チャンネルの画面（common.js の bindOnlineVideoSections）が読む。
+ * アイコンが無い・読めない（Twitch のアイコンは CSP の外にある）ときは、名前の 1 文字目の丸に置き換える。1 文字目は名前と
+ * 2 回読まれないよう読み上げから外す。絵文字で始まる名前を半分に切らないよう、文字（コードポイント）の単位で取る。
+ *
+ * @param {MySubscribedChannel} channel 購読しているチャンネル
+ * @returns {HTMLAnchorElement} 行のリンク
+ */
+function myNavChannelLink(channel) {
+    const link = document.createElement("a");
+    link.href = `/my/videos?channelId=${channel.id}`;
+    const label = channel.currentlyLive ? `${channel.channelName}（配信中）` : channel.channelName;
+    // 長い名前は末尾を省くので、title で全文を読めるようにする
+    link.title = label;
+    if (channel.currentlyLive) link.setAttribute("aria-label", label);
+    const fallback = () => {
+        const initial = document.createElement("span");
+        initial.className = "navIcon navChannelFallback";
+        initial.setAttribute("aria-hidden", "true");
+        initial.textContent = Array.from(channel.channelName)[0] ?? "";
+        return initial;
+    };
+    link.innerHTML = channelIcon(channel.channelIconUrl);
+    const icon = link.querySelector("img");
+    if (icon) {
+        icon.classList.add("navIcon");
+        icon.addEventListener("error", () => icon.replaceWith(fallback()), { once: true });
+    } else {
+        link.append(fallback());
+    }
+    const name = document.createElement("span");
+    name.className = "navChannelName";
+    name.textContent = channel.channelName;
+    link.append(name);
+    if (channel.currentlyLive) {
+        const dot = document.createElement("span");
+        dot.className = "navLiveDot";
+        link.append(dot);
+    }
+    return link;
+}
+
+/**
+ * メニューのチャンネルの行（#navChannels）を読み直す。配信中を先にして、残りは API の順で先頭から出す。
+ *
+ * タイマーは置かず、画面を移るときと購読を変えたときだけ読む。裏で読み続けると、入力中の画面でログイン切れの転送が起きるため。
+ * 前回と同じ内容なら描き直さない（フォーカスが飛ぶため。onlineVideosRenderKey と同じ考え方）。
+ * メニューは補助なので、読めなくてもエラー帯は出さず前回の行を残す（myLoadRelated と同じ）。読み始めた時刻を戻すので、
+ * 読めるようになれば次の画面移動で出る。
+ *
+ * @param {{ force?: boolean }} [options] force は購読を変えた直後に付け、前回の読み込みからの間隔を待たずに読む
+ * @returns {Promise<void>} 読み終えたら解決する。失敗しても拒否しない
+ */
+async function myLoadNavChannels({ force = false } = {}) {
+    const startedAt = performance.now();
+    if (!force && startedAt - myNavChannelsReadAt < MY_NAV_CHANNELS_INTERVAL_MS) return;
+    myNavChannelsReadAt = startedAt;
+    const current = ++myNavChannelsRequest;
+    try {
+        /** @type {MySubscribedChannel[]} */
+        const channels = await apiGet("/api/my/channels");
+        if (current !== myNavChannelsRequest) return;
+        const shown = [...channels.filter((ch) => ch.currentlyLive), ...channels.filter((ch) => !ch.currentlyLive)]
+            .slice(0, MY_NAV_CHANNELS_LIMIT);
+        const key = JSON.stringify(shown.map((ch) => [ch.id, ch.channelName, ch.channelIconUrl, ch.currentlyLive]));
+        if (key === myNavChannelsKey) return;
+        myNavChannelsKey = key;
+        el("navChannels").replaceChildren(...shown.map(myNavChannelLink));
+    } catch {
+        if (current === myNavChannelsRequest) myNavChannelsReadAt = -Infinity;
+    }
 }
 
 /**
@@ -2517,6 +2975,8 @@ function myMarkNav(href) {
  *   始められるよう、フォーカスを動かさない。restoreScroll は「戻る」「進む」で、history.state の scrollY へ戻す
  */
 function myRender({ initial = false, restoreScroll = false } = {}) {
+    // メニューのリンク・戻る／進むのどれで移っても閉じる。inert を先に外すのは、下で見出しへフォーカスを移すため
+    mySetNavOpen(false);
     myCurrentView?.leave?.();
     const renderId = ++myRenderCount;
     // 描く画面が history.state を書き換えることがある（動画・配信の URL の整えは null で置き換える）ので、描く前に読んでおく
@@ -2533,6 +2993,7 @@ function myRender({ initial = false, restoreScroll = false } = {}) {
         window.scrollTo(0, 0);
         myMarkNav(view.nav);
         const drawn = view.render(root, match, params);
+        myLoadNavChannels();
         // Promise を返さない画面（設定など）は中身を読み込む前の短いページなので、戻すと途中の位置で止まる。
         // 今までどおり先頭から出す
         if (drawn instanceof Promise && typeof savedY === "number" && savedY > 0) {
@@ -2610,6 +3071,65 @@ function myBindHeaderSearch() {
     });
 }
 
+/** 開いた直後に、幕と引き出しの ≡ を押しても閉じない時間（ミリ秒）。滑り込む 0.2 秒より長く、見てから押す速さより短くする。 */
+const MY_NAV_TAP_GUARD_MS = 350;
+
+/**
+ * スマホの幅のメニューの引き出しを開閉する（#884）。
+ *
+ * 開いている間は奥の画面を inert にする。引き出しは画面の上に重ねるだけなので、そうしないと Tab が幕の裏のリンクへ移り、
+ * 読み上げも奥の画面を読み続ける。スキップリンクはヘッダーの外（body の先頭）にあるので別に挙げる。動画は DOM から外さず
+ * 属性を変えるだけなので、再生は止まらない。同じ状態なら何もしない（画面を移るたびに呼ばれ、閉じているのが普通のため）。
+ *
+ * @param {boolean} open 開くなら true
+ * @param {{ restoreFocus?: boolean }} [options] restoreFocus は閉じた後に ≡ へフォーカスを戻すか。引き出しの中のボタン・幕・
+ *   Esc で閉じたときに付ける。画面を移ったときは見出しへ移すので、幅を広げたときは ≡ が隠れるので付けない
+ */
+function mySetNavOpen(open, { restoreFocus = false } = {}) {
+    if (document.body.classList.contains("navOpen") === open) return;
+    document.body.classList.toggle("navOpen", open);
+    el("navBackdrop").hidden = !open;
+    const toggle = el("navToggle");
+    toggle.setAttribute("aria-expanded", String(open));
+    document.querySelectorAll(".skipLink, .masthead, .appColumns").forEach((background) => {
+        if (background instanceof HTMLElement) background.inert = open;
+    });
+    if (open) el("navClose").focus({ preventScroll: true });
+    else if (restoreFocus) toggle.focus({ preventScroll: true });
+}
+
+/**
+ * メニューの引き出しの開閉をつなぐ。ヘッダーとメニューは画面を移っても作り直さないので、ページを開いたときに 1 回だけ呼ぶ。
+ *
+ * 幅が 760px を越えると mobile.css が効かなくなり、引き出しの見た目が消えて inert と幕だけが残るので、幅が変わったら閉じる。
+ * ブラウザの「戻る」で閉じないのは、開くたびに履歴を積むことになり、「戻る」で前の画面へ戻るまでの回数が増えるため。
+ *
+ * ≡ を連打しても開くだけにするため、開いた直後は幕と引き出しの ≡ で閉じない。引き出しの ≡ はヘッダーの ≡ と同じ位置に来て、
+ * 幕は開いた瞬間に画面を覆うので、続けて押した 2 回目以降はそちらに当たり、そのままでは閉じてしまう（実際に発生した）。
+ * 押し続ける間は無視する時間を延ばす。Esc は押し間違えようがないので、いつでも閉じる。
+ */
+function myBindNavDrawer() {
+    const close = () => mySetNavOpen(false, { restoreFocus: true });
+    let ignoreTapUntil = 0;
+    const closeByTap = () => {
+        const now = performance.now();
+        if (now < ignoreTapUntil) ignoreTapUntil = now + MY_NAV_TAP_GUARD_MS;
+        else close();
+    };
+    el("navToggle").addEventListener("click", () => {
+        ignoreTapUntil = performance.now() + MY_NAV_TAP_GUARD_MS;
+        mySetNavOpen(true);
+    });
+    el("navClose").addEventListener("click", closeByTap);
+    el("navBackdrop").addEventListener("click", closeByTap);
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !document.body.classList.contains("navOpen")) return;
+        event.preventDefault();
+        close();
+    });
+    window.matchMedia("(max-width: 760px)").addEventListener("change", () => mySetNavOpen(false));
+}
+
 /**
  * ログイン後の復帰で付く continue を URL から取り除く。Spring Security は保存した URL の末尾に
  * 付けて戻す（/my/archive?genre=x&continue）。検索条件ではなく、残すとブックマークにも付いて回る。
@@ -2644,4 +3164,5 @@ history.scrollRestoration = "manual";
 myDropContinueParam();
 myDockInit();
 myBindHeaderSearch();
+myBindNavDrawer();
 myRender({ initial: true });

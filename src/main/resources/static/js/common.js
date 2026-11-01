@@ -177,6 +177,9 @@ function redirectToLogin() {
     location.assign(loginPagePath() + "?expired=1&returnTo=" + encodeURIComponent(target));
 }
 
+/** 通信そのものが失敗したときの文言。fetch を使わない送信（動画のアップロード）でも同じ言い方にする。 */
+const NETWORK_ERROR_MESSAGE = "通信できませんでした。通信の良い所で、もう一度お試しください";
+
 /**
  * セッション切れをJSON解析より先に扱い、同時に複数のAPIが失敗しても一度だけ遷移する。
  * 通信そのものの失敗（電波が切れた・サービスの再起動中）では、fetch が TypeError を投げる。
@@ -194,7 +197,7 @@ async function authenticatedFetch(path, options) {
     } catch (e) {
         // 中断（AbortController）は通信の失敗ではないので、そのまま呼び出し元へ返す
         if (e instanceof DOMException && e.name === "AbortError") throw e;
-        throw new Error("通信できませんでした。通信の良い所で、もう一度お試しください", { cause: e });
+        throw new Error(NETWORK_ERROR_MESSAGE, { cause: e });
     }
     if (response.status === 401) {
         redirectToLogin();
@@ -969,10 +972,11 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
 
     /**
      * @param {URLSearchParams} params URL のクエリ
-     * @returns {number} キーワード以外で指定されている条件の数（キーワードは畳んでも見えているので数えない）
+     * @returns {number} キーワードと分類以外で指定されている条件の数（どちらも畳んでも見えているので数えない。
+     *          数えると、分類を選んだだけでスマホの「絞り込み・並び順」が開いたままになる）
      */
     function countConditions(params) {
-        return Array.from(fields).filter(f => f.name !== "keyword" && params.get(f.name)).length;
+        return Array.from(fields).filter(f => f.name !== "keyword" && f.name !== "category" && params.get(f.name)).length;
     }
 
     /**
@@ -2125,15 +2129,19 @@ const studioPages = {
     "users.html": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6",
     "invitations.html": "M3 5h18v14H3z M3 5l9 7 9-7",
     "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
-    // 利用者の 1 枚のページ（my.html）のトップ（/my）・動画・配信（/my/videos）・アーカイブ（/my/archive）・
-    // マイチャンネル（/my/channels）・通知の設定（/my/settings/notifications。管理者の通知履歴と同じベル）
+    // 利用者の 1 枚のページ（my.html）のホーム（/my）・登録チャンネル（/my/videos。重なった枠の中に再生の三角）・
+    // アーカイブ（/my/archive）・すべての登録チャンネル（/my/channels）・
+    // 通知の設定（/my/settings/notifications。管理者の通知履歴と同じベル）・アカウント設定（/my/settings/account。人の形）
     "my": "M3 11l9-8 9 8 M5 9v12h14V9 M10 21v-6h4v6",
-    "videos": "M4 5h16v14H4z M10 9l5 3-5 3z",
+    "videos": "M8 3h8 M6 6h12 M4 9h16v12H4z M10 12v6l5-3z",
     "archive": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "channels": "M4 4h16v16H4z M8 9h8 M8 14h5",
     "notifications": "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
+    "account": "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
     // 動画ダウンロード（/my/download）。下向きの矢印と受け皿
     "download": "M12 4v11 M7 10l5 5 5-5 M5 20h14",
+    // 動画アップロード（/my/upload）。上向きの矢印と天井
+    "upload": "M12 20V9 M7 14l5-5 5 5 M5 4h14",
     // 検索（/my/search）。虫めがね
     "search": "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M16 16l5 5",
     // 新人発掘（/my/discover）。きらめき（新しく見つかったもの）
@@ -2192,7 +2200,8 @@ function decorateStudioNavigation() {
     });
     const navigation = document.querySelector(".globalnav");
     const activeLink = navigation?.querySelector("a.active");
-    if (navigation && activeLink instanceof HTMLElement && matchMedia("(max-width: 760px)").matches) {
+    // 利用者の画面のメニューは帯でなく引き出しなので、閉じた引き出しの中のリンクへ移らない（#884）
+    if (navigation && activeLink instanceof HTMLElement && matchMedia("(max-width: 760px)").matches && !isUserApp()) {
         // 現在地を左端へ寄せると、手前のタブが必ず画面外へ押し出される。
         // スマホではナビが横スクロールできること自体が分かりにくいため、
         // 押すたびに選べる範囲が狭まっていくように見えてしまう（実際に指摘を受けた）。

@@ -522,7 +522,7 @@ CLI も起動時にテーブルを自分の版の形に合わせる（`ddl-auto:
 セッションは 30 分使わないと切れるため、一時停止したまま置くとログインが切れて流れなくなります。
 読み込めない録画は飛ばし、5 本続けて読み込めないとき（本番の反映中など）は 1 分待ってから続けます。
 
-動画・配信のカードと検索から開く視聴画面（YouTube の埋め込み）は、プレーヤーの下の「-10秒」「+10秒」「速度」で
+登録チャンネルのカードと検索から開く視聴画面（YouTube の埋め込み）は、プレーヤーの下の「-10秒」「+10秒」「速度」で
 操作できます。速度は録画の再生画面と同じ設定を使い、配信中は出しません。キーも録画と同じで、K・スペース（再生と
 一時停止）、J・L（10 秒）、←・→（5 秒）、`<`・`>`（速度）、0〜9（長さの 0〜90% の位置）、M（消音）、F（全画面）が
 効きます。プレーヤーの中を押した後は、キーを YouTube が受け取ります。説明の `12:34` のような時刻は、押すとその位置へ
@@ -530,7 +530,7 @@ CLI も起動時にテーブルを自分の版の形に合わせる（`ddl-auto:
 続きの位置はサーバーへ送らず、ブラウザの localStorage に動画ごとに残す（新しい順に 200 本まで）ので、端末ごとに別です。
 Twitch の埋め込みには同じ仕組みが無いので、操作の列・キー・続きの位置はありません。
 
-YouTube の埋め込み再生（動画・配信のカードと検索から開く視聴画面）では、スキップボタンが出た広告を飛ばす
+YouTube の埋め込み再生（登録チャンネルのカードと検索から開く視聴画面）では、スキップボタンが出た広告を飛ばす
 ユーザースクリプトを配布しています。ブラウザに Tampermonkey か Violentmonkey を入れ、再生画面に出る
 「広告スキップを導入」（`/userscripts/youtube-ad-skip.user.js`）を開いて導入してください。一度入れると、
 次からは接続するだけで動きます。埋め込みは YouTube の別オリジンの iframe で、アプリの JS は中に触れないため、
@@ -656,6 +656,14 @@ HTTPS の要求にはどちらの Cookie にも `Secure` が付くので、tailn
 中央の検索欄・カードの並びと大きさ・ボタンの形・無彩色の配色を YouTube に寄せています（`css/studio.css` の末尾の
 `body.userApp` の規則）。YouTube のロゴ・名前の流用・赤い再生ボタン・赤の配色は使わず、サービスの名前と紫のロゴ、
 リンクと焦点の紫は残します（Branding Guidelines と Developer Policies III.I.1 のため）。
+スマホの幅（760px 以下）では、メニューは左上の ≡ から左の引き出しで開きます。
+メニューは上からホーム・アーカイブ・新人発掘・動画ダウンロード・動画アップロード・検索、見出しのリンク「登録チャンネル」と
+購読しているチャンネル（配信中を先に 7 件まで）・すべての登録チャンネル、見出し「マイページ」の通知の設定・アカウント設定・
+ログアウトの順に並びます。細いメニュー（幅 761〜1312px）では見出しとチャンネルの行を隠し、「登録チャンネル」は普通の項目
+として残します。
+アーカイブの一覧の上には、タイトルのキーワードで決めた分類（ASMR・耳かき・雑談など）のボタンが並び、押すとその分類だけに
+絞り込めます。1 本が複数の分類に入ることがあり、どの分類にも当たらない録画は「その他」に入ります。分類の定義は
+`TitleCategoryClassifier` にあり、変えると次の起動で保存済みの行も直ります。
 
 ### 設定の変更
 
@@ -827,6 +835,31 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
   で今すぐ検出します（202 が返り、終わるまで数十秒かかる。検出が走っている間は 409）。今の版で検出済みの録画をやり直すときは
   `&force=true` を付けます。やり直しても、答えのある候補は消えません。
 
+### 手元の動画を上げる
+
+ログインできる人は、手元の動画を上げて、録画と同じくアーカイブで再生できます。利用者の画面の
+「動画アップロード」（`/my/upload`）で動画を選ぶと、進み具合を見ながら上げられ、上げた動画を一覧で
+確かめて消せます。上げている間は別の画面へ移っても続きますが、ページを閉じる・読み込み直すと切れます。
+上げた動画は全員のアーカイブに並びます。チャンネル名は「アップロード」と出て、誰が上げたかは出ません。
+消せるのは上げた本人と管理者だけです。保存先は録画フォルダの `uploads/` で、外部のサービスへは送りません。
+
+- **取り込める動画**: 形式が MP4・MOV・WebM・MKV で、映像が H.264・HEVC・VP9・AV1 のもの。1 つ目の映像と 1 つ目の音声を
+  mp4 へ詰め替えます（映像は再エンコードしません。音声は AAC・MP3 以外なら AAC にします）。
+- **位置情報**: 全員に見えるので、メタデータはすべて落とします（iPhone の動画には撮影場所が入っています）。
+- **上限**: 1 本 `MONITOR_UPLOAD_MAX_FILE_GB`（既定 20GB）、1 人の合計 `MONITOR_UPLOAD_USER_QUOTA_GB`（既定 100GB）、
+  同時に 1 人 1 本・全体で 3 本。受け取った後に `MONITOR_RECORDING_MIN_FREE_GB` の空きを残せないとき、詰め替えの間
+  （受け取ったファイルと出力の 2 本分になります）にその 1/4 の空きを残せないときも断ります。
+- **マルチパートにしない理由**: 一時ファイルが `/tmp` に置かれ、本番の `/tmp` は tmpfs（メモリ）なので、大きな動画で
+  `mem_limit` を食い潰します。そのため本文をそのまま流す `PUT` にして、読みながら録画フォルダへ書いています。
+
+```bash
+# curl で上げる例（-T は本文をそのまま流す。--data-binary はファイルを丸ごとメモリに読むので使わない）
+curl -b cookies.txt -H "X-XSRF-TOKEN: <トークン>" -T movie.mp4 "http://localhost:8080/api/my/uploads?fileName=movie.mp4"
+```
+
+受け取りの途中で接続が切れたらファイルを消します（途中からの再開はできません）。受け取り中は `/api/health` の
+`recording` が `true` になり、自動の反映が見送られます。
+
 ### REST API
 
 主な API だけを載せています（すべてではありません）。ここに無い API（利用者ポータル `/api/my/**` の多く・利用者の管理・招待・
@@ -868,11 +901,16 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
 | GET | `/api/my/recordings/channel-summaries` | 全チャンネルの録画の要約（再生できる録画の件数・合計の長さ・最新の録画日・最新のサムネイル・購読しているか）を、最新の録画が新しい順に返す。利用者のアーカイブの「チャンネル」（`/my/archive/channels`）が使う |
 | GET | `/api/my/recordings/channel-summaries/{channelId}` | 1 チャンネルの録画の要約（チャンネルページ `/my/archive/channels/{channelId}` の見出し。無いチャンネルは 404） |
 | GET | `/api/my/videos/{id}` | 録画していない動画 1 件を返す（視聴画面 `/my/videos/watch/{id}` が読む。ログインしていれば誰でも使える。無い・購読していないチャンネルの動画は 404。管理者はすべての動画を読める） |
+| GET | `/api/my/recordings?category=` | 利用者のアーカイブの一覧。パラメーターは `/api/recordings` と同じで、`category`（分類の key。知らない値は 400）と `playableOnly` が増える |
+| GET | `/api/my/recordings/categories` | 再生できる録画の分類ごとの件数を定義の順に返す（`[{"key":"asmr","label":"ASMR","count":12}]`。0 件の分類も返す） |
 | GET | `/api/my/recordings/{recordingId}/sound-marks?kind=EAR_KISS` | 録画に付いた耳キスの印（全員の分）を位置の順に返す（ログインしていれば誰でも使える。以下の `/api/my/**` も同じ） |
 | POST | `/api/my/recordings/{recordingId}/sound-marks` | 印を付ける（本文 `{"kind":"EAR_KISS","positionMs":123456}`。同じ人が前後 1 秒以内に付け直すと前の印を返す） |
 | DELETE | `/api/my/recordings/{recordingId}/sound-marks/{markId}` | 自分の印を消す（ほかの人の印は 404） |
-| GET | `/api/my/recordings/{recordingId}/sound-candidates?kind=EAR_KISS` | 検出器が付けた今の版の候補と、今の版の検出の状態（`state`: `PENDING`・`DONE`・`FAILED`・`UNSUPPORTED`。`UNSUPPORTED` は 6 時間を超えて検出しない録画） |
+| GET | `/api/my/recordings/{recordingId}/sound-candidates?kind=EAR_KISS` | 検出器が付けた今の版の候補と、今の版の検出の状態（`state`: `PENDING`・`DONE`・`FAILED`・`UNSUPPORTED`。`UNSUPPORTED` は 6 時間を超える録画と、利用者が上げた動画で、検出しない） |
 | PUT | `/api/my/recordings/{recordingId}/sound-candidates/{candidateId}/verdict` | 候補に答える（本文 `{"verdict":"CONFIRMED"}` が耳キス、`"REJECTED"` がちがう、`null` が取り消し） |
+| PUT | `/api/my/uploads?fileName=&title=` | 手元の動画を上げる（本文は動画のバイト列。`Content-Length` が必須で、無ければ 400。取り込み終わると 201 と `id`・`title`・`fileSizeBytes`・`durationSeconds`・`uploadedAt`。取り込めない動画は 400、1 本の上限を超えると 413、利用者の容量・空き容量・同時の本数で 409）。詳しくは「手元の動画を上げる」 |
+| GET | `/api/my/uploads` | 自分が上げた動画（新しい順）と上限（`maxFileBytes`・`quotaBytes`・`usedBytes`・`items`） |
+| DELETE | `/api/my/uploads/{id}` | 自分が上げた動画を消す（204。ほかの人の動画・無い ID は 404。管理者は `DELETE /api/recordings/{id}` で消せる） |
 
 `/api/admin/tables` 以下は任意のテーブルの任意の行を書き換えられるため、管理者（ADMIN）だけが使えます（`SecurityConfig`）。
 監査ログ・ログイン利用者・招待のテーブル（`AUDIT_LOGS`・`APP_USERS`・`INVITATIONS`）は、証跡の改ざんと秘密

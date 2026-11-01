@@ -25,6 +25,8 @@
 <body class="userApp">
 <header class="masthead">
   <div class="shell">
+    <!-- 760px 以下でメニューの引き出しを開く。幅 761px 以上では隠す（studio.css）。開閉は my-app.js の myBindNavDrawer -->
+    <button type="button" id="navToggle" class="navToggle" aria-label="メニューを開く" aria-expanded="false" aria-controls="mainNav"><svg class="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16 M4 12h16 M4 18h16"/></svg></button>
     <a class="brand" href="/my">
       <span class="brand-name">LIVE MONITOR</span>
       <span class="brand-sub">配信と録画を、ひとつの場所に。</span>
@@ -37,21 +39,32 @@
     <a class="headerSearchLink" href="/my/search" aria-label="検索" title="検索"><svg class="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M16 16l5 5"/></svg></a>
   </div>
 </header>
-<nav class="globalnav" aria-label="メインメニュー">
+<nav class="globalnav" id="mainNav" aria-label="メインメニュー">
+  <!-- 引き出しの最上段。サービス名をリンクにしないのは、.globalnav a を対象にするメニューの処理（myMarkNav・decorateStudioNavigation）と
+       CSS が拾うため。ホームへは直下の「ホーム」から移れる -->
+  <div class="navDrawerHead">
+    <button type="button" id="navClose" class="navToggle" aria-label="メニューを閉じる"><svg class="navIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16 M4 12h16 M4 18h16"/></svg></button>
+    <span class="brand"><span class="brand-name">LIVE MONITOR</span></span>
+  </div>
   <div class="shell">
     <!-- 今いる画面の項目の印（class="active"）は、my-app.js のルーターが画面を移るたびに付け替える -->
-    <a href="/my">トップ</a>
+    <a href="/my">ホーム</a>
     <a href="/my/archive">アーカイブ</a>
-    <!-- wbr: 細いメニュー（幅 1312px 以下）で 1 行に収まらない項目を、語の切れ目で折り返す。span は、wbr が flex の項目として分かれないように包む -->
-    <a href="/my/channels"><span>マイ<wbr>チャンネル</span></a>
-    <a href="/my/settings/notifications">通知の設定</a>
-    <a href="/my/settings/account">アカウント</a>
-    <a href="/my/search">検索</a>
     <a href="/my/discover">新人発掘</a>
-    <a href="/my/videos">動画・配信</a>
+    <!-- wbr: 細いメニュー（幅 1312px 以下）で 1 行に収まらない項目を、語の切れ目で折り返す。span は、wbr が flex の項目として分かれないように包む -->
     <a href="/my/download"><span>動画<wbr>ダウンロード</span></a>
+    <a href="/my/upload"><span>動画<wbr>アップロード</span></a>
+    <a href="/my/search">検索</a>
+    <a class="navGroupLink" href="/my/videos"><span>登録<wbr>チャンネル</span></a>
+    <!-- 購読しているチャンネルの行。中身は my-app.js の myLoadNavChannels が描く -->
+    <div id="navChannels"></div>
+    <a href="/my/channels"><span>すべての<wbr>登録<wbr>チャンネル</span></a>
+    <div class="navGroupLabel">マイページ</div>
+    <a href="/my/settings/notifications">通知の設定</a>
+    <a href="/my/settings/account"><span>アカウント<wbr>設定</span></a>
   </div>
 </nav>
+<div id="navBackdrop" class="navBackdrop" hidden></div>
 <!-- 録画の再生画面（/my/watch/{id}）だけ、右の列（#viewAside）を出して動画と本文の横に並べる（studio.css の .appColumns。#882）。
      右の列をドックと同じ行から始めるには main の中に置けない。ドックと main は隣のままにする -->
 <div class="appColumns">

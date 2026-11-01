@@ -91,6 +91,21 @@ public class Recording {
     private String genre;
 
     /**
+     * タイトルのキーワードで決めた分類の key を {@code ,} で挟んで並べた文字列
+     * （例 {@code ,asmr,whisper,}。{@link com.example.monitor.util.TitleCategoryClassifier} 参照）。
+     * {@code null} は埋め直しの前の行。
+     *
+     * <p><b>DB に持つ理由。</b>判定には全角半角の正規化が要り、SQL ではできない。タイトルから毎回求めると、
+     * {@link #genre} と同じく数千件をアプリ側で絞ることになる。定義を変えたときは
+     * {@link com.example.monitor.service.RecordingCategoryBackfiller} が起動時に直す。
+     *
+     * <p><b>{@code ,} で挟む理由。</b>{@code LIKE '%,key,%'} で探すとき、ある key が別の key の一部でも
+     * 誤って当たらないようにするため。1 本が複数の分類に入るので、1 つの値では持てない。
+     */
+    @Column(length = 200)
+    private String categories;
+
+    /**
      * 録画ファイルの保存先パス（{@code monitor.recording.directory} からの相対パス、
      * 例: {@code UCxxxxxxxx/videoId.mp4}）。再生用の静的リソース配信 URL の組み立てに使う。
      */
@@ -150,6 +165,24 @@ public class Recording {
 
     /** 録画が完了・失敗した時刻。録画中は {@code null}。 */
     private LocalDateTime completedAt;
+
+    /**
+     * 手元の動画を上げた利用者の主キー（{@link com.example.monitor.service.VideoUploadService}）。
+     * {@code null} ならアップロードではない（録画・URL 指定のダウンロード）。
+     *
+     * <p><b>{@link RecordingStatus} に列挙子を足さずに列で見分ける理由。</b>アップロードは録画と同じ状態
+     * （{@link RecordingStatus#COMPLETED}）を通るので、状態を分けると再生・一覧の条件をすべて直すことになる。
+     *
+     * <p><b>外部キーにしない（{@code @ManyToOne} にしない）。</b>利用者を消しても、動画は全員のアーカイブに
+     * 残し、管理者が消せるようにするため。外部キーにすると、利用者の削除が失敗するか、動画の行まで連鎖で消える。
+     * 主キーは IDENTITY で再利用されないので、利用者を消した後に同じ名前で登録した人の動画にはならない。
+     * ログイン名で持たないのは、利用者名を変えられるため。
+     *
+     * <p><b>誰が上げたかを API に出さない。</b>上げた動画はログインできる全員のアーカイブに並ぶので、
+     * 出すと誰が上げたかが全員に見える（{@link com.example.monitor.dto.RecordingResponse} はチャンネル名を
+     * 固定の文言にする）。本人の判定と容量の集計にだけ使う。
+     */
+    private Long uploadedByUserId;
 
     /** 開始時刻を自動設定する。JPA が INSERT 直前に呼び出す。 */
     @PrePersist

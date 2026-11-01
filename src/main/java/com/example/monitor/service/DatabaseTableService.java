@@ -162,6 +162,7 @@ public class DatabaseTableService {
                     Map.entry("VIDEO_ID", "動画ID"),
                     Map.entry("VIDEO_TITLE", "配信タイトル"),
                     Map.entry("GENRE", "ジャンル（タイトルの【】）"),
+                    Map.entry("CATEGORIES", "分類（タイトルのキーワード）"),
                     Map.entry("FILE_PATH", "ファイルパス"),
                     Map.entry("FILE_SIZE_BYTES", "ファイルサイズ（バイト）"),
                     Map.entry("DURATION_SECONDS", "再生時間（秒）"),
@@ -169,7 +170,8 @@ public class DatabaseTableService {
                     Map.entry("THUMBNAIL_PATH", "サムネイルのパス"),
                     Map.entry("STATUS", "状態"),
                     Map.entry("STARTED_AT", "開始日時"),
-                    Map.entry("COMPLETED_AT", "完了日時")
+                    Map.entry("COMPLETED_AT", "完了日時"),
+                    Map.entry("UPLOADED_BY_USER_ID", "上げた利用者の ID（アップロードのみ）")
             )),
             Map.entry("DISCOVERY_CANDIDATES", Map.ofEntries(
                     Map.entry("CHANNEL_ID", "チャンネルID"),

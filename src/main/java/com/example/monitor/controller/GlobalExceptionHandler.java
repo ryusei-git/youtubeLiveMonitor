@@ -16,6 +16,8 @@ import com.example.monitor.exception.SoundDetectionConflictException;
 import com.example.monitor.exception.SoundDetectionNotFoundException;
 import com.example.monitor.exception.SoundMarkNotFoundException;
 import com.example.monitor.exception.TooManyPasswordAttemptsException;
+import com.example.monitor.exception.UploadRejectedException;
+import com.example.monitor.exception.UploadTooLargeException;
 import com.example.monitor.exception.VideoAlreadyDownloadedException;
 import com.example.monitor.exception.YouTubeApiUnavailableException;
 import com.example.monitor.util.ApiRequestPath;
@@ -258,6 +260,28 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ServiceDownloadInProgressException.class)
     public ResponseEntity<Map<String, String>> handleServiceDownloadInProgress(ServiceDownloadInProgressException e) {
         return clientError(HttpStatus.CONFLICT, e);
+    }
+
+    /**
+     * 動画のアップロードを今は受け付けられない場合を 409 Conflict として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(UploadRejectedException.class)
+    public ResponseEntity<Map<String, String>> handleUploadRejected(UploadRejectedException e) {
+        return clientError(HttpStatus.CONFLICT, e);
+    }
+
+    /**
+     * アップロードする動画が 1 本の上限を超えている場合を 413 Content Too Large として返す。
+     *
+     * @param e 発生した例外
+     * @return エラー内容を含むレスポンス
+     */
+    @ExceptionHandler(UploadTooLargeException.class)
+    public ResponseEntity<Map<String, String>> handleUploadTooLarge(UploadTooLargeException e) {
+        return clientError(HttpStatus.CONTENT_TOO_LARGE, e);
     }
 
     /**

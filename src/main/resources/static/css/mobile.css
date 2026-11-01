@@ -10,7 +10,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 input, select, textarea { font-size: 16px; }
 
 /* 指で押す前提の大きさ（Apple の推奨は 44pt）。PC のままの 32〜38px では押し損じる。 */
-button, .watchActions a, .watchActions .markBtn, .discoverTabs a { min-height: 44px; }
+button, .watchActions a, .watchActions .markBtn, .discoverTabs a, .archiveTabs a { min-height: 44px; }
 
 /* 一覧の行の中・耳キスの印は 44px にすると行が伸びすぎて一覧が見にくくなるので、少し小さめで止める。 */
 td button, .markBtn { min-height: 40px; }
@@ -35,6 +35,27 @@ td button, .markBtn { min-height: 40px; }
 body:has(.globalnav) .masthead { height: calc(var(--mobile-header-height) + var(--safe-top)); padding: var(--safe-top) var(--safe-right) 0 var(--safe-left); }
 .globalnav { top: calc(var(--mobile-header-height) + var(--safe-top)); padding: 0 var(--safe-right) 0 var(--safe-left); }
 body:has(.globalnav) { padding-top: calc(var(--mobile-header-height) + var(--mobile-nav-height) + var(--safe-top)); }
+
+/* 利用者の画面のメニュー（#884）。9 項目とログアウトは幅 390px の帯に入らず、横へスワイプしないと全部を見られないので、YouTube と同じく
+   左上の ≡ から左の引き出しを開く。引き出しはヘッダーも含めた画面全体の上に重ね、最上段の ≡ とサービス名をヘッダーと同じ位置に出す
+   （余白と大きさをヘッダーとそろえてある）。管理者の画面は横並びの帯のままなので、規則はすべて body.userApp の下に書く。
+   開閉は my-app.js の mySetNavOpen。 */
+body.userApp .masthead .shell { padding: 0 8px; gap: 4px; }
+body.userApp .navToggle { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border-radius: 50%; background: none; color: var(--text); }
+body.userApp .navToggle:active { background: var(--surface-sunken); }
+body.userApp .navToggle .navIcon, body.userApp .globalnav .navIcon { width: 24px; height: 24px; flex-basis: 24px; }
+/* 閉じる間は visibility を動きの後まで遅らせる。閉じた後は隠し、見えないリンクへ Tab で移らないようにする。 */
+body.userApp .globalnav { position: fixed; top: 0; bottom: 0; left: 0; z-index: 41; width: 280px; max-width: 85vw; height: auto; padding: var(--safe-top) 0 var(--safe-bottom) var(--safe-left); border: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; transform: translateX(-100%); visibility: hidden; transition: transform .2s ease, visibility 0s linear .2s; }
+body.userApp.navOpen .globalnav { transform: none; visibility: visible; transition: transform .2s ease; }
+body.userApp .navDrawerHead { display: flex; align-items: center; gap: 4px; position: sticky; top: 0; height: 56px; padding: 0 8px; background: #fff; }
+body.userApp .globalnav .shell { flex-direction: column; align-items: stretch; gap: 0; width: auto; min-width: 0; height: auto; min-height: 0; padding: 4px 12px 12px; }
+body.userApp .globalnav a, body.userApp .globalnav a.navLogout { gap: 24px; height: 48px; margin: 0; padding: 0 12px; border-radius: 10px; font-size: 14px; }
+/* 見出しの形は studio.css。管理者の横並びの帯のために studio.css が .navGroupLabel の左に引いた線だけを、ここで外す。 */
+body.userApp .navGroupLabel { border-left: 0; }
+.navBackdrop { position: fixed; inset: 0; z-index: 40; background: #0000007a; touch-action: none; }
+body.navOpen { overflow: hidden; }
+/* :root の 128px は帯の高さを含むので、帯の無いこの画面ではヘッダーの高さに余白を足した値にする。 */
+html:has(> body.userApp) { scroll-padding-top: calc(72px + var(--safe-top)); }
 
 /* 左右。縦向きでは 0 だが（横向きは対応しない #785）、本文と再生画面の枠が端末の角に切られないよう足しておく。 */
 body { padding-left: var(--safe-left); padding-right: var(--safe-right); }

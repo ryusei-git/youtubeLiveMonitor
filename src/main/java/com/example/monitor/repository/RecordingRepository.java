@@ -46,7 +46,7 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
             java.util.Collection<MonitoredChannel> channels, Pageable pageable);
 
     /**
-     * 録画履歴をチャンネル・キーワード・状態・期間・ジャンルで絞り込んで取得する。
+     * 録画履歴をチャンネル・キーワード・状態・期間・ジャンル・分類で絞り込んで取得する。
      *
      * <p>キーワードは配信タイトルとチャンネル名のどちらかに部分一致すればよい
      * （利用者はどちらで覚えているか分からないため）。大文字小文字は区別しない。
@@ -92,6 +92,7 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @param from      開始時刻の下限（この時刻を含む）。{@code null} なら絞り込まない
      * @param to        開始時刻の上限（この時刻を含まない）。{@code null} なら絞り込まない
      * @param genre     ジャンル（完全一致）。{@code null} なら絞り込まない
+     * @param category  分類の key（{@link Recording#categories}）。{@code null} なら絞り込まない
      * @param watched   {@code true} なら視聴済みだけ、{@code false} なら未視聴だけ。{@code null} なら絞り込まない
      * @param favoriteOnly お気に入りだけに絞るか
      * @param playableOnly 再生できる録画（完了・途中まで）だけに絞るか
@@ -113,6 +114,7 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
                AND (:from IS NULL OR r.startedAt >= :from)
                AND (:to IS NULL OR r.startedAt < :to)
                AND (:genre IS NULL OR r.genre = :genre)
+               AND (:category IS NULL OR r.categories LIKE CONCAT('%,', :category, ',%'))
                AND (:watched IS NULL
                     OR (:watched = TRUE AND m.watchedAt IS NOT NULL)
                     OR (:watched = FALSE AND m.watchedAt IS NULL))
@@ -129,6 +131,7 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
                            @Param("from") LocalDateTime from,
                            @Param("to") LocalDateTime to,
                            @Param("genre") String genre,
+                           @Param("category") String category,
                            @Param("watched") Boolean watched,
                            @Param("favoriteOnly") boolean favoriteOnly,
                            @Param("playableOnly") boolean playableOnly,
@@ -185,6 +188,49 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
     @Transactional
     @Query("UPDATE Recording r SET r.genre = :genre WHERE r.id = :id")
     int updateGenre(@Param("id") Long id, @Param("genre") String genre);
+
+    /**
+     * 再生できる録画を、分類の組み合わせごとに数える。
+     *
+     * <p>{@code categories} は 1 列に複数の分類が入るので、SQL で数えられるのは組み合わせごとまでになる。
+     * 分類ごとの件数は {@link com.example.monitor.service.RecordingHistoryService#countPlayableByCategory()} が
+     * これを足して求める。再生できる録画に限る理由は {@link #countByGenre} と同じ（件数を一覧の件数と
+     * 合わせるため）。
+     *
+     * @return 各要素が {@code [分類の組み合わせ(String), 件数(Long)]} の配列。埋め直しの前の行は含まない
+     */
+    @Query("""
+            SELECT r.categories, COUNT(r) FROM Recording r
+             WHERE r.categories IS NOT NULL
+               AND r.status IN (
+                    com.example.monitor.entity.Recording.RecordingStatus.COMPLETED,
+                    com.example.monitor.entity.Recording.RecordingStatus.PARTIAL)
+             GROUP BY r.categories
+            """)
+    List<Object[]> countPlayableByCategories();
+
+    /**
+     * 全録画の、分類の判定に要る列だけを読む
+     * （{@link com.example.monitor.service.RecordingCategoryBackfiller} 参照）。
+     *
+     * <p>起動のたびに全行を読むので、{@code findAll()} のように全列のエンティティを作らない。
+     *
+     * @return 主キー・題名・今の分類の一覧
+     */
+    @Query("SELECT r.id AS id, r.videoTitle AS videoTitle, r.categories AS categories FROM Recording r")
+    List<CategorySource> findCategorySources();
+
+    /**
+     * 分類だけを書き込む。
+     *
+     * @param id         録画履歴の主キー
+     * @param categories 書き込む分類（{@link Recording#categories} の形）
+     * @return 更新した件数。対象の行が無ければ 0
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Recording r SET r.categories = :categories WHERE r.id = :id")
+    int updateCategories(@Param("id") Long id, @Param("categories") String categories);
 
     /**
      * 指定した状態の録画履歴をすべて取得する。
@@ -536,4 +582,56 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @return 対象の録画履歴
      */
     List<Recording> findByStatusInAndThumbnailPathIsNull(Collection<RecordingStatus> statuses);
+
+    /**
+     * 利用者が上げた動画を新しい順に返す。
+     *
+     * <p>チャンネルは読まない（アップロードはチャンネルに紐づかない）ので {@code @EntityGraph} は要らない。
+     *
+     * @param uploadedByUserId 上げた利用者の主キー
+     * @return 上げた動画。無ければ空
+     */
+    List<Recording> findByUploadedByUserIdOrderByStartedAtDesc(Long uploadedByUserId);
+
+    /**
+     * 利用者が上げた動画の大きさを合計する。1 人の容量の上限の判定に使う。
+     *
+     * <p>{@code docs/pitfalls.md}「ディスク使用量は DB ではなく実ファイルを走査して求める」の例外。
+     * あちらは断片が DB に載らないことが理由だが、アップロードは完成してから行を作るので、行とファイルが
+     * 必ず 1 対 1 になる。
+     * 受け取り中のファイルはここに数えない（1 人 1 本なので、判定のときに本人の分は受け取っていない）。
+     *
+     * @param uploadedByUserId 上げた利用者の主キー
+     * @return 合計（バイト）。無ければ 0
+     */
+    @Query("""
+            SELECT COALESCE(SUM(r.fileSizeBytes), 0) FROM Recording r
+             WHERE r.uploadedByUserId = :uploadedByUserId
+            """)
+    long sumFileSizeBytesByUploadedByUserId(@Param("uploadedByUserId") Long uploadedByUserId);
+
+    /** {@link #findCategorySources} の 1 行。{@code Object[]} と違い、列の順番や型を取り違える余地が無い。 */
+    interface CategorySource {
+
+        /**
+         * 主キーを返す。
+         *
+         * @return 録画履歴の主キー
+         */
+        Long getId();
+
+        /**
+         * 題名を返す。
+         *
+         * @return 配信タイトル。{@code null} のこともある
+         */
+        String getVideoTitle();
+
+        /**
+         * 今の分類を返す。
+         *
+         * @return 今の分類。埋め直しの前の行は {@code null}
+         */
+        String getCategories();
+    }
 }

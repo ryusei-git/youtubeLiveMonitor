@@ -2,6 +2,7 @@ package com.example.monitor.controller;
 
 import com.example.monitor.dto.ChannelOptionResponse;
 import com.example.monitor.dto.PageResponse;
+import com.example.monitor.dto.RecordingCategoryCountResponse;
 import com.example.monitor.dto.RecordingChannelResponse;
 import com.example.monitor.dto.RecordingFavoriteRequest;
 import com.example.monitor.dto.RecordingGenreCountResponse;
@@ -17,6 +18,7 @@ import com.example.monitor.service.RecordingHistoryService;
 import com.example.monitor.service.RecordingMarkService;
 import com.example.monitor.util.PageRequestUtils;
 import com.example.monitor.util.RecordingSearchParams;
+import com.example.monitor.util.TitleCategoryClassifier;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -69,7 +71,8 @@ public class MyRecordingController {
 
     /**
      * 録画を条件で絞り込んで返す。購読していないチャンネルの録画も含む。
-     * パラメータは管理者の {@code GET /api/recordings} と同じで、{@code playableOnly} だけが追加。
+     * パラメータは管理者の {@code GET /api/recordings} と同じで、{@code category} と
+     * {@code playableOnly} が追加。
      *
      * @param channelId    監視チャンネルの主キー（選択肢は {@link #getChannels()}）
      * @param keyword      配信タイトル・チャンネル名に対する部分一致の検索キーワード（200 文字まで）
@@ -78,6 +81,7 @@ public class MyRecordingController {
      * @param from         開始日（{@code yyyy-MM-dd}、この日を含む）
      * @param to           終了日（{@code yyyy-MM-dd}、この日を含む）
      * @param genre        ジャンル（完全一致）
+     * @param category     分類の key（選択肢は {@link #getCategories()}）。空白は省略と同じ
      * @param watched      {@code unwatched} / {@code watched}。省略時は絞らない
      * @param favorite     {@code true} ならお気に入りだけ
      * @param playableOnly 再生可能な録画（完了・途中まで）だけに絞るか
@@ -85,7 +89,7 @@ public class MyRecordingController {
      * @param size         1 ページあたりの件数（1〜{@value #MAX_PAGE_SIZE}）
      * @param authentication ログイン中の利用者
      * @return 条件に一致する録画
-     * @throws IllegalArgumentException 並び順・期間・視聴状態・ページ指定・検索語が不正な場合（400）
+     * @throws IllegalArgumentException 並び順・期間・視聴状態・ページ指定・検索語・分類が不正な場合（400）
      */
     @GetMapping
     public PageResponse<RecordingResponse> listMyRecordings(
@@ -96,6 +100,7 @@ public class MyRecordingController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String genre,
+            @RequestParam(required = false) String category,
             @RequestParam(required = false) String watched,
             @RequestParam(defaultValue = "false") boolean favorite,
             @RequestParam(defaultValue = "false") boolean playableOnly,
@@ -108,13 +113,16 @@ public class MyRecordingController {
         if (from != null && to != null && from.isAfter(to)) {
             throw new IllegalArgumentException("期間の開始は終了以前にしてください");
         }
+        if (category != null && !category.isBlank() && !TitleCategoryClassifier.isKnownKey(category)) {
+            throw new IllegalArgumentException("分類の指定が正しくありません");
+        }
         PageRequest pageRequest = PageRequestUtils.bounded(page, size, MAX_PAGE_SIZE)
                 .withSort(RecordingSearchParams.toSort(sort));
         Boolean watchedFilter = RecordingSearchParams.toWatchedFilter(watched);
         String username = authentication.getName();
 
         Page<Recording> recordings = recordingHistoryService.search(username, false, channelId, keyword,
-                status, from, to, genre, watchedFilter, favorite, playableOnly, pageRequest);
+                status, from, to, genre, category, watchedFilter, favorite, playableOnly, pageRequest);
         // 印はページ分をまとめて 1 回で引く（行ごとに引くと件数ぶんクエリが飛ぶ）
         Map<Long, RecordingMark> marks = recordingHistoryService.findMarks(
                 username, recordings.map(Recording::getId).getContent());
@@ -132,6 +140,18 @@ public class MyRecordingController {
     @GetMapping("/genres")
     public List<RecordingGenreCountResponse> getGenres() {
         return recordingHistoryService.countPlayableByGenre();
+    }
+
+    /**
+     * 分類ごとの録画件数を定義の順に返す。一覧の上の分類のボタンに使う。
+     *
+     * <p>数えるのは再生できる録画だけ（{@link #getGenres()} と同じ理由）。0 件の分類も返す。
+     *
+     * @return 分類と件数の一覧
+     */
+    @GetMapping("/categories")
+    public List<RecordingCategoryCountResponse> getCategories() {
+        return recordingHistoryService.countPlayableByCategory();
     }
 
     /**

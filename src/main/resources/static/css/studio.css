@@ -336,6 +336,19 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
     .searchTitle { font-size: 14px; }
 }
 
+/* 利用者の動画アップロード（/my/upload、#888）。進み具合の枠と、上げた動画の一覧。一覧は幅の狭い画面でも題名を読めるよう、表にせず、
+   題名を折り返して右に削除のボタンを置く */
+.uploadJob { margin: 16px 0; padding: 12px 16px; border-radius: 12px; background: var(--surface-sunken); }
+.uploadJob p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.uploadJob p:empty { display: none; }
+.uploadJob progress { display: block; width: 100%; margin-bottom: 8px; accent-color: var(--text); }
+/* 利用者の画面のボタンの地は枠と同じ灰色なので、白くして押せると分かるようにする */
+.uploadJob button { background: var(--surface); }
+.uploadList { margin: 0; padding: 0; list-style: none; }
+.uploadList li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.uploadItemText { min-width: 0; overflow-wrap: anywhere; }
+.uploadItemText .muted { display: block; margin-top: 2px; font-size: 12px; }
+
 /* 視聴画面（/my/videos/watch/{id} と /my/search/watch/{videoId}、#876）。埋め込みプレーヤーの中は変えられないので、周りの並びを
    YouTube の視聴ページに合わせて一体感を出す（左にプレーヤーと情報、右に関連の列）。色と部品はこのファイルの末尾の「利用者の画面」で揃える。
    左の列の上限は、ヘッダーと余白を除いた高さに 16:9 で収まる幅。縦に短い画面でも 480px は残す。余った幅は左右へ等分する。
@@ -485,16 +498,18 @@ body.userApp {
     --border: #e5e5e5;
     --border-strong: #909090;
 }
-/* 幅 1312px 以下は細いメニュー。760px 以下のメニューは横に並び、--nav-width を使わない */
+/* 幅 1312px 以下は細いメニュー。760px 以下のメニューは引き出しで、--nav-width を使わない */
 @media (max-width: 1312px) {
     body.userApp { --nav-width: 72px; }
 }
 @media (max-width: 760px) {
-    body.userApp { --mobile-header-height: 56px; }
+    body.userApp { --mobile-header-height: 56px; --mobile-nav-height: 0px; }
 }
 body.userApp .brand-sub { display: none; }
 body.userApp .masthead { height: 56px; border-bottom: 0; }
 body.userApp .masthead .shell { padding: 0 16px; }
+/* ≡ と引き出しの最上段は 760px 以下でだけ使う（出す規則は mobile.css） */
+.navToggle, .navDrawerHead { display: none; }
 /* 検索欄を画面の中央に置く。左の列は名前の幅より狭くせず、狭い幅では検索欄の幅を詰める */
 body.userApp .headerSearchLink { display: none; }
 @media (min-width: 761px) {
@@ -518,17 +533,39 @@ body.userApp .globalnav a:hover { background: var(--surface-sunken); color: var(
 body.userApp .globalnav a.active { background: var(--surface-sunken); color: var(--text); font-weight: 700; }
 @media (min-width: 761px) {
     body.userApp .globalnav { top: 56px; border-right: 0; }
-    body.userApp .globalnav .shell { gap: 0; padding: 12px 24px 12px 12px; }
+    /* flex-wrap: style.css の wrap のままだと、縦の並びの列の幅が最も長い項目に合わせて広がり、長いチャンネル名でメニューの全項目がはみ出す */
+    body.userApp .globalnav .shell { flex-wrap: nowrap; gap: 0; padding: 12px 24px 12px 12px; }
     body.userApp .globalnav a { flex: none; gap: 24px; height: 40px; padding: 0 12px; border-radius: 10px; font-size: 14px; font-weight: 400; line-height: 20px; }
-    body.userApp .globalnav a.navLogout { margin-top: auto; padding: 0 12px; border-top: 0; border-radius: 10px; color: var(--text); }
+    /* margin-top は省かない。省くと管理者の画面の .globalnav a.navLogout の auto が効き、下端へ押し下げられる */
+    body.userApp .globalnav a.navLogout { margin-top: 0; padding: 0 12px; border-top: 0; border-radius: 10px; color: var(--text); }
     body.userApp .globalnav .navIcon { width: 24px; height: 24px; flex-basis: 24px; }
     body.userApp:has(.globalnav) main.shell { padding: 16px 24px 48px; }
 }
 /* アイコンの下に小さい文字を置く形。長い項目は my.html の wbr の所で折り返し、語の途中で切らない */
 @media (min-width: 761px) and (max-width: 1312px) {
+    /* 窓が低いと縦のスクロールバーが出る。場所を取る環境（Windows など）では 72px の幅が削られ、文字が切れて横のスクロールバーまで出るので、
+       バーを隠す。ホイールと指では今までどおり動く */
+    body.userApp .globalnav { overflow-x: hidden; scrollbar-width: none; }
     body.userApp .globalnav .shell { padding: 4px; }
     body.userApp .globalnav a, body.userApp .globalnav a.navLogout { flex-direction: column; justify-content: center; gap: 6px; width: 64px; height: auto; min-height: 74px; padding: 8px 0; font-size: 10px; line-height: 14px; text-align: center; white-space: normal; word-break: keep-all; }
+    /* 見出しとチャンネルの行を置く場所が無い。「登録チャンネル」は隠すと /my/videos へ行けなくなるので、リンクだけを普通の項目で残す
+       （見出しの形は下の規則でこの幅を除いてあるので、ここで打ち消さない） */
+    body.userApp .navGroupLabel, body.userApp #navChannels { display: none; }
 }
+/* メニューの見出し（登録チャンネル・マイページ）。線が角丸にならないよう、線のある上側だけ角を落とす */
+@media (min-width: 1313px), (max-width: 760px) {
+    body.userApp .navGroupLabel, body.userApp .globalnav a.navGroupLink { margin: 12px 0 0; padding: 12px; border-top: 1px solid var(--border); color: var(--text); font-size: 16px; font-weight: 700; letter-spacing: 0; line-height: 22px; }
+    body.userApp .globalnav a.navGroupLink { gap: 8px; height: auto; border-radius: 0 0 10px 10px; }
+    body.userApp .globalnav a.navGroupLink .navIcon { display: none; }
+    body.userApp .globalnav a.navGroupLink::after { content: "›"; }
+}
+/* チャンネルの行。名前は残りの幅に収めて末尾を省く（全文は my-app.js の myNavChannelLink が title に入れる）。
+   アイコンの丸は common.js の channelIcon が付ける .channelIcon の規則で付く */
+body.userApp .navChannelName { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+body.userApp .navChannelFallback { display: grid; place-items: center; border-radius: 50%; background: var(--surface-sunken); font-size: 12px; line-height: 1; }
+/* 色は .statusLamp.is-live .lamp の style.css の赤。body.userApp の白は黒い札の中の色で、白いメニューでは見えない。
+   margin-left は、アイコンのための行の gap（24px）を名前との間だけ 8px に詰めて、名前の幅を残す */
+body.userApp .navLiveDot { flex: none; width: 8px; height: 8px; margin-left: -16px; border-radius: 50%; background: var(--danger); }
 
 /* 部品。:where() で詳細度を上げないのは、文字だけに見せるボタン（.onlineTitle・.watchTime・.sortButton など）の規則を上書きしないため */
 :where(body.userApp) button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--surface-sunken); color: var(--text); letter-spacing: 0; }
@@ -545,15 +582,21 @@ body.userApp .watchActions .markBtn { margin-right: 0; padding: 0 16px; font-siz
 body.userApp .viewToggle { gap: 8px; }
 body.userApp .viewToggle button, body.userApp .viewToggle button:first-child, body.userApp .viewToggle button:last-child { padding: 0 12px; border-radius: 8px; margin-left: 0; }
 body.userApp .viewToggle button[aria-pressed="true"], body.userApp .pager button[aria-current="page"], body.userApp .pager button[aria-current="page"]:hover { background: var(--text); color: #fff; }
+/* アーカイブの分類のボタン。スマホでも横スクロールにせず折り返す */
+.archiveChips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+/* YouTube のチップと同じ 32px。指で押す幅に合わせた 44px（mobile.css）のままだと、スマホで 5 段になって一覧が下へ押し出される */
+body.userApp .archiveChips button { min-height: 32px; padding: 0 12px; font-size: 14px; }
+body.userApp .archiveChips button[aria-pressed="true"] { background: var(--text); color: #fff; }
 body.userApp .soundMarkOnly[aria-pressed="true"], body.userApp .markBtn[aria-pressed="true"] { background: var(--border); color: var(--text); }
 body.userApp .markBtn-favorite[aria-pressed="true"] { color: #b7791f; }
-body.userApp .discoverTabs { display: flex; flex-wrap: wrap; gap: 8px; }
-body.userApp .discoverTabs a, body.userApp .discoverTabs a:first-child, body.userApp .discoverTabs a:last-child { margin-left: 0; padding: 0 12px; border: 0; border-radius: 8px; background: var(--surface-sunken); }
-body.userApp .discoverTabs a[aria-current="page"] { background: var(--text); color: #fff; }
+body.userApp .discoverTabs, body.userApp .archiveTabs { display: flex; flex-wrap: wrap; gap: 8px; }
+body.userApp .discoverTabs a, body.userApp .discoverTabs a:first-child, body.userApp .discoverTabs a:last-child,
+body.userApp .archiveTabs a, body.userApp .archiveTabs a:first-child, body.userApp .archiveTabs a:last-child { margin-left: 0; padding: 0 12px; border: 0; border-radius: 8px; background: var(--surface-sunken); }
+body.userApp .discoverTabs a[aria-current="page"], body.userApp .archiveTabs a[aria-current="page"] { background: var(--text); color: #fff; }
 /* 760px 以下は指で押す高さ（mobile.css の 44px）のままにする */
 @media (min-width: 761px) {
     body.userApp .watchActions a, body.userApp .watchActions .markBtn { min-height: 36px; }
-    body.userApp .viewToggle button, body.userApp .discoverTabs a { min-height: 32px; }
+    body.userApp .viewToggle button, body.userApp .discoverTabs a, body.userApp .archiveTabs a { min-height: 32px; }
 }
 
 /* 録画の再生画面（/my/watch/{id}、#882）の枠。動画要素を動かせないので（ドックの説明）、ドック・本文・右の列を .appColumns の中に並べ、
