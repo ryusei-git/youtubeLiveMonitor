@@ -444,16 +444,18 @@ body.userApp {
     --border: #e5e5e5;
     --border-strong: #909090;
 }
-/* 幅 1312px 以下は細いメニュー。760px 以下のメニューは横に並び、--nav-width を使わない */
+/* 幅 1312px 以下は細いメニュー。760px 以下のメニューは引き出しで、--nav-width を使わない */
 @media (max-width: 1312px) {
     body.userApp { --nav-width: 72px; }
 }
 @media (max-width: 760px) {
-    body.userApp { --mobile-header-height: 56px; }
+    body.userApp { --mobile-header-height: 56px; --mobile-nav-height: 0px; }
 }
 body.userApp .brand-sub { display: none; }
 body.userApp .masthead { height: 56px; border-bottom: 0; }
 body.userApp .masthead .shell { padding: 0 16px; }
+/* ≡ と引き出しの最上段は 760px 以下でだけ使う（出す規則は mobile.css） */
+.navToggle, .navDrawerHead { display: none; }
 /* 検索欄を画面の中央に置く。左の列は名前の幅より狭くせず、狭い幅では検索欄の幅を詰める */
 body.userApp .headerSearchLink { display: none; }
 @media (min-width: 761px) {
