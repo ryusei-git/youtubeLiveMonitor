@@ -93,8 +93,9 @@ public class RecordingController {
         Boolean watchedFilter = RecordingSearchParams.toWatchedFilter(watched);
         String username = authentication.getName();
 
+        // 分類の絞り込みは利用者のアーカイブだけのもの（管理者の画面には置いていない）
         Page<Recording> recordings = recordingHistoryService.search(
-                username, channelId, keyword, status, from, to, genre, watchedFilter, favorite, pageRequest);
+                username, channelId, keyword, status, from, to, genre, null, watchedFilter, favorite, pageRequest);
         // 印はページ分をまとめて 1 回で引く（行ごとに引くと件数ぶんクエリが飛ぶ）
         Map<Long, RecordingMark> marks = recordingHistoryService.findMarks(
                 username, recordings.map(Recording::getId).getContent());

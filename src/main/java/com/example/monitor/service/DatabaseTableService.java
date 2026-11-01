@@ -162,6 +162,7 @@ public class DatabaseTableService {
                     Map.entry("VIDEO_ID", "動画ID"),
                     Map.entry("VIDEO_TITLE", "配信タイトル"),
                     Map.entry("GENRE", "ジャンル（タイトルの【】）"),
+                    Map.entry("CATEGORIES", "分類（タイトルのキーワード）"),
                     Map.entry("FILE_PATH", "ファイルパス"),
                     Map.entry("FILE_SIZE_BYTES", "ファイルサイズ（バイト）"),
                     Map.entry("DURATION_SECONDS", "再生時間（秒）"),

@@ -2,6 +2,7 @@ package com.example.monitor.service;
 
 import com.example.monitor.dto.DashboardResponse.RecordingStatusSummary;
 import com.example.monitor.dto.DiskUsageResponse;
+import com.example.monitor.dto.RecordingCategoryCountResponse;
 import com.example.monitor.dto.RecordingGenreCountResponse;
 import com.example.monitor.entity.AppUser;
 import com.example.monitor.entity.AuditAction;
@@ -17,6 +18,7 @@ import com.example.monitor.repository.RecordingMarkRepository;
 import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.util.DatabaseUpdateVerifier;
 import com.example.monitor.util.RequestContext;
+import com.example.monitor.util.TitleCategoryClassifier;
 import com.example.monitor.util.TitleGenreExtractor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -69,6 +71,7 @@ public class RecordingHistoryService {
                 .videoId(videoId)
                 .videoTitle(videoTitle)
                 .genre(TitleGenreExtractor.extract(videoTitle))
+                .categories(TitleCategoryClassifier.classify(videoTitle))
                 .filePath(filePath)
                 .status(RecordingStatus.RECORDING)
                 .build();
@@ -150,15 +153,16 @@ public class RecordingHistoryService {
      * @param from      開始日（この日を含む）。{@code null} なら絞り込まない
      * @param to        終了日（この日を含む）。{@code null} なら絞り込まない
      * @param genre     ジャンル（完全一致）。{@code null} や空文字なら絞り込まない
+     * @param category  分類の key。{@code null} や空文字なら絞り込まない
      * @param watched   {@code true} なら視聴済みだけ、{@code false} なら未視聴だけ。{@code null} なら絞り込まない
      * @param favoriteOnly お気に入りだけに絞るか
      * @param pageable  ページ指定と並び順
      * @return 条件に一致する録画履歴
      */
     public Page<Recording> search(String username, Long channelId, String keyword, RecordingStatus status,
-                                  LocalDate from, LocalDate to, String genre,
+                                  LocalDate from, LocalDate to, String genre, String category,
                                   Boolean watched, boolean favoriteOnly, Pageable pageable) {
-        return search(username, false, channelId, keyword, status, from, to, genre,
+        return search(username, false, channelId, keyword, status, from, to, genre, category,
                 watched, favoriteOnly, false, pageable);
     }
 
@@ -179,6 +183,7 @@ public class RecordingHistoryService {
      * @param from           開始日（この日を含む）。{@code null} なら絞り込まない
      * @param to             終了日（この日を含む）。{@code null} なら絞り込まない
      * @param genre          ジャンル（完全一致）。{@code null} や空文字なら絞り込まない
+     * @param category       分類の key。{@code null} や空文字なら絞り込まない
      * @param watched        {@code true} なら視聴済みだけ、{@code false} なら未視聴だけ。{@code null} なら絞り込まない
      * @param favoriteOnly   お気に入りだけに絞るか
      * @param playableOnly   再生できる録画（完了・途中まで）だけに絞るか
@@ -187,7 +192,7 @@ public class RecordingHistoryService {
      */
     public Page<Recording> search(String username, boolean subscribedOnly, Long channelId, String keyword,
                                   RecordingStatus status, LocalDate from, LocalDate to, String genre,
-                                  Boolean watched, boolean favoriteOnly, boolean playableOnly,
+                                  String category, Boolean watched, boolean favoriteOnly, boolean playableOnly,
                                   Pageable pageable) {
         Long userId = findUserId(username);
         if (subscribedOnly && userId == null) {
@@ -197,7 +202,7 @@ public class RecordingHistoryService {
         return recordingRepository.search(userId, subscribedOnly, channelId, blankToNull(keyword), status,
                 from == null ? null : from.atStartOfDay(),
                 to == null ? null : to.plusDays(1).atStartOfDay(),
-                blankToNull(genre), watched, favoriteOnly, playableOnly, pageable);
+                blankToNull(genre), blankToNull(category), watched, favoriteOnly, playableOnly, pageable);
     }
 
     /**
@@ -250,6 +255,28 @@ public class RecordingHistoryService {
      */
     public List<RecordingGenreCountResponse> countPlayableByGenre() {
         return recordingRepository.countByGenre(null, true);
+    }
+
+    /**
+     * 再生できる録画に限って、分類ごとの件数を数える。利用者のアーカイブの分類のボタンに使う。
+     *
+     * <p>1 本が複数の分類に入るので、分類ごとの件数を足しても録画の本数にはならない。
+     * 0 件の分類も返す（出す・出さないは画面が決める）。
+     *
+     * @return 分類と件数の一覧（{@link TitleCategoryClassifier#CATEGORIES} の順）
+     */
+    public List<RecordingCategoryCountResponse> countPlayableByCategory() {
+        List<Object[]> combinations = recordingRepository.countPlayableByCategories();
+        return TitleCategoryClassifier.CATEGORIES.stream()
+                .map(category -> {
+                    String marker = "," + category.key() + ",";
+                    long count = combinations.stream()
+                            .filter(row -> ((String) row[0]).contains(marker))
+                            .mapToLong(row -> (Long) row[1])
+                            .sum();
+                    return new RecordingCategoryCountResponse(category.key(), category.label(), count);
+                })
+                .toList();
     }
 
     /**

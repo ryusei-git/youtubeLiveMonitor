@@ -965,10 +965,11 @@ function bindRecordingSearch({ form, viewToggle, grid, list, pager, load, buildC
 
     /**
      * @param {URLSearchParams} params URL のクエリ
-     * @returns {number} キーワード以外で指定されている条件の数（キーワードは畳んでも見えているので数えない）
+     * @returns {number} キーワードと分類以外で指定されている条件の数（どちらも畳んでも見えているので数えない。
+     *          数えると、分類を選んだだけでスマホの「絞り込み・並び順」が開いたままになる）
      */
     function countConditions(params) {
-        return Array.from(fields).filter(f => f.name !== "keyword" && params.get(f.name)).length;
+        return Array.from(fields).filter(f => f.name !== "keyword" && f.name !== "category" && params.get(f.name)).length;
     }
 
     /**

@@ -661,6 +661,9 @@ HTTPS の要求にはどちらの Cookie にも `Secure` が付くので、tailn
 購読しているチャンネル（配信中を先に 7 件まで）・すべての登録チャンネル、見出し「マイページ」の通知の設定・アカウント設定・
 ログアウトの順に並びます。細いメニュー（幅 761〜1312px）では見出しとチャンネルの行を隠し、「登録チャンネル」は普通の項目
 として残します。
+アーカイブの一覧の上には、タイトルのキーワードで決めた分類（ASMR・耳かき・雑談など）のボタンが並び、押すとその分類だけに
+絞り込めます。1 本が複数の分類に入ることがあり、どの分類にも当たらない録画は「その他」に入ります。分類の定義は
+`TitleCategoryClassifier` にあり、変えると次の起動で保存済みの行も直ります。
 
 ### 設定の変更
 
@@ -896,6 +899,8 @@ curl -b cookies.txt -H "X-XSRF-TOKEN: <トークン>" -T movie.mp4 "http://local
 | POST | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS&force=` | 録画の耳キスの検出を今すぐ始める（202。今の版で検出済みなら `force=true` が要る。検出が走っている・再生できない録画は 409） |
 | GET | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS` | 今の版の検出の実行記録（`status`・`candidateCount`・`attempts`・`message` など。まだ一度も検出していなければ 404） |
 | GET | `/api/my/videos/{id}` | 録画していない動画 1 件を返す（視聴画面 `/my/videos/watch/{id}` が読む。ログインしていれば誰でも使える。無い・購読していないチャンネルの動画は 404。管理者はすべての動画を読める） |
+| GET | `/api/my/recordings?category=` | 利用者のアーカイブの一覧。パラメーターは `/api/recordings` と同じで、`category`（分類の key。知らない値は 400）と `playableOnly` が増える |
+| GET | `/api/my/recordings/categories` | 再生できる録画の分類ごとの件数を定義の順に返す（`[{"key":"asmr","label":"ASMR","count":12}]`。0 件の分類も返す） |
 | GET | `/api/my/recordings/{recordingId}/sound-marks?kind=EAR_KISS` | 録画に付いた耳キスの印（全員の分）を位置の順に返す（ログインしていれば誰でも使える。以下の `/api/my/**` も同じ） |
 | POST | `/api/my/recordings/{recordingId}/sound-marks` | 印を付ける（本文 `{"kind":"EAR_KISS","positionMs":123456}`。同じ人が前後 1 秒以内に付け直すと前の印を返す） |
 | DELETE | `/api/my/recordings/{recordingId}/sound-marks/{markId}` | 自分の印を消す（ほかの人の印は 404） |

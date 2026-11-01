@@ -541,6 +541,9 @@ body.userApp .watchActions .markBtn { margin-right: 0; padding: 0 16px; font-siz
 body.userApp .viewToggle { gap: 8px; }
 body.userApp .viewToggle button, body.userApp .viewToggle button:first-child, body.userApp .viewToggle button:last-child { padding: 0 12px; border-radius: 8px; margin-left: 0; }
 body.userApp .viewToggle button[aria-pressed="true"], body.userApp .pager button[aria-current="page"], body.userApp .pager button[aria-current="page"]:hover { background: var(--text); color: #fff; }
+/* アーカイブの分類のボタン。スマホでも横スクロールにせず折り返す */
+.archiveChips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+body.userApp .archiveChips button[aria-pressed="true"] { background: var(--text); color: #fff; }
 body.userApp .soundMarkOnly[aria-pressed="true"], body.userApp .markBtn[aria-pressed="true"] { background: var(--border); color: var(--text); }
 body.userApp .markBtn-favorite[aria-pressed="true"] { color: #b7791f; }
 body.userApp .discoverTabs { display: flex; flex-wrap: wrap; gap: 8px; }

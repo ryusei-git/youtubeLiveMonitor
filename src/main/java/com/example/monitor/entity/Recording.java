@@ -91,6 +91,21 @@ public class Recording {
     private String genre;
 
     /**
+     * タイトルのキーワードで決めた分類の key を {@code ,} で挟んで並べた文字列
+     * （例 {@code ,asmr,whisper,}。{@link com.example.monitor.util.TitleCategoryClassifier} 参照）。
+     * {@code null} は埋め直しの前の行。
+     *
+     * <p><b>DB に持つ理由。</b>判定には全角半角の正規化が要り、SQL ではできない。タイトルから毎回求めると、
+     * {@link #genre} と同じく数千件をアプリ側で絞ることになる。定義を変えたときは
+     * {@link com.example.monitor.service.RecordingCategoryBackfiller} が起動時に直す。
+     *
+     * <p><b>{@code ,} で挟む理由。</b>{@code LIKE '%,key,%'} で探すとき、ある key が別の key の一部でも
+     * 誤って当たらないようにするため。1 本が複数の分類に入るので、1 つの値では持てない。
+     */
+    @Column(length = 200)
+    private String categories;
+
+    /**
      * 録画ファイルの保存先パス（{@code monitor.recording.directory} からの相対パス、
      * 例: {@code UCxxxxxxxx/videoId.mp4}）。再生用の静的リソース配信 URL の組み立てに使う。
      */
