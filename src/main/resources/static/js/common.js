@@ -177,6 +177,9 @@ function redirectToLogin() {
     location.assign(loginPagePath() + "?expired=1&returnTo=" + encodeURIComponent(target));
 }
 
+/** 通信そのものが失敗したときの文言。fetch を使わない送信（動画のアップロード）でも同じ言い方にする。 */
+const NETWORK_ERROR_MESSAGE = "通信できませんでした。通信の良い所で、もう一度お試しください";
+
 /**
  * セッション切れをJSON解析より先に扱い、同時に複数のAPIが失敗しても一度だけ遷移する。
  * 通信そのものの失敗（電波が切れた・サービスの再起動中）では、fetch が TypeError を投げる。
@@ -194,7 +197,7 @@ async function authenticatedFetch(path, options) {
     } catch (e) {
         // 中断（AbortController）は通信の失敗ではないので、そのまま呼び出し元へ返す
         if (e instanceof DOMException && e.name === "AbortError") throw e;
-        throw new Error("通信できませんでした。通信の良い所で、もう一度お試しください", { cause: e });
+        throw new Error(NETWORK_ERROR_MESSAGE, { cause: e });
     }
     if (response.status === 401) {
         redirectToLogin();
@@ -2129,6 +2132,8 @@ const studioPages = {
     "account": "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
     // 動画ダウンロード（/my/download）。下向きの矢印と受け皿
     "download": "M12 4v11 M7 10l5 5 5-5 M5 20h14",
+    // 動画アップロード（/my/upload）。上向きの矢印と天井
+    "upload": "M12 20V9 M7 14l5-5 5 5 M5 4h14",
     // 検索（/my/search）。虫めがね
     "search": "M4 11a7 7 0 1 0 14 0a7 7 0 1 0-14 0 M16 16l5 5",
     // 新人発掘（/my/discover）。きらめき（新しく見つかったもの）
