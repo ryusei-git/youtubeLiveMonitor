@@ -595,3 +595,20 @@ boolean の primitive フィールドを新規追加するときは、原則と�
 
 この決まりも `EntityColumnConventionTest` が確かめている。`columnDefinition` に `default` の無い primitive の boolean があると落ちる。
 例外は、本番の DB に最初からある `MonitoredChannel.currentlyLive` だけ（テストの `BOOLEAN_COLUMNS_WITHOUT_DEFAULT`）。新しいフィールドは、新しいテーブルのものでもこの一覧に足さないこと。
+
+### 大きな本文を受ける API は、本文を先に読むものを止めておく（確認で発生した）
+
+動画のアップロード（`PUT /api/my/uploads`、#887）は本文を読みながら録画フォルダへ書くが、
+コントローラーへ届く前に本文を読むものが 2 つあった。
+
+| 読むもの | 条件 | 起きたこと |
+|---|---|---|
+| `FormContentFilter`（Spring Boot が既定で登録する） | `Content-Type` がフォームの `PUT`・`PATCH`・`DELETE` | 本文を丸ごと `String` へ読む。2GB で `OutOfMemoryError`（本番は `-XX:+ExitOnOutOfMemoryError` なので JVM ごと落ちる） |
+| マルチパートの解決（`DispatcherServlet`） | `Content-Type` が `multipart/` で始まる | 本文を `/tmp`（本番は tmpfs）へ書く。既定の上限を超えると 500 と ERROR |
+
+**`FormContentFilter` は Spring Security より前で動くので、ログインしていなくても通る。**
+しかも `curl --data-binary @file` の既定の `Content-Type` がフォームなので、わざわざ狙わなくても踏む。
+どちらも `application.yml` で切ってある（`spring.mvc.formcontent.filter.enabled`・
+`spring.servlet.multipart.enabled`）。このアプリの本文は JSON か動画だけなので影響は無い。
+**フォームやマルチパートを受ける API を足すなら、この 2 つを戻す前に大きな本文での振る舞いを確かめること。**
+確かめるときは、本文の `Content-Type` を変えて RSS を見る（型を付けずに測るだけでは気づかない）。

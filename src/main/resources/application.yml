@@ -47,6 +47,18 @@ spring:
         cachecontrol:
           no-cache: true
 
+  # 動画のアップロード（PUT /api/my/uploads）は本文を読みながら録画フォルダへ書く。
+  # その前に本文を読むものを止める（docs/pitfalls.md「大きな本文を受ける API は、本文を先に読むものを止めておく」）。
+  # FormContentFilter は Content-Type がフォームの PUT・PATCH・DELETE の本文を、認証より前に丸ごとメモリへ読む。
+  # マルチパートは本文を /tmp（本番は tmpfs）へ書く。このアプリの本文は JSON か動画だけで、どちらも使っていない。
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
+  servlet:
+    multipart:
+      enabled: false
+
   datasource:
     url: jdbc:h2:file:./data/monitor;AUTO_SERVER=TRUE
     driver-class-name: org.h2.Driver
@@ -172,6 +184,13 @@ monitor:
     # yt-dlp に --cookies で渡す Cookie ファイル（Netscape 形式）。ファイルがあるときだけ、その写しを渡す（YtDlpCookies）。
     # 置くだけで効くよう、既定の置き場所を決めている（data/ は本人だけが読める）。相対パスは作業ディレクトリ基準。
     cookies-file: ${MONITOR_YTDLP_COOKIES:data/youtube-cookies.txt}
+
+  # 利用者が手元の動画を上げる口（VideoUploadService）。
+  upload:
+    # 1 本の大きさの上限（GB）
+    max-file-gb: ${MONITOR_UPLOAD_MAX_FILE_GB:20}
+    # 1 人が置ける合計の上限（GB）
+    user-quota-gb: ${MONITOR_UPLOAD_USER_QUOTA_GB:100}
 
   # 起動時に管理者が1人もいなければ、この値から初期管理者を作成する（AdminUserInitializer）。
   # 一度作成された後はこの値を変えても上書きされない（管理者が既に存在するため）。

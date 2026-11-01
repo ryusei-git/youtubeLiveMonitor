@@ -498,4 +498,31 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @return 対象の録画履歴
      */
     List<Recording> findByStatusInAndThumbnailPathIsNull(Collection<RecordingStatus> statuses);
+
+    /**
+     * 利用者が上げた動画を新しい順に返す。
+     *
+     * <p>チャンネルは読まない（アップロードはチャンネルに紐づかない）ので {@code @EntityGraph} は要らない。
+     *
+     * @param uploadedByUserId 上げた利用者の主キー
+     * @return 上げた動画。無ければ空
+     */
+    List<Recording> findByUploadedByUserIdOrderByStartedAtDesc(Long uploadedByUserId);
+
+    /**
+     * 利用者が上げた動画の大きさを合計する。1 人の容量の上限の判定に使う。
+     *
+     * <p>{@code docs/pitfalls.md}「ディスク使用量は DB ではなく実ファイルを走査して求める」の例外。
+     * あちらは断片が DB に載らないことが理由だが、アップロードは完成してから行を作るので、行とファイルが
+     * 必ず 1 対 1 になる。
+     * 受け取り中のファイルはここに数えない（1 人 1 本なので、判定のときに本人の分は受け取っていない）。
+     *
+     * @param uploadedByUserId 上げた利用者の主キー
+     * @return 合計（バイト）。無ければ 0
+     */
+    @Query("""
+            SELECT COALESCE(SUM(r.fileSizeBytes), 0) FROM Recording r
+             WHERE r.uploadedByUserId = :uploadedByUserId
+            """)
+    long sumFileSizeBytesByUploadedByUserId(@Param("uploadedByUserId") Long uploadedByUserId);
 }

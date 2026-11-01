@@ -211,6 +211,7 @@ gh api graphql -f query='{repository(owner:"ryusei-git",name:"youtubeLiveMonitor
 - `ddl-auto: update` はカラムの削除・リネームをしない
 - enum の列挙子を増やすと既存 DB で全更新が失敗する（実際に発生した）
 - 既存データがある状態で NOT NULL の boolean カラムを追加すると失敗する（実際に発生した）
+- 大きな本文を受ける API は、本文を先に読むものを止めておく（確認で発生した）
 
 新しく事故を踏んだら `docs/pitfalls.md` に追記し、この索引にも 1 行足す。
 

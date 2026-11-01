@@ -193,6 +193,7 @@ Web 専用であることを明示すること。
 | `CHANNEL_REGISTER` / `CHANNEL_DELETE` | チャンネル |
 | `CHANNEL_SETTING_CHANGE` | 録画ON/OFF、フィルター変更 |
 | `DOWNLOAD_REQUEST` | URL指定ダウンロード |
+| `RECORDING_UPLOAD` | 手元の動画のアップロード（取り込めたときだけ） |
 | `RECORDING_DELETE` | 録画削除 |
 | `NOTIFICATION_SETTING_CHANGE` | 通知設定 |
 | `APP_SETTING_CHANGE` | アプリ設定（管理者） |

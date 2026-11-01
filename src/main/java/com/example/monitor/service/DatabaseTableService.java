@@ -169,7 +169,8 @@ public class DatabaseTableService {
                     Map.entry("THUMBNAIL_PATH", "サムネイルのパス"),
                     Map.entry("STATUS", "状態"),
                     Map.entry("STARTED_AT", "開始日時"),
-                    Map.entry("COMPLETED_AT", "完了日時")
+                    Map.entry("COMPLETED_AT", "完了日時"),
+                    Map.entry("UPLOADED_BY_USER_ID", "上げた利用者の ID（アップロードのみ）")
             )),
             Map.entry("DISCOVERY_CANDIDATES", Map.ofEntries(
                     Map.entry("CHANNEL_ID", "チャンネルID"),

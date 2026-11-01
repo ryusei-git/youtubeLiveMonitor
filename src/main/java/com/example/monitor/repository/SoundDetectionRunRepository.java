@@ -32,6 +32,9 @@ public interface SoundDetectionRunRepository extends JpaRepository<SoundDetectio
      * 録画の長さに比例し、長すぎる録画を避けられないため（{@link Recording#durationSeconds} は
      * 録画の後始末が後から埋めるので、埋まれば対象になる）。ファイルの有無は DB では分からないので、呼び出し側で確かめる。
      *
+     * <p>利用者が上げた動画（{@link Recording#uploadedByUserId}）は外す。検出は配信の録画のためのもので、
+     * CPU を使うため。
+     *
      * <p>録画を返すが、条件の中心が実行記録なのでこちらに置く。
      *
      * @param kind            種類
@@ -45,6 +48,7 @@ public interface SoundDetectionRunRepository extends JpaRepository<SoundDetectio
                     com.example.monitor.entity.Recording.RecordingStatus.COMPLETED,
                     com.example.monitor.entity.Recording.RecordingStatus.PARTIAL)
                AND r.durationSeconds IS NOT NULL
+               AND r.uploadedByUserId IS NULL
                AND NOT EXISTS (
                     SELECT d.id FROM SoundDetectionRun d
                      WHERE d.recording = r AND d.kind = :kind AND d.detectorVersion = :detectorVersion

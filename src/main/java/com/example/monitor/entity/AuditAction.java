@@ -93,6 +93,9 @@ public enum AuditAction {
     /** URL を指定した動画のダウンロードを要求した。 */
     DOWNLOAD_REQUEST,
 
+    /** 手元の動画をアップロードして取り込んだ。 */
+    RECORDING_UPLOAD,
+
     /** 録画履歴を削除した。 */
     RECORDING_DELETE,
 

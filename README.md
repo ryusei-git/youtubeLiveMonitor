@@ -831,6 +831,29 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
   で今すぐ検出します（202 が返り、終わるまで数十秒かかる。検出が走っている間は 409）。今の版で検出済みの録画をやり直すときは
   `&force=true` を付けます。やり直しても、答えのある候補は消えません。
 
+### 手元の動画を上げる
+
+ログインできる人は、手元の動画を上げて、録画と同じくアーカイブで再生できます（画面は別途。今は API だけです）。
+上げた動画は全員のアーカイブに並びます。チャンネル名は「アップロード」と出て、誰が上げたかは出ません。
+消せるのは上げた本人と管理者だけです。保存先は録画フォルダの `uploads/` で、外部のサービスへは送りません。
+
+- **取り込める動画**: 形式が MP4・MOV・WebM・MKV で、映像が H.264・HEVC・VP9・AV1 のもの。1 つ目の映像と 1 つ目の音声を
+  mp4 へ詰め替えます（映像は再エンコードしません。音声は AAC・MP3 以外なら AAC にします）。
+- **位置情報**: 全員に見えるので、メタデータはすべて落とします（iPhone の動画には撮影場所が入っています）。
+- **上限**: 1 本 `MONITOR_UPLOAD_MAX_FILE_GB`（既定 20GB）、1 人の合計 `MONITOR_UPLOAD_USER_QUOTA_GB`（既定 100GB）、
+  同時に 1 人 1 本・全体で 3 本。受け取った後に `MONITOR_RECORDING_MIN_FREE_GB` の空きを残せないとき、詰め替えの間
+  （受け取ったファイルと出力の 2 本分になります）にその 1/4 の空きを残せないときも断ります。
+- **マルチパートにしない理由**: 一時ファイルが `/tmp` に置かれ、本番の `/tmp` は tmpfs（メモリ）なので、大きな動画で
+  `mem_limit` を食い潰します。そのため本文をそのまま流す `PUT` にして、読みながら録画フォルダへ書いています。
+
+```bash
+# curl で上げる例（-T は本文をそのまま流す。--data-binary はファイルを丸ごとメモリに読むので使わない）
+curl -b cookies.txt -H "X-XSRF-TOKEN: <トークン>" -T movie.mp4 "http://localhost:8080/api/my/uploads?fileName=movie.mp4"
+```
+
+受け取りの途中で接続が切れたらファイルを消します（途中からの再開はできません）。受け取り中は `/api/health` の
+`recording` が `true` になり、自動の反映が見送られます。
+
 ### REST API
 
 主な API だけを載せています（すべてではありません）。ここに無い API（利用者ポータル `/api/my/**` の多く・利用者の管理・招待・
@@ -873,8 +896,11 @@ bin/monitor.sh sound detect 23 --from 0 --to 600
 | GET | `/api/my/recordings/{recordingId}/sound-marks?kind=EAR_KISS` | 録画に付いた耳キスの印（全員の分）を位置の順に返す（ログインしていれば誰でも使える。以下の `/api/my/**` も同じ） |
 | POST | `/api/my/recordings/{recordingId}/sound-marks` | 印を付ける（本文 `{"kind":"EAR_KISS","positionMs":123456}`。同じ人が前後 1 秒以内に付け直すと前の印を返す） |
 | DELETE | `/api/my/recordings/{recordingId}/sound-marks/{markId}` | 自分の印を消す（ほかの人の印は 404） |
-| GET | `/api/my/recordings/{recordingId}/sound-candidates?kind=EAR_KISS` | 検出器が付けた今の版の候補と、今の版の検出の状態（`state`: `PENDING`・`DONE`・`FAILED`・`UNSUPPORTED`。`UNSUPPORTED` は 6 時間を超えて検出しない録画） |
+| GET | `/api/my/recordings/{recordingId}/sound-candidates?kind=EAR_KISS` | 検出器が付けた今の版の候補と、今の版の検出の状態（`state`: `PENDING`・`DONE`・`FAILED`・`UNSUPPORTED`。`UNSUPPORTED` は 6 時間を超える録画と、利用者が上げた動画で、検出しない） |
 | PUT | `/api/my/recordings/{recordingId}/sound-candidates/{candidateId}/verdict` | 候補に答える（本文 `{"verdict":"CONFIRMED"}` が耳キス、`"REJECTED"` がちがう、`null` が取り消し） |
+| PUT | `/api/my/uploads?fileName=&title=` | 手元の動画を上げる（本文は動画のバイト列。`Content-Length` が必須で、無ければ 400。取り込み終わると 201 と `id`・`title`・`fileSizeBytes`・`durationSeconds`・`uploadedAt`。取り込めない動画は 400、1 本の上限を超えると 413、利用者の容量・空き容量・同時の本数で 409）。詳しくは「手元の動画を上げる」 |
+| GET | `/api/my/uploads` | 自分が上げた動画（新しい順）と上限（`maxFileBytes`・`quotaBytes`・`usedBytes`・`items`） |
+| DELETE | `/api/my/uploads/{id}` | 自分が上げた動画を消す（204。ほかの人の動画・無い ID は 404。管理者は `DELETE /api/recordings/{id}` で消せる） |
 
 `/api/admin/tables` 以下は任意のテーブルの任意の行を書き換えられるため、管理者（ADMIN）だけが使えます（`SecurityConfig`）。
 監査ログ・ログイン利用者・招待のテーブル（`AUDIT_LOGS`・`APP_USERS`・`INVITATIONS`）は、証跡の改ざんと秘密
