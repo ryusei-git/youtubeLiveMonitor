@@ -172,15 +172,15 @@ function mySearchChannel(item) {
     return `<span class="channelWithIcon">${channelIcon(item.channelIconUrl)}${externalLink(item.channelTitle, url)}</span>`;
 }
 
-/** 自分が購読している（マイチャンネルにある）チャンネルの札。 */
-const MY_SEARCH_SUBSCRIBED_LAMP = '<span class="statusLamp">マイチャンネル</span>';
+/** 自分が購読している（登録チャンネルにある）チャンネルの札。 */
+const MY_SEARCH_SUBSCRIBED_LAMP = '<span class="statusLamp">登録済み</span>';
 
 /**
  * ログイン中の利用者が購読している YouTube のチャンネル ID（UC...）を返す。
  *
  * 検索結果・動画の詳細・発掘の候補の registered は「このサービスの誰かが監視しているか」で、自分の購読とは別。
- * 個人の通知は購読した人にしか届かないので、「マイチャンネル」の札と登録のボタンは自分の購読で出し分ける。
- * 応答に購読を足さずにマイチャンネルの一覧（GET /api/my/channels）から引くのは、札の意味（マイチャンネルにあるか）と
+ * 個人の通知は購読した人にしか届かないので、「登録済み」の札と登録のボタンは自分の購読で出し分ける。
+ * 応答に購読を足さずに購読の一覧（GET /api/my/channels）から引くのは、札の意味（登録チャンネルにあるか）と
  * 一致し、検索・発掘の API に利用者ごとの項目を持ち込まずに済むため。
  * 比べるのは youtubeChannelId（UC...）で、id（DB の主キー）ではない（docs/pitfalls.md「ID が 2 種類ある」）。
  * 読めなかったときは空の集合を返す。ボタンが出すぎるだけで、押しても「既に登録されています」が出るだけなので、
@@ -199,7 +199,7 @@ async function mySearchSubscribedChannelIds() {
 
 /**
  * チャンネルの監視の札とボタン（視聴画面と新人発掘の候補で使う）。
- * 自分が購読していれば「マイチャンネル」の札だけを出す。購読していなければ登録のボタンを出し、このサービスの誰かが
+ * 自分が購読していれば「登録済み」の札だけを出す。購読していなければ登録のボタンを出し、このサービスの誰かが
  * 監視していれば「サービスで監視中」の札を前に添える。registered だけでボタンを消さないのは、別の人が監視していても
  * 自分には通知が届かず、ここで登録できないと困るため。
  *
@@ -210,7 +210,7 @@ async function mySearchSubscribedChannelIds() {
 function mySearchWatchChannel(item, subscribed) {
     if (subscribed.has(item.channelId)) return MY_SEARCH_SUBSCRIBED_LAMP;
     const service = item.registered ? '<span class="statusLamp serviceWatchLamp">サービスで監視中</span>' : "";
-    return `${service}<button type="button" class="watchChannelBtn">監視する（マイチャンネルに登録）</button>`;
+    return `${service}<button type="button" class="watchChannelBtn">監視する（登録チャンネルに追加）</button>`;
 }
 
 /**
@@ -225,7 +225,7 @@ function mySearchResult(item, subscribed) {
     const badge = item.liveBroadcastContent === "live" ? '<span class="searchBadge is-live">ライブ</span>'
         : item.liveBroadcastContent === "upcoming" ? '<span class="searchBadge">配信予定</span>'
         : item.durationSeconds ? `<span class="duration">${formatDuration(item.durationSeconds)}</span>` : "";
-    const channelMark = subscribed.has(item.channelId) ? "マイチャンネル" : item.registered ? "サービスで監視中" : "";
+    const channelMark = subscribed.has(item.channelId) ? "登録済み" : item.registered ? "サービスで監視中" : "";
     const marks = [item.saved ? "保存済み" : "", channelMark].filter(Boolean)
         .map((label) => `<span class="statusLamp">${label}</span>`).join("");
     const result = document.createElement("article");
@@ -1059,9 +1059,11 @@ function mySearchRenderWatchActions(root, video, subscribed, watchUrl) {
             await apiPost("/api/my/channels", {
                 platform: "YOUTUBE", channelInput: video.channelId, channelName: video.channelTitle,
             });
+            // 画面を離れた後でも購読は変わっているので、下で戻る前にメニューの行を合わせる
+            myLoadNavChannels({ force: true });
             if (!actions.isConnected) return;
             clearError();
-            showToast(`${video.channelTitle} をマイチャンネルに登録しました`);
+            showToast(`${video.channelTitle} を登録チャンネルに追加しました`);
             actions.querySelector(".serviceWatchLamp")?.remove();
             button.outerHTML = MY_SEARCH_SUBSCRIBED_LAMP;
         } catch (e) {
@@ -1284,7 +1286,7 @@ const myVideoWatchView = {
                 if (!heading.isConnected) return;
                 clearPlayer();
                 heading.textContent = "この動画は見られません";
-                heading.insertAdjacentHTML("afterend", '<p><a href="/my/videos">動画・配信へ戻る</a></p>');
+                heading.insertAdjacentHTML("afterend", '<p><a href="/my/videos">登録チャンネルへ戻る</a></p>');
                 return;
             }
             if (!res.ok) throw new Error(await extractError(res));

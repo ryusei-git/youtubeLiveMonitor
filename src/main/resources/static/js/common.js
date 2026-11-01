@@ -2118,13 +2118,15 @@ const studioPages = {
     "users.html": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M20 8v6 M17 11h6",
     "invitations.html": "M3 5h18v14H3z M3 5l9 7 9-7",
     "player.html": "M4 5h16v14H4z M10 9l5 3-5 3z",
-    // 利用者の 1 枚のページ（my.html）のトップ（/my）・動画・配信（/my/videos）・アーカイブ（/my/archive）・
-    // マイチャンネル（/my/channels）・通知の設定（/my/settings/notifications。管理者の通知履歴と同じベル）
+    // 利用者の 1 枚のページ（my.html）のホーム（/my）・登録チャンネル（/my/videos。重なった枠の中に再生の三角）・
+    // アーカイブ（/my/archive）・すべての登録チャンネル（/my/channels）・
+    // 通知の設定（/my/settings/notifications。管理者の通知履歴と同じベル）・アカウント設定（/my/settings/account。人の形）
     "my": "M3 11l9-8 9 8 M5 9v12h14V9 M10 21v-6h4v6",
-    "videos": "M4 5h16v14H4z M10 9l5 3-5 3z",
+    "videos": "M8 3h8 M6 6h12 M4 9h16v12H4z M10 12v6l5-3z",
     "archive": "M4 5h16v14H4z M10 9l5 3-5 3z",
     "channels": "M4 4h16v16H4z M8 9h8 M8 14h5",
     "notifications": "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
+    "account": "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
     // 動画ダウンロード（/my/download）。下向きの矢印と受け皿
     "download": "M12 4v11 M7 10l5 5 5-5 M5 20h14",
     // 検索（/my/search）。虫めがね
