@@ -310,7 +310,7 @@ public class SecurityConfig {
                 // ここから下は段階4で追加したユーザー画面まわり。
                 // 「自分の購読」は一般利用者の機能なので ADMIN 限定にはしない
                 .requestMatchers("/my-channels.html", "/my-recordings.html", "/api/my/**").authenticated()
-                // 利用者画面の 1 枚のページ（#146）。/my/** は MyShellController が /my.html へ forward する
+                // 利用者画面の 1 枚のページ（#146）。/my/** は MyShellController が my.html の中身を返す
                 .requestMatchers("/my.html", "/my", "/my/**").authenticated()
                 // プラットフォームの選択肢はユーザー画面の登録フォームでも使う
                 .requestMatchers("/api/platforms/**").authenticated()
