@@ -543,6 +543,8 @@ body.userApp .viewToggle button, body.userApp .viewToggle button:first-child, bo
 body.userApp .viewToggle button[aria-pressed="true"], body.userApp .pager button[aria-current="page"], body.userApp .pager button[aria-current="page"]:hover { background: var(--text); color: #fff; }
 /* アーカイブの分類のボタン。スマホでも横スクロールにせず折り返す */
 .archiveChips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+/* YouTube のチップと同じ 32px。指で押す幅に合わせた 44px（mobile.css）のままだと、スマホで 5 段になって一覧が下へ押し出される */
+body.userApp .archiveChips button { min-height: 32px; padding: 0 12px; font-size: 14px; }
 body.userApp .archiveChips button[aria-pressed="true"] { background: var(--text); color: #fff; }
 body.userApp .soundMarkOnly[aria-pressed="true"], body.userApp .markBtn[aria-pressed="true"] { background: var(--border); color: var(--text); }
 body.userApp .markBtn-favorite[aria-pressed="true"] { color: #b7791f; }
