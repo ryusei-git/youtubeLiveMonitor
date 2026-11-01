@@ -677,7 +677,9 @@ const myArchiveView = {
         root.innerHTML = `<h1>アーカイブ</h1>
             <p class="pageDescription">この端末に録画したすべての録画。再生中にほかの画面へ移っても、画面下で再生を続けます。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
+            <div class="archiveChips" role="group" aria-label="分類"></div>
             <form id="filterForm" class="inline">
+              <input type="hidden" name="category">
               <input type="search" name="keyword" placeholder="タイトル・チャンネル名で検索" aria-label="タイトル・チャンネル名で検索">
               <button type="submit">検索</button>
               <details class="filterMore">
@@ -728,10 +730,16 @@ const myArchiveView = {
             </nav>`;
         const grid = query(".videoGrid", root);
         const summary = query(".resultSummary", root);
+        const chips = query(".archiveChips", root);
+        const categoryField = /** @type {HTMLInputElement} */ (query('input[name="category"]', root));
         /** 読み込みの番号。条件を続けて変えたとき、遅れて届いた古い応答で上書きしないため（管理画面と同じ）。 */
         let request = 0;
         const load = async () => {
             const current = ++request;
+            // URL からの復元・条件のクリア・ボタンのどれで分類が変わっても、読み直す前に必ずここを通る
+            for (const chip of chips.querySelectorAll("button")) {
+                chip.setAttribute("aria-pressed", String(chip.value === categoryField.value));
+            }
             try {
                 const params = search.apiParams();
                 params.set("playableOnly", "true");
@@ -782,8 +790,39 @@ const myArchiveView = {
                 if (select.isConnected) showError(errorMessage(e));
             }
         };
+        /**
+         * 分類のボタンを 1 つ足す。押したら検索ボタンと同じく 1 ページ目から読み直す。
+         *
+         * @param {string} key 分類の key。「すべて」は空
+         * @param {string} text ボタンの文字
+         */
+        const addChip = (key, text) => {
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.value = key;
+            chip.textContent = text;
+            chip.addEventListener("click", () => {
+                categoryField.value = key;
+                search.goToPage(0);
+            });
+            chips.appendChild(chip);
+        };
+        /** 分類のボタンを API から作る。失敗しても一覧は出す（ボタンが出ないだけ。addOptions と同じ）。 */
+        const addChips = async () => {
+            try {
+                /** @type {{key: string, label: string, count: number}[]} */
+                const categories = await apiGet("/api/my/recordings/categories");
+                addChip("", "すべて");
+                for (const c of categories) {
+                    if (c.count > 0) addChip(c.key, `${c.label} ${c.count}`);
+                }
+            } catch (e) {
+                if (chips.isConnected) showError(errorMessage(e));
+            }
+        };
         // 選択肢が揃ってから URL の条件を戻す（先に戻すと、チャンネル・ジャンルが選択肢に無い値として捨てられる）
         return Promise.all([
+            addChips(),
             // 購読しているチャンネルだけだと、一覧に出ている購読外の録画のチャンネルで絞り込めない
             addOptions("channelId", "/api/my/recordings/channels", (ch) => new Option(ch.channelName, String(ch.id))),
             // 件数を添えるのは、選ぶ前にどれだけ当たるか分かるようにするため（管理画面と同じ）

@@ -14,6 +14,7 @@ import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.util.DiskSpaceUtils;
 import com.example.monitor.util.FileNameUtils;
 import com.example.monitor.util.LogValueSanitizer;
+import com.example.monitor.util.TitleCategoryClassifier;
 import com.example.monitor.util.TitleGenreExtractor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -562,6 +563,7 @@ public class VideoUploadService {
                 .videoId(videoId)
                 .videoTitle(title)
                 .genre(TitleGenreExtractor.extract(title))
+                .categories(TitleCategoryClassifier.classify(title))
                 .filePath(recordingFileService.toRelativePath(completed))
                 .fileSizeBytes(Files.size(completed))
                 .durationSeconds(duration)

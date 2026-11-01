@@ -62,7 +62,7 @@ class RecordingControllerTest {
                     .filePath("UCxxxxxxxx/video001.mp4")
                     .status(RecordingStatus.RECORDING).startedAt(LocalDateTime.now())
                     .build();
-            when(recordingHistoryService.search("admin", null, null, null, null, null, null, null, false, PageRequest.of(0, 20, NEWEST)))
+            when(recordingHistoryService.search("admin", null, null, null, null, null, null, null, null, false, PageRequest.of(0, 20, NEWEST)))
                     .thenReturn(new PageImpl<>(List.of(recording)));
 
             PageResponse<RecordingResponse> result =
@@ -74,7 +74,7 @@ class RecordingControllerTest {
         @Test
         @DisplayName("正常系：channelId指定時もキーワード・状態と組み合わせて検索条件として渡す")
         void testMethod02() {
-            when(recordingHistoryService.search("admin", 1L, "ASMR", RecordingStatus.COMPLETED, null, null, null, null, false, PageRequest.of(0, 20, NEWEST)))
+            when(recordingHistoryService.search("admin", 1L, "ASMR", RecordingStatus.COMPLETED, null, null, null, null, null, false, PageRequest.of(0, 20, NEWEST)))
                     .thenReturn(new PageImpl<>(List.of()));
 
             PageResponse<RecordingResponse> result = controller.getRecordings(
@@ -89,12 +89,12 @@ class RecordingControllerTest {
             LocalDate from = LocalDate.of(2026, 9, 1);
             LocalDate to = LocalDate.of(2026, 9, 30);
             Sort longest = Sort.by(Sort.Order.desc("durationSeconds")).and(NEWEST);
-            when(recordingHistoryService.search("admin", null, null, null, from, to, "ASMR", null, false, PageRequest.of(0, 20, longest)))
+            when(recordingHistoryService.search("admin", null, null, null, from, to, "ASMR", null, null, false, PageRequest.of(0, 20, longest)))
                     .thenReturn(new PageImpl<>(List.of()));
 
             controller.getRecordings(null, null, null, "longest", from, to, "ASMR", null, false, 0, 20, AUTH);
 
-            verify(recordingHistoryService).search("admin", null, null, null, from, to, "ASMR", null, false, PageRequest.of(0, 20, longest));
+            verify(recordingHistoryService).search("admin", null, null, null, from, to, "ASMR", null, null, false, PageRequest.of(0, 20, longest));
         }
 
         @Test
@@ -124,7 +124,7 @@ class RecordingControllerTest {
                     .filePath("UCxxxxxxxx/video001.mp4")
                     .status(RecordingStatus.COMPLETED).startedAt(LocalDateTime.now())
                     .build();
-            when(recordingHistoryService.search("admin", null, null, null, null, null, null, null, false, PageRequest.of(0, 2, NEWEST)))
+            when(recordingHistoryService.search("admin", null, null, null, null, null, null, null, null, false, PageRequest.of(0, 2, NEWEST)))
                     .thenReturn(new PageImpl<>(List.of(recording), PageRequest.of(0, 2), 5));
 
             PageResponse<RecordingResponse> result =

@@ -100,7 +100,7 @@ class RecordingRepositoryTest {
     private Page<Recording> search(Long userId, boolean subscribedOnly, Long channelId, String keyword,
                                    String genre, Boolean watched, boolean favoriteOnly, boolean playableOnly) {
         return recordingRepository.search(userId, subscribedOnly, channelId, keyword, null, null, null,
-                genre, watched, favoriteOnly, playableOnly, FIRST_PAGE);
+                genre, null, watched, favoriteOnly, playableOnly, FIRST_PAGE);
     }
 
     /**
@@ -111,7 +111,7 @@ class RecordingRepositoryTest {
     private long total(Long userId, boolean subscribedOnly, Long channelId, String keyword,
                        String genre, Boolean watched, boolean favoriteOnly, boolean playableOnly) {
         return recordingRepository.search(userId, subscribedOnly, channelId, keyword, null, null, null,
-                genre, watched, favoriteOnly, playableOnly, PageRequest.of(0, 1)).getTotalElements();
+                genre, null, watched, favoriteOnly, playableOnly, PageRequest.of(0, 1)).getTotalElements();
     }
 
     private static List<String> videoIds(Page<Recording> page) {

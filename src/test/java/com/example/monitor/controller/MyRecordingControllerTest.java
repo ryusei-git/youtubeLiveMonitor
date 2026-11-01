@@ -83,11 +83,11 @@ class MyRecordingControllerTest {
             Sort oldest = Sort.by(Sort.Order.asc("startedAt"), Sort.Order.asc("id"));
             // 引数が 1 つでも違えばスタブが一致せず、テストが失敗する
             when(recordingHistoryService.search("user", false, 7L, "ASMR", RecordingStatus.COMPLETED,
-                    from, to, "雑談", false, true, true, PageRequest.of(2, 50, oldest)))
+                    from, to, "雑談", null, false, true, true, PageRequest.of(2, 50, oldest)))
                     .thenReturn(new PageImpl<>(List.of(recording(1L))));
 
             PageResponse<RecordingResponse> result = controller.listMyRecordings(
-                    7L, "ASMR", RecordingStatus.COMPLETED, "oldest", from, to, "雑談", "unwatched",
+                    7L, "ASMR", RecordingStatus.COMPLETED, "oldest", from, to, "雑談", null, "unwatched",
                     true, true, 2, 50, AUTH);
 
             assertThat(result.content()).extracting(RecordingResponse::id).containsExactly(1L);
@@ -97,22 +97,22 @@ class MyRecordingControllerTest {
         @DisplayName("異常系：知らない並び順・視聴状態、逆転した期間、範囲外の件数、200文字を超える検索語はIllegalArgumentException（400）が発生し、検索しない")
         void testMethod02() {
             assertThatThrownBy(() -> controller.listMyRecordings(null, null, null, "foo", null, null, null, null,
-                    false, false, 0, 20, AUTH))
+                    null, false, false, 0, 20, AUTH))
                     .isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> controller.listMyRecordings(null, null, null, "newest", null, null, null, "foo",
+            assertThatThrownBy(() -> controller.listMyRecordings(null, null, null, "newest", null, null, null, null, "foo",
                     false, false, 0, 20, AUTH))
                     .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> controller.listMyRecordings(null, null, null, "newest",
-                    LocalDate.of(2026, 9, 2), LocalDate.of(2026, 9, 1), null, null, false, false, 0, 20, AUTH))
+                    LocalDate.of(2026, 9, 2), LocalDate.of(2026, 9, 1), null, null, null, false, false, 0, 20, AUTH))
                     .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> controller.listMyRecordings(null, null, null, "newest", null, null, null, null,
-                    false, false, 0, 0, AUTH))
+                    null, false, false, 0, 0, AUTH))
                     .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> controller.listMyRecordings(null, null, null, "newest", null, null, null, null,
-                    false, false, 0, 101, AUTH))
+                    null, false, false, 0, 101, AUTH))
                     .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> controller.listMyRecordings(null, "a".repeat(201), null, "newest", null, null,
-                    null, null, false, false, 0, 20, AUTH))
+                    null, null, null, false, false, 0, 20, AUTH))
                     .isInstanceOf(IllegalArgumentException.class);
             verifyNoInteractions(recordingHistoryService);
         }
@@ -122,11 +122,11 @@ class MyRecordingControllerTest {
         void testMethod03() {
             String keyword = "a".repeat(200);
             when(recordingHistoryService.search("user", false, null, keyword, null, null, null, null, null,
-                    false, false, PageRequest.of(0, 20, NEWEST)))
+                    null, false, false, PageRequest.of(0, 20, NEWEST)))
                     .thenReturn(new PageImpl<>(List.of()));
 
             PageResponse<RecordingResponse> result = controller.listMyRecordings(
-                    null, keyword, null, "newest", null, null, null, null, false, false, 0, 20, AUTH);
+                    null, keyword, null, "newest", null, null, null, null, null, false, false, 0, 20, AUTH);
 
             assertThat(result.content()).isEmpty();
         }
