@@ -498,4 +498,40 @@ public interface RecordingRepository extends JpaRepository<Recording, Long> {
      * @return 対象の録画履歴
      */
     List<Recording> findByStatusInAndThumbnailPathIsNull(Collection<RecordingStatus> statuses);
+
+    /**
+     * 利用者が上げた動画を新しい順に返す。
+     *
+     * <p>チャンネルは読まない（アップロードはチャンネルに紐づかない）ので {@code @EntityGraph} は要らない。
+     *
+     * @param uploadedBy 上げた利用者のログイン名
+     * @return 上げた動画。無ければ空
+     */
+    List<Recording> findByUploadedByOrderByStartedAtDesc(String uploadedBy);
+
+    /**
+     * 利用者が上げた動画の大きさを合計する。1 人の容量の上限の判定に使う。
+     *
+     * <p>{@code docs/pitfalls.md}「ディスク使用量は DB ではなく実ファイルを走査して求める」の例外。
+     * あちらは断片が DB に載らないことが理由だが、アップロードは完成してから行を作るので、行とファイルが
+     * 必ず 1 対 1 になる。
+     * 受け取り中のファイルはここに数えない（1 人 1 本なので、判定のときに本人の分は受け取っていない）。
+     *
+     * @param uploadedBy 上げた利用者のログイン名
+     * @return 合計（バイト）。無ければ 0
+     */
+    @Query("SELECT COALESCE(SUM(r.fileSizeBytes), 0) FROM Recording r WHERE r.uploadedBy = :uploadedBy")
+    long sumFileSizeBytesByUploadedBy(@Param("uploadedBy") String uploadedBy);
+
+    /**
+     * 上げた人のログイン名を書き換える。利用者名を変えても、本人の動画のままにするために使う。
+     *
+     * @param oldName 変える前のログイン名
+     * @param newName 変えた後のログイン名
+     * @return 書き換えた件数
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE Recording r SET r.uploadedBy = :newName WHERE r.uploadedBy = :oldName")
+    int updateUploadedBy(@Param("oldName") String oldName, @Param("newName") String newName);
 }

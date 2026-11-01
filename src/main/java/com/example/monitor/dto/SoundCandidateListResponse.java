@@ -26,6 +26,7 @@ public record SoundCandidateListResponse(State state, String detectorVersion,
         /**
          * 録画が長すぎて（6 時間を超える）、どの版でも検出しない。見回りは実行記録を「失敗（回数は上限）」にして外すが、
          * やり直しても結果は変わらないので、画面には失敗（{@link #FAILED}）と分けて出す。
+         * 利用者が上げた動画も、配信の録画ではないのでこの状態にする。
          */
         UNSUPPORTED
     }

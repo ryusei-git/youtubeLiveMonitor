@@ -151,6 +151,23 @@ public class Recording {
     /** 録画が完了・失敗した時刻。録画中は {@code null}。 */
     private LocalDateTime completedAt;
 
+    /**
+     * 手元の動画を上げた利用者のログイン名（{@link com.example.monitor.service.VideoUploadService}）。
+     * {@code null} ならアップロードではない（録画・URL 指定のダウンロード）。
+     *
+     * <p><b>{@link RecordingStatus} に列挙子を足さずに列で見分ける理由。</b>アップロードは録画と同じ状態
+     * （{@link RecordingStatus#COMPLETED}）を通るので、状態を分けると再生・一覧の条件をすべて直すことになる。
+     *
+     * <p><b>ログイン名を API に出さない。</b>上げた動画はログインできる全員のアーカイブに並ぶので、
+     * 出すと誰が上げたかが全員に見える（{@link com.example.monitor.dto.RecordingResponse} はチャンネル名を
+     * 固定の文言にする）。本人の判定と容量の集計にだけ使う。
+     *
+     * <p>利用者名を変えたらこの列も書き換える
+     * （{@link com.example.monitor.service.AppUserManagementService#rename}）。
+     */
+    @Column(length = 64)
+    private String uploadedBy;
+
     /** 開始時刻を自動設定する。JPA が INSERT 直前に呼び出す。 */
     @PrePersist
     void applyStartedAtOnInsert() {

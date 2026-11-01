@@ -55,6 +55,12 @@ import java.util.function.Consumer;
  * {@code -XX:+ExitOnOutOfMemoryError} で、足りなければ JVM ごと落ちる。{@link #MAX_DURATION_SECONDS} を超える
  * 録画は、失敗（回数は上限）として記録して見回りの対象から外す。
  *
+ * <h2>利用者が上げた動画を検出しない理由</h2>
+ * 検出は配信の録画のためのもので、CPU を使う。上げた動画（{@link Recording#uploadedBy}）は、見回り
+ * （{@link SoundDetectionRunRepository#findPendingRecordings}）でも今すぐ検出（{@link #startDetection}）でも
+ * 対象にしない。候補の一覧（{@link #listCandidates}）は「待っています」と出し続けないよう、
+ * {@code UNSUPPORTED} を返す。
+ *
  * <h2>付け直しでも答えのある候補を消さない理由</h2>
  * 答えは学び直しの正解（正例・負例）で、付け直すたびに消えると聞き直させることになる。同じ版で付け直すときは、
  * 答えの無い候補だけを消して作り直し、答えのある候補の近く（{@link #NEAR_ANSWER_MS} 以内）には新しい候補を作らない
@@ -286,6 +292,7 @@ public class SoundDetectionService {
      *
      * <p>{@link #MAX_DURATION_SECONDS} を超える録画は、実行記録によらず {@code UNSUPPORTED} にする。見回りは失敗として
      * 記録する（{@link #detect}）が、やり直しても変わらないので、画面で失敗と分けて出すため。
+     * 利用者が上げた動画も同じ。見回りの対象にしないので、{@code PENDING} のままでは待っても終わらない。
      *
      * @param recordingId 録画の主キー
      * @param kind        種類（{@code EAR_KISS}）
@@ -300,7 +307,8 @@ public class SoundDetectionService {
         AppUser user = currentAppUser.require();
         String version = EarKissModel.load().version();
         Integer duration = recording.getDurationSeconds();
-        SoundCandidateListResponse.State state = duration != null && duration > MAX_DURATION_SECONDS
+        SoundCandidateListResponse.State state = recording.getUploadedBy() != null
+                || (duration != null && duration > MAX_DURATION_SECONDS)
                 ? SoundCandidateListResponse.State.UNSUPPORTED
                 : soundDetectionRunRepository
                         .findByRecordingAndKindAndDetectorVersion(recording, KIND, version)
@@ -358,12 +366,17 @@ public class SoundDetectionService {
      * @param force       今の版で検出済みでもやり直すか
      * @throws IllegalArgumentException        種類が無い・検出できない種類のとき（400）
      * @throws RecordingNotFoundException      録画が無いとき（404）
-     * @throws SoundDetectionConflictException 再生できない・長さが分からない録画のとき、検出が走っているとき、
-     *                                         今の版で検出済みで {@code force} が無いとき（409）
+     * @throws SoundDetectionConflictException 再生できない・長さが分からない録画のとき、利用者が上げた動画の
+     *                                         とき、検出が走っているとき、今の版で検出済みで {@code force} が
+     *                                         無いとき（409）
      */
     public void startDetection(Long recordingId, String kind, boolean force) {
         requireKind(kind);
         Recording recording = requireRecording(recordingId);
+        if (recording.getUploadedBy() != null) {
+            throw new SoundDetectionConflictException(
+                    "利用者が上げた動画は検出の対象外です: id=" + recordingId);
+        }
         RecordingStatus status = recording.getStatus();
         if ((status != RecordingStatus.COMPLETED && status != RecordingStatus.PARTIAL)
                 || recording.getDurationSeconds() == null) {

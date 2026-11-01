@@ -19,8 +19,9 @@ import java.time.LocalDateTime;
  *                       監視対象に登録されていないチャンネルの動画をダウンロードした場合は {@code null}
  * @param youtubeChannelId 録画対象チャンネルの YouTube チャンネル ID。未登録なら {@code null}
  * @param channelName    録画対象チャンネルの表示名。未登録の場合は
- *                       {@link #UNLINKED_CHANNEL_NAME}（画面に「-」とだけ出ると理由が分からないため）
- * @param channelUrl     チャンネルページの URL。配信元ごとに形が違う（Twitch はログイン名から作る）ため
+ *                       {@link #UNLINKED_CHANNEL_NAME}（画面に「-」とだけ出ると理由が分からないため）、
+ *                       利用者が上げた動画は {@link #UPLOADED_CHANNEL_NAME}
+ * @param channelUrl    チャンネルページの URL。配信元ごとに形が違う（Twitch はログイン名から作る）ため
  *                       サーバーで組み立てる。未登録、または Twitch でログイン名が無ければ {@code null}
  * @param channelIconUrl チャンネルのアイコン URL（{@link MonitoredChannel#channelIconUrl}）。利用者の画面のカードに出す。
  *                       未登録、またはまだ読み取れていなければ {@code null}
@@ -81,6 +82,14 @@ public record RecordingResponse(
     public static final String UNLINKED_CHANNEL_NAME = "(未登録チャンネル)";
 
     /**
+     * 利用者が上げた動画に使う表示名。
+     *
+     * <p>上げた人のログイン名（{@link Recording#uploadedBy}）を出さないよう、固定の文言にしている。
+     * アーカイブはログインできる全員に見えるので、出すと誰が上げたかが全員に分かる。
+     */
+    public static final String UPLOADED_CHANNEL_NAME = "アップロード";
+
+    /**
      * エンティティからレスポンスを組み立てる。
      *
      * <p><b>チャンネルが {@code null} でも落ちないこと。</b>URL 指定でダウンロードした動画は
@@ -110,7 +119,8 @@ public record RecordingResponse(
                 recording.getId(),
                 channel == null ? null : channel.getId(),
                 channel == null ? null : channel.getYoutubeChannelId(),
-                channel == null ? UNLINKED_CHANNEL_NAME : channel.getChannelName(),
+                channel != null ? channel.getChannelName()
+                        : recording.getUploadedBy() != null ? UPLOADED_CHANNEL_NAME : UNLINKED_CHANNEL_NAME,
                 channel == null ? null : StreamLinkUtils.channelUrl(
                         channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
                 channel == null ? null : channel.getChannelIconUrl(),
