@@ -497,6 +497,9 @@ body.userApp {
     --text-muted: #606060;
     --border: #e5e5e5;
     --border-strong: #909090;
+    /* --text を地にした部品の、文字の色とホバーの地。ダークでは --text が明るくなるので、固定の色にすると白地に白字になる */
+    --on-text: #fff;
+    --text-hover: #272727;
 }
 /* 幅 1312px 以下は細いメニュー。760px 以下のメニューは引き出しで、--nav-width を使わない */
 @media (max-width: 1312px) {
@@ -571,8 +574,8 @@ body.userApp .navLiveDot { flex: none; width: 8px; height: 8px; margin-left: -16
 :where(body.userApp) button { min-height: 36px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--surface-sunken); color: var(--text); letter-spacing: 0; }
 :where(body.userApp) button:hover { background: var(--border); border-color: transparent; color: var(--text); }
 :where(body.userApp) button:disabled:hover { background: var(--surface-sunken); }
-:where(body.userApp) button[type="submit"], :where(body.userApp) button.saveBtn, :where(body.userApp) button.filterSave { background: var(--text); color: #fff; }
-:where(body.userApp) button[type="submit"]:hover, :where(body.userApp) button.saveBtn:hover, :where(body.userApp) button.filterSave:hover { background: #272727; color: #fff; }
+:where(body.userApp) button[type="submit"], :where(body.userApp) button.saveBtn, :where(body.userApp) button.filterSave { background: var(--text); color: var(--on-text); }
+:where(body.userApp) button[type="submit"]:hover, :where(body.userApp) button.saveBtn:hover, :where(body.userApp) button.filterSave:hover { background: var(--text-hover); color: var(--on-text); }
 :where(body.userApp) button.removeBtn { background: var(--surface-sunken); }
 :where(body.userApp) td button { padding: 0 12px; }
 body.userApp .watchActions a { padding: 0 16px; border: 0; border-radius: 999px; background: var(--surface-sunken); color: var(--text); }
@@ -581,18 +584,18 @@ body.userApp .watchActions a:hover { background: var(--border); color: var(--tex
 body.userApp .watchActions .markBtn { margin-right: 0; padding: 0 16px; font-size: inherit; }
 body.userApp .viewToggle { gap: 8px; }
 body.userApp .viewToggle button, body.userApp .viewToggle button:first-child, body.userApp .viewToggle button:last-child { padding: 0 12px; border-radius: 8px; margin-left: 0; }
-body.userApp .viewToggle button[aria-pressed="true"], body.userApp .pager button[aria-current="page"], body.userApp .pager button[aria-current="page"]:hover { background: var(--text); color: #fff; }
+body.userApp .viewToggle button[aria-pressed="true"], body.userApp .pager button[aria-current="page"], body.userApp .pager button[aria-current="page"]:hover { background: var(--text); color: var(--on-text); }
 /* アーカイブの分類のボタン。スマホでも横スクロールにせず折り返す */
 .archiveChips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
 /* YouTube のチップと同じ 32px。指で押す幅に合わせた 44px（mobile.css）のままだと、スマホで 5 段になって一覧が下へ押し出される */
 body.userApp .archiveChips button { min-height: 32px; padding: 0 12px; font-size: 14px; }
-body.userApp .archiveChips button[aria-pressed="true"] { background: var(--text); color: #fff; }
+body.userApp .archiveChips button[aria-pressed="true"] { background: var(--text); color: var(--on-text); }
 body.userApp .soundMarkOnly[aria-pressed="true"], body.userApp .markBtn[aria-pressed="true"] { background: var(--border); color: var(--text); }
 body.userApp .markBtn-favorite[aria-pressed="true"] { color: #b7791f; }
 body.userApp .discoverTabs, body.userApp .archiveTabs { display: flex; flex-wrap: wrap; gap: 8px; }
 body.userApp .discoverTabs a, body.userApp .discoverTabs a:first-child, body.userApp .discoverTabs a:last-child,
 body.userApp .archiveTabs a, body.userApp .archiveTabs a:first-child, body.userApp .archiveTabs a:last-child { margin-left: 0; padding: 0 12px; border: 0; border-radius: 8px; background: var(--surface-sunken); }
-body.userApp .discoverTabs a[aria-current="page"], body.userApp .archiveTabs a[aria-current="page"] { background: var(--text); color: #fff; }
+body.userApp .discoverTabs a[aria-current="page"], body.userApp .archiveTabs a[aria-current="page"] { background: var(--text); color: var(--on-text); }
 /* 760px 以下は指で押す高さ（mobile.css の 44px）のままにする */
 @media (min-width: 761px) {
     body.userApp .watchActions a, body.userApp .watchActions .markBtn { min-height: 36px; }
@@ -692,5 +695,103 @@ body.userApp tbody tr:hover { background: #f9f9f9; }
 body.userApp .livePanel h2::before { background: var(--text); }
 body.userApp .statusLamp { background: var(--surface-sunken); }
 body.userApp .statusLamp.is-live, body.userApp .statusLamp.is-recording { background: var(--text); }
-body.userApp .statusLamp.is-live .lamp, body.userApp .statusLamp.is-recording .lamp { background: #fff; border-color: #fff; box-shadow: none; animation: none; }
-body.userApp .statusLamp.is-live .lampText, body.userApp .statusLamp.is-recording .lampText { color: #fff; }
+body.userApp .statusLamp.is-live .lamp, body.userApp .statusLamp.is-recording .lamp { background: var(--on-text); border-color: var(--on-text); box-shadow: none; animation: none; }
+body.userApp .statusLamp.is-live .lampText, body.userApp .statusLamp.is-recording .lampText { color: var(--on-text); }
+
+/* アカウント設定の外観（#894）。見出しの「外観」が欄の名前なので、枠と余白を外して選択肢だけを並べる */
+body.userApp .themeOptions { margin: 0; padding: 0; border: 0; }
+body.userApp .themeOptions label { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+
+/* ダークテーマ（#894）。既定は OS の設定に従い、選んだ値は Cookie に持つ（html の data-theme はサーバーが書く。理由は MyShellController）。
+   色は light-dark() で 1 か所に書く。@media (prefers-color-scheme: dark) と [data-theme="dark"] に同じ規則を 2 回書かない。
+   light-dark() の 1 つ目はライトの今の値で、ライトの見た目を変えない。読めないブラウザーがライトのまま崩れないよう、color-scheme も含めて
+   すべて @supports の中に置く（color-scheme だけ先に効くと、ライトの画面に暗いフォーム部品とスクロールバーが出る）。
+   値は YouTube のダークテーマに合わせる。真っ黒・真っ白にせず、無彩色を基本に、色は意味のある所にだけ彩度を落として使う。
+   共有の規則は管理者の画面も使うので書き換えず、body.userApp の規則で上書きする。 */
+@supports (color: light-dark(#000, #fff)) {
+    html[data-theme="device"] { color-scheme: light dark; }
+    html[data-theme="dark"] { color-scheme: dark; }
+    html[data-theme="light"] { color-scheme: light; }
+
+    body.userApp {
+        --bg: light-dark(#fff, #0f0f0f);
+        --surface: light-dark(#fff, #0f0f0f);
+        --surface-sunken: light-dark(#f2f2f2, #272727);
+        --surface-zebra: light-dark(#fff, #0f0f0f);
+        --text: light-dark(#0f0f0f, #f1f1f1);
+        --text-muted: light-dark(#606060, #aaa);
+        --border: light-dark(#e5e5e5, #3f3f3f);
+        --border-strong: light-dark(#909090, #717171);
+        --link: light-dark(#5842b9, #b4a7f5);
+        --danger: light-dark(#96222a, #f28b82);
+        --ok: light-dark(#1f6b3f, #81c995);
+        --warn: light-dark(#8a6111, #fdd663);
+        /* 焦点の枠とホバーの線。紫のまま明るくする。ロゴの --navy-800 は今の色のまま */
+        --navy-700: light-dark(#5035ad, #b4a7f5);
+        --on-text: light-dark(#fff, #0f0f0f);
+        --text-hover: light-dark(#272727, #d9d9d9);
+    }
+
+    /* ヘッダーとメニュー。面はページと同じ色にする */
+    body.userApp .masthead, body.userApp .globalnav { background: var(--surface); }
+    body.userApp .headerSearch input { border-color: light-dark(#ccc, #303030); background: light-dark(#fff, #121212); }
+    body.userApp .headerSearch input:focus { border-color: light-dark(var(--navy-800), var(--link)); }
+    body.userApp .headerSearch button { border-color: light-dark(#ccc, #303030); background: light-dark(#f8f8f8, #222); }
+    body.userApp .headerSearch button:hover { background: light-dark(#f0f0f0, #303030); }
+
+    /* 部品。:where() は上の部品の規則と同じ理由（文字だけに見せるボタンなどの規則を上書きしない） */
+    :where(body.userApp) :focus-visible { box-shadow: 0 0 0 4px var(--surface); }
+    :where(body.userApp) input:not([type="checkbox"]):not([type="radio"]), :where(body.userApp) select, :where(body.userApp) textarea { background: var(--surface); }
+    :where(body.userApp) input::placeholder { color: light-dark(#6a6e7a, #aaa); }
+    /* ブラウザーの既定はダークだと淡い青で、画面の中でここだけ色相が変わる。リンクと同じ紫にそろえる。ライトは既定のまま */
+    :where(body.userApp) input { accent-color: light-dark(AccentColor, var(--link)); }
+    /* 既定の枠（groove）はダークだと白っぽい線になり、面の区切りより目立つ。どの色を指定しても明るい線が残る（Chrome で測った）ので枠を見せず、
+       この画面のほかの箱と同じく見出しと余白で区切る */
+    :where(body.userApp) fieldset { border-color: light-dark(ThreeDFace, transparent); }
+    :where(body.userApp) button.deleteBtn { background: light-dark(#fff, var(--surface-sunken)); }
+    :where(body.userApp) button[type="submit"]:disabled:hover, :where(body.userApp) button.saveBtn:disabled:hover { background: light-dark(var(--surface-sunken), var(--text)); }
+    body.userApp .deleteBtn:hover, body.userApp .removeBtn:hover { background: light-dark(#fbf4f4, var(--border)); }
+    /* 取り消しの横の主要な操作。ダークでは紫が浮くので、ほかの主要なボタンと同じ無彩色にする */
+    body.userApp .filterEdit .filterSave { background: light-dark(var(--navy-800), var(--text)); color: var(--on-text); }
+    body.userApp .filterEdit .filterSave:hover { background: light-dark(var(--navy-700), var(--text-hover)); }
+    body.userApp .filterEdit .filterSave:disabled:hover { background: light-dark(var(--navy-800), var(--text)); }
+    body.userApp .markBtn-favorite[aria-pressed="true"] { color: light-dark(#b7791f, var(--warn)); }
+    body.userApp .spinner { border-top-color: light-dark(var(--navy-800), var(--text)); }
+    /* 配信中の札はサムネイルの上に載る。時間の札と同じ黒地に白のままにする */
+    body.userApp .videoCard .duration.is-live, body.userApp .searchBadge.is-live { background: light-dark(var(--text), #0f0f0f); }
+    /* 別オリジンの埋め込みの文書はライトの color-scheme で、iframe と食い違うとブラウザーが白い地で塗る（読み込みの途中に白い四角が出る）。
+       iframe を中の文書と同じにして、.watchPlayer の黒い地を透かす */
+    body.userApp .watchPlayer iframe { color-scheme: light; }
+
+    /* 表 */
+    body.userApp .table-scroll { background: var(--surface); }
+    body.userApp th, body.userApp td { border-bottom-color: light-dark(#eeeff3, var(--border)); }
+    body.userApp th { background: light-dark(#f9f9f9, #181818); }
+    body.userApp tbody tr:hover { background: light-dark(#f9f9f9, #181818); }
+
+    /* そのほかの面と、失敗の帯。赤は地に薄く敷くだけにして、文字の --danger で読ませる */
+    body.userApp .emptyState, body.userApp #liveEmpty, body.userApp .skipLink { background: var(--surface); }
+    body.userApp p.error { border-color: light-dark(#f1d2cc, #5c2b2b); background: light-dark(#fff0ee, #2c1a1a); }
+    body.userApp #error.error { border-color: light-dark(#e2c8ca, #5c2b2b); border-left-color: var(--danger); background: light-dark(#fbf4f4, #2c1a1a); }
+
+    /* チャンネルの一覧とページ。固定の色のままだと、ダークで白い箱と淡い紫の札が浮く */
+    body.userApp .channelHero { background: var(--surface); }
+    body.userApp .channelCardArt { background: light-dark(#eae8f1, #272727); }
+    body.userApp .channelCardArt .thumbPlaceholder { color: light-dark(#767084, var(--text-muted)); }
+    body.userApp .channelAvatar { background: light-dark(#eae8f1, #272727); color: light-dark(#5839b6, var(--link)); }
+    body.userApp .channelBadge { background: light-dark(#eee9fc, #272727); color: light-dark(#5839b6, var(--link)); }
+    body.userApp .channelBadge.is-live { background: light-dark(#fde8ea, #2c1a1a); color: light-dark(#b4232f, var(--danger)); }
+
+    /* 浮いた面。中のボタンが地に溶けないよう、面の色に合わせて変数も持ち上げる */
+    body.userApp #playerDock.is-mini {
+        --surface: light-dark(#fff, #212121);
+        --surface-sunken: light-dark(#f2f2f2, #3f3f3f);
+        --border: light-dark(#e5e5e5, #535353);
+        background: var(--surface);
+        box-shadow: 0 -6px 18px light-dark(#23212d10, #0006);
+    }
+    /* 暗い面の上では、ライトと同じ濃さの枠が明るい線に見える */
+    body.userApp #playerDock.is-mini .player { border-color: light-dark(var(--border-strong), #3f3f3f); }
+    body.userApp .toast { border-left-color: light-dark(var(--rule), var(--border-strong)); background: light-dark(var(--navy-800), #212121); color: light-dark(var(--text-invert), var(--text)); box-shadow: 0 2px 10px light-dark(rgba(16, 29, 51, 0.25), #0006); }
+    body.userApp .toast.is-danger { border-left-color: light-dark(#e04a52, var(--danger)); }
+}
