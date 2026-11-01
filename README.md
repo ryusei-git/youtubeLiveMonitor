@@ -656,6 +656,7 @@ HTTPS の要求にはどちらの Cookie にも `Secure` が付くので、tailn
 中央の検索欄・カードの並びと大きさ・ボタンの形・無彩色の配色を YouTube に寄せています（`css/studio.css` の末尾の
 `body.userApp` の規則）。YouTube のロゴ・名前の流用・赤い再生ボタン・赤の配色は使わず、サービスの名前と紫のロゴ、
 リンクと焦点の紫は残します（Branding Guidelines と Developer Policies III.I.1 のため）。
+スマホの幅（760px 以下）では、メニューは左上の ≡ から左の引き出しで開きます。
 
 ### 設定の変更
 

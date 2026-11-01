@@ -284,8 +284,8 @@ function myToggleFullscreen(element) {
  * 0〜90% の位置、M で消音、F で全画面。録画と埋め込みの視聴画面で同じキーにするため、動かす先だけを actions で受け取る。
  *
  * <p>入力欄・選択肢（速度の選択を含む）にフォーカスがあるとき、Ctrl・Alt・Meta 付きのとき（ブラウザのショートカット）、
- * 日本語入力の変換中、ダイアログを開いているときは何もしない。スペースは、ボタン・リンクにフォーカスがあるときも何もしない
- * （ボタンはスペースで押されるので、再生の切り替えと二重になる）。
+ * 日本語入力の変換中、ダイアログ・メニューの引き出しを開いているときは何もしない。スペースは、ボタン・リンクにフォーカスが
+ * あるときも何もしない（ボタンはスペースで押されるので、再生の切り替えと二重になる）。
  *
  * <p>扱ったキーは preventDefault する。しないと、スペースでページがスクロールし、動画にフォーカスがあるときは
  * ブラウザ標準の操作も同じキーで動いて、二重に進む・切り替わる。
@@ -298,6 +298,7 @@ function myToggleFullscreen(element) {
 function myPlayerShortcut(ev, actions) {
     if (ev.defaultPrevented || ev.ctrlKey || ev.altKey || ev.metaKey || ev.isComposing) return;
     if (document.querySelector("dialog[open]")) return;
+    if (document.body.classList.contains("navOpen")) return;
     const target = ev.target instanceof Element ? ev.target : null;
     if (target?.closest("input, textarea, select") || (target instanceof HTMLElement && target.isContentEditable)) return;
     if (ev.key === " " && target?.closest("button, a, summary")) return;
@@ -2153,7 +2154,7 @@ function myMarkNav(href) {
         link.classList.toggle("active", link.getAttribute("href") === href);
         link.removeAttribute("aria-current");
     });
-    // aria-current を付け直すのと、狭い画面で今いる項目を見える位置へ寄せるのは共通の処理に任せる
+    // aria-current を付け直すのは共通の処理に任せる
     decorateStudioNavigation();
 }
 
@@ -2171,6 +2172,8 @@ function myMarkNav(href) {
  *   始められるよう、フォーカスを動かさない。restoreScroll は「戻る」「進む」で、history.state の scrollY へ戻す
  */
 function myRender({ initial = false, restoreScroll = false } = {}) {
+    // メニューのリンク・戻る／進むのどれで移っても閉じる。inert を先に外すのは、下で見出しへフォーカスを移すため
+    mySetNavOpen(false);
     myCurrentView?.leave?.();
     const renderId = ++myRenderCount;
     // 描く画面が history.state を書き換えることがある（動画・配信の URL の整えは null で置き換える）ので、描く前に読んでおく
@@ -2264,6 +2267,65 @@ function myBindHeaderSearch() {
     });
 }
 
+/** 開いた直後に、幕と引き出しの ≡ を押しても閉じない時間（ミリ秒）。滑り込む 0.2 秒より長く、見てから押す速さより短くする。 */
+const MY_NAV_TAP_GUARD_MS = 350;
+
+/**
+ * スマホの幅のメニューの引き出しを開閉する（#884）。
+ *
+ * 開いている間は奥の画面を inert にする。引き出しは画面の上に重ねるだけなので、そうしないと Tab が幕の裏のリンクへ移り、
+ * 読み上げも奥の画面を読み続ける。スキップリンクはヘッダーの外（body の先頭）にあるので別に挙げる。動画は DOM から外さず
+ * 属性を変えるだけなので、再生は止まらない。同じ状態なら何もしない（画面を移るたびに呼ばれ、閉じているのが普通のため）。
+ *
+ * @param {boolean} open 開くなら true
+ * @param {{ restoreFocus?: boolean }} [options] restoreFocus は閉じた後に ≡ へフォーカスを戻すか。引き出しの中のボタン・幕・
+ *   Esc で閉じたときに付ける。画面を移ったときは見出しへ移すので、幅を広げたときは ≡ が隠れるので付けない
+ */
+function mySetNavOpen(open, { restoreFocus = false } = {}) {
+    if (document.body.classList.contains("navOpen") === open) return;
+    document.body.classList.toggle("navOpen", open);
+    el("navBackdrop").hidden = !open;
+    const toggle = el("navToggle");
+    toggle.setAttribute("aria-expanded", String(open));
+    document.querySelectorAll(".skipLink, .masthead, .appColumns").forEach((background) => {
+        if (background instanceof HTMLElement) background.inert = open;
+    });
+    if (open) el("navClose").focus({ preventScroll: true });
+    else if (restoreFocus) toggle.focus({ preventScroll: true });
+}
+
+/**
+ * メニューの引き出しの開閉をつなぐ。ヘッダーとメニューは画面を移っても作り直さないので、ページを開いたときに 1 回だけ呼ぶ。
+ *
+ * 幅が 760px を越えると mobile.css が効かなくなり、引き出しの見た目が消えて inert と幕だけが残るので、幅が変わったら閉じる。
+ * ブラウザの「戻る」で閉じないのは、開くたびに履歴を積むことになり、「戻る」で前の画面へ戻るまでの回数が増えるため。
+ *
+ * ≡ を連打しても開くだけにするため、開いた直後は幕と引き出しの ≡ で閉じない。引き出しの ≡ はヘッダーの ≡ と同じ位置に来て、
+ * 幕は開いた瞬間に画面を覆うので、続けて押した 2 回目以降はそちらに当たり、そのままでは閉じてしまう（実際に発生した）。
+ * 押し続ける間は無視する時間を延ばす。Esc は押し間違えようがないので、いつでも閉じる。
+ */
+function myBindNavDrawer() {
+    const close = () => mySetNavOpen(false, { restoreFocus: true });
+    let ignoreTapUntil = 0;
+    const closeByTap = () => {
+        const now = performance.now();
+        if (now < ignoreTapUntil) ignoreTapUntil = now + MY_NAV_TAP_GUARD_MS;
+        else close();
+    };
+    el("navToggle").addEventListener("click", () => {
+        ignoreTapUntil = performance.now() + MY_NAV_TAP_GUARD_MS;
+        mySetNavOpen(true);
+    });
+    el("navClose").addEventListener("click", closeByTap);
+    el("navBackdrop").addEventListener("click", closeByTap);
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || !document.body.classList.contains("navOpen")) return;
+        event.preventDefault();
+        close();
+    });
+    window.matchMedia("(max-width: 760px)").addEventListener("change", () => mySetNavOpen(false));
+}
+
 /**
  * ログイン後の復帰で付く continue を URL から取り除く。Spring Security は保存した URL の末尾に
  * 付けて戻す（/my/archive?genre=x&continue）。検索条件ではなく、残すとブックマークにも付いて回る。
@@ -2298,4 +2360,5 @@ history.scrollRestoration = "manual";
 myDropContinueParam();
 myDockInit();
 myBindHeaderSearch();
+myBindNavDrawer();
 myRender({ initial: true });
