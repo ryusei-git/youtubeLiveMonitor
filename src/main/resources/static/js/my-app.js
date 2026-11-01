@@ -1941,9 +1941,56 @@ const myNotificationSettingsView = {
     },
 };
 
+/** @typedef {"device"|"dark"|"light"} MyTheme テーマ。device は OS の設定に従う */
+
+/** 選んだテーマの Cookie の名前。サーバーが読んで HTML の data-theme を書く（MyShellController。#894）。 */
+const MY_THEME_COOKIE = "ylm_theme";
+
+/** Cookie を残す長さ（秒）。1 年。 */
+const MY_THEME_COOKIE_MAX_AGE_SECONDS = 31536000;
+
+/** ブラウザの帯（theme-color）の色。my.html の 2 本の meta の初期値と同じにする。 */
+const MY_THEME_COLORS = { light: "#ffffff", dark: "#0f0f0f" };
+
+/** ダークの配色は studio.css の @supports の中にある。読めないブラウザーの画面はライトのままなので、帯もそれに合わせる。 */
+const MY_THEME_SUPPORTED = CSS.supports("color", "light-dark(#000, #fff)");
+
 /**
- * アカウントの設定。自分のパスワードを変える（#322。API は #321）。
+ * ブラウザの帯（theme-color）の色をテーマに合わせる。色は my.html の 2 本の meta が OS の設定で切り替えるので、
+ * OS に従う device ではそれぞれ元の色、テーマを選んだときは 2 本とも選んだ色にする。
  *
+ * @param {MyTheme} theme テーマ
+ */
+function mySyncThemeColor(theme) {
+    /** @type {NodeListOf<HTMLMetaElement>} */
+    const metas = document.querySelectorAll('meta[name="theme-color"]');
+    metas.forEach((meta) => {
+        const scheme = meta.media.includes("dark") ? "dark" : "light";
+        const shown = !MY_THEME_SUPPORTED ? "light" : theme === "device" ? scheme : theme;
+        meta.content = MY_THEME_COLORS[shown];
+    });
+}
+
+/**
+ * テーマを切り替えて、次に開いたときも同じになるよう Cookie に残す。
+ *
+ * Cookie に持つのは、端末・ブラウザごとに別にするためと、サーバーが HTML を返す時点で読めるようにして、
+ * 読み込みのときに白い画面が一瞬出ないようにするため（理由は MyShellController）。device は既定なので Cookie を消す。
+ * 画面は作り直さず、属性を変えるだけで色が変わる（studio.css の light-dark() が html の color-scheme に従う）。
+ *
+ * @param {MyTheme} theme テーマ
+ */
+function myApplyTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    document.cookie = `${MY_THEME_COOKIE}=${theme === "device" ? "" : theme}; path=/my; `
+        + `max-age=${theme === "device" ? 0 : MY_THEME_COOKIE_MAX_AGE_SECONDS}; samesite=lax`;
+    mySyncThemeColor(theme);
+}
+
+/**
+ * アカウントの設定。画面の外観（#894）と、自分のパスワードを変える（#322。API は #321）。
+ *
+ * 外観は保存のボタンを置かず、選ぶとすぐ変わる（myApplyTheme）。
  * パスワードは見せないので、入力欄は成功・失敗にかかわらず送信後に空へ戻す。
  * 確認欄はサーバーへ送らない。打ち間違いに気づかないまま変えると本人がログインできなくなるため、画面だけで確かめる。
  * @type {MyView}
@@ -1953,8 +2000,14 @@ const myAccountSettingsView = {
     nav: "/my/settings/account",
     render(root) {
         root.innerHTML = `<h1>アカウント設定</h1>
-            <p class="pageDescription">ログインのパスワードを変えます。変えると、ほかの端末やブラウザではログインし直しが必要になります。</p>
+            <p class="pageDescription">画面の外観とログインのパスワードを変えます。外観はこの端末のこのブラウザにだけ効きます。パスワードを変えると、ほかの端末やブラウザではログインし直しが必要になります。</p>
             <p id="error" class="error" role="alert" style="display:none;"></p>
+            <h2 id="themeHeading">外観</h2>
+            <fieldset id="themeOptions" class="themeOptions" aria-labelledby="themeHeading">
+              <label><input type="radio" name="theme" value="device"> デバイスのテーマを使用</label>
+              <label><input type="radio" name="theme" value="dark"> ダークテーマ</label>
+              <label><input type="radio" name="theme" value="light"> ライトテーマ</label>
+            </fieldset>
             <h2>パスワードの変更</h2>
             <form id="passwordForm">
               <p><label>今のパスワード<br>
@@ -1965,6 +2018,13 @@ const myAccountSettingsView = {
                 <input type="password" id="newPasswordConfirm" autocomplete="new-password" required minlength="8" size="28"></label></p>
               <p><button type="submit">変更する</button></p>
             </form>`;
+        const themeOptions = el("themeOptions");
+        /** @type {NodeListOf<HTMLInputElement>} */
+        const themeRadios = themeOptions.querySelectorAll("input[name=theme]");
+        themeRadios.forEach((radio) => { radio.checked = radio.value === document.documentElement.dataset.theme; });
+        themeOptions.addEventListener("change", (event) => {
+            myApplyTheme(/** @type {MyTheme} */ (/** @type {HTMLInputElement} */ (event.target).value));
+        });
         const form = formEl("passwordForm");
         const current = inputEl("currentPassword");
         const next = inputEl("newPassword");
@@ -2815,6 +2875,7 @@ window.addEventListener("popstate", () => myRender({ restoreScroll: true }));
 // 「戻る」「進む」の位置はルーターが戻す（myRender）。ブラウザに任せると、中身を読み込む前の短いページで位置を戻そうとして
 // 先頭付近に止まるうえ、ルーターが描き直すときの scrollTo(0, 0) と取り合いになる
 history.scrollRestoration = "manual";
+mySyncThemeColor(/** @type {MyTheme} */ (document.documentElement.dataset.theme));
 myDropContinueParam();
 myDockInit();
 myBindHeaderSearch();

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" data-theme="device">
 <head>
 <meta charset="UTF-8">
 <!-- viewport-fit=cover: iPhone で画面の端（ホームインジケーターの帯）まで描き、余白は mobile.css の env(safe-area-inset-*) で取る。
@@ -8,7 +8,9 @@
 <title>YouTube Live Monitor</title>
 <!-- ホーム画面に追加したとき全画面のアプリとして開く（PWA）。manifest とアイコンは未ログインでも取れる（SecurityConfig の permitAll） -->
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#ffffff">
+<!-- テーマを選ぶと my-app.js の mySyncThemeColor が 2 本とも書き換える。色は my-app.js の MY_THEME_COLORS と同じにする -->
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f0f0f">
 <meta name="apple-mobile-web-app-title" content="Live Monitor">
 <!-- manifest の display: standalone を読まない古い iOS でも、ホーム画面から開いたときにアプリとして開くため -->
 <meta name="apple-mobile-web-app-capable" content="yes">
