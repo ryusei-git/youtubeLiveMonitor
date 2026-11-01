@@ -25,7 +25,7 @@ import java.util.List;
  * @param status             {@code CANDIDATE}・{@code VTUBER}・{@code REJECTED}
  * @param decidedBy          判定した利用者のログイン ID
  * @param registered         このサービスで監視中のチャンネルか（誰かが登録していれば true。見ている利用者の購読ではない。
- *                           画面は購読を {@code GET /api/my/channels} で見分け、「マイチャンネル」の札と登録のボタンを出し分ける）
+ *                           画面は購読を {@code GET /api/my/channels} で見分け、「登録済み」の札と登録のボタンを出し分ける）
  */
 public record DiscoveryCandidateResponse(String channelId, String title, String iconUrl, String channelUrl,
         Long subscriberCount, boolean subscriberHidden, Long videoCount, String channelPublishedAt,

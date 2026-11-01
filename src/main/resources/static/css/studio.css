@@ -489,6 +489,9 @@ body.userApp .globalnav a.active { background: var(--surface-sunken); color: var
 }
 /* アイコンの下に小さい文字を置く形。長い項目は my.html の wbr の所で折り返し、語の途中で切らない */
 @media (min-width: 761px) and (max-width: 1312px) {
+    /* 窓が低いと縦のスクロールバーが出る。場所を取る環境（Windows など）では 72px の幅が削られ、文字が切れて横のスクロールバーまで出るので、
+       バーを隠す。ホイールと指では今までどおり動く */
+    body.userApp .globalnav { overflow-x: hidden; scrollbar-width: none; }
     body.userApp .globalnav .shell { padding: 4px; }
     body.userApp .globalnav a, body.userApp .globalnav a.navLogout { flex-direction: column; justify-content: center; gap: 6px; width: 64px; height: auto; min-height: 74px; padding: 8px 0; font-size: 10px; line-height: 14px; text-align: center; white-space: normal; word-break: keep-all; }
     /* 見出しとチャンネルの行を置く場所が無い。「登録チャンネル」は隠すと /my/videos へ行けなくなるので、リンクだけを普通の項目で残す

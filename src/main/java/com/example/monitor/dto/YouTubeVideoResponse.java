@@ -31,7 +31,7 @@ import java.util.List;
  * @param channelSubscriberHidden 登録者数が非公開か
  * @param channelVideoCount       チャンネルの動画数
  * @param registered              このサービスで監視中のチャンネルか（誰かが登録していれば true。見ている利用者の購読ではない。
- *                                画面は購読を {@code GET /api/my/channels} で見分け、「マイチャンネル」の札と登録のボタンを出し分ける）
+ *                                画面は購読を {@code GET /api/my/channels} で見分け、「登録済み」の札と登録のボタンを出し分ける）
  * @param saved                   このサービスに再生できる録画があるか
  * @param recordingId             その録画の ID。無ければ {@code null}
  * @param tags                    タグ。視聴画面の詳細だけに入れ、検索結果では省く
