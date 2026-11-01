@@ -268,3 +268,15 @@ body.userApp #playerDock.is-full .player { width: calc(100% + 32px + var(--safe-
    box-sizing を足すのは、枠と内側の余白の分だけ本文の右端から入力欄がはみ出さないようにするため。 */
 #registerForm input, #resetForm input, #passwordForm input { width: 100%; box-sizing: border-box; }
 #registerForm button[type="submit"], #resetForm button[type="submit"], #passwordForm button[type="submit"] { width: 100%; }
+
+/* ダークテーマ（#894。考え方は studio.css の末尾）。引き出しは浮いた面なので、ページより 1 段明るくする。中の項目が地に溶けないよう、
+   変数も持ち上げる。 */
+@supports (color: light-dark(#000, #fff)) {
+    body.userApp .globalnav {
+        --surface: light-dark(#fff, #212121);
+        --surface-sunken: light-dark(#f2f2f2, #3f3f3f);
+    }
+    body.userApp .navDrawerHead { background: var(--surface); }
+    body.userApp .myArchiveTable tr, body.userApp #upcomingTable tr, body.userApp .myChannelsTable tbody tr, body.userApp .myChannelsTable thead tr { border-bottom-color: light-dark(#eeeff3, var(--border)); }
+    body.userApp .myChannelsTable thead tr { background: light-dark(#fafbfc, #181818); }
+}
