@@ -336,6 +336,19 @@ body:has(#playerDock.is-mini) .toastStack { bottom: calc(var(--dock-mini-height)
     .searchTitle { font-size: 14px; }
 }
 
+/* 利用者の動画アップロード（/my/upload、#888）。進み具合の枠と、上げた動画の一覧。一覧は幅の狭い画面でも題名を読めるよう、表にせず、
+   題名を折り返して右に削除のボタンを置く */
+.uploadJob { margin: 16px 0; padding: 12px 16px; border-radius: 12px; background: var(--surface-sunken); }
+.uploadJob p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.uploadJob p:empty { display: none; }
+.uploadJob progress { display: block; width: 100%; margin-bottom: 8px; accent-color: var(--text); }
+/* 利用者の画面のボタンの地は枠と同じ灰色なので、白くして押せると分かるようにする */
+.uploadJob button { background: var(--surface); }
+.uploadList { margin: 0; padding: 0; list-style: none; }
+.uploadList li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.uploadItemText { min-width: 0; overflow-wrap: anywhere; }
+.uploadItemText .muted { display: block; margin-top: 2px; font-size: 12px; }
+
 /* 視聴画面（/my/videos/watch/{id} と /my/search/watch/{videoId}、#876）。埋め込みプレーヤーの中は変えられないので、周りの並びを
    YouTube の視聴ページに合わせて一体感を出す（左にプレーヤーと情報、右に関連の列）。色と部品はこのファイルの末尾の「利用者の画面」で揃える。
    左の列の上限は、ヘッダーと余白を除いた高さに 16:9 で収まる幅。縦に短い画面でも 480px は残す。余った幅は左右へ等分する。

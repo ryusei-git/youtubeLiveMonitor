@@ -475,7 +475,7 @@ function myDockInit() {
 /**
  * 録画の再生画面の URL。
  *
- * @param {Recording} rec 録画
+ * @param {{id: number}} rec 録画（上げた動画も同じ画面で再生する）
  * @returns {string} 再生画面のパス
  */
 function myWatchPath(rec) {
@@ -1060,6 +1060,27 @@ function myMergeSoundRanges(ranges) {
     return merged;
 }
 
+/** 自動の検出が長さで対象外になる再生時間（秒）。サーバーの SoundDetectionService.MAX_DURATION_SECONDS と同じ値にする。 */
+const MY_SOUND_DETECTION_MAX_SECONDS = 6 * 3600;
+
+/**
+ * 自動の検出の対象外（UNSUPPORTED）の理由の文言。
+ *
+ * API の state は「長すぎる録画」と「上げた動画」を分けず、録画の応答にも上げた動画を表す項目が無いので、長さで見分ける。
+ * サーバーが UNSUPPORTED にするのはこの 2 つだけなので、6 時間以下（長さが分からないときを含む）なら上げた動画と決まる。
+ * 6 時間を超える上げた動画には長さの文言が出るが、それも正しい。
+ *
+ * チャンネル名の「アップロード」で見分けない（同じ名前のチャンネルがありうる）。動画 ID の形でも見分けない（ID の形から推測しない）。
+ *
+ * @param {Recording} rec 再生画面の録画
+ * @returns {string} 画面に出す文言
+ */
+function mySoundUnsupportedText(rec) {
+    return (rec.durationSeconds ?? 0) > MY_SOUND_DETECTION_MAX_SECONDS
+        ? "6 時間を超える録画は、自動の検出の対象外です"
+        : "アップロードした動画は、自動の検出の対象外です";
+}
+
 /**
  * 再生画面の耳キスの欄（#459）。聞きながら「ここは耳キス」の印を付け、印の一覧と前後の印へ飛ぶボタンを出す。
  * 印は全員で共有し、消せるのは付けた本人だけ（API も本人の印しか消さない）。
@@ -1378,7 +1399,7 @@ function myBindSoundMarks(rec, container) {
         state.hidden = candidateState === null;
         state.textContent = (candidateState === "PENDING" ? "自動の検出を待っています"
             : candidateState === "FAILED" ? "自動の検出に失敗しました"
-            : candidateState === "UNSUPPORTED" ? "6 時間を超える録画は、自動の検出の対象外です"
+            : candidateState === "UNSUPPORTED" ? mySoundUnsupportedText(rec)
             : `自動の候補 ${candidates.length} 件（未確認 ${unreviewed} 件）`)
             + (candidates.length ? "。自動の候補は外れが多いので、聞いて答えてください。答えは精度を上げるのに使います。" : "");
         const restoreFocus = rememberFocus(list);
@@ -2104,6 +2125,312 @@ const myDownloadView = {
     },
 };
 
+/** 題名の上限（文字数）。サーバーの VideoUploadService.MAX_TITLE_LENGTH と同じ値にする。 */
+const MY_UPLOAD_TITLE_MAX_LENGTH = 200;
+
+/**
+ * 上げた動画 1 本（Java の {@code MyUploadResponse} に対応）。
+ *
+ * @typedef {object} MyUpload
+ * @property {number} id 録画の主キー。再生は録画と同じ画面で行う
+ * @property {string} title 題名
+ * @property {number} fileSizeBytes 取り込んだファイルのサイズ（バイト）
+ * @property {number|null} durationSeconds 再生時間（秒）。読み取れていなければ null
+ * @property {string} uploadedAt 取り込んだ時刻
+ */
+
+/**
+ * 上げた動画の一覧と上限（Java の {@code MyUploadListResponse} に対応）。
+ *
+ * @typedef {object} MyUploadList
+ * @property {number} maxFileBytes 1 本の大きさの上限（バイト）
+ * @property {number} quotaBytes 1 人が置ける合計の上限（バイト）
+ * @property {number} usedBytes いま置いている合計（バイト）
+ * @property {MyUpload[]} items 上げた動画（新しい順）
+ */
+
+/**
+ * 上げている最中の 1 本。
+ *
+ * @typedef {object} MyUploadJob
+ * @property {XMLHttpRequest} xhr 送っている要求。中止に使う
+ * @property {string} fileName 元のファイル名
+ * @property {number} loaded 送ったバイト数
+ * @property {number} total ファイルの大きさ（バイト）
+ */
+
+/**
+ * 動画アップロードの画面の描き先。画面を開くたびに作り直す。
+ *
+ * @typedef {object} MyUploadScreen
+ * @property {HTMLElement} panel 進み具合の枠。画面が開いているかを isConnected で見分ける
+ * @property {() => void} paint 進み具合を描き直す
+ * @property {(succeeded: boolean) => void} settle 送信が終わったときに、フォームと一覧を戻す
+ */
+
+/** 上げている動画。同時に 1 本だけ。画面を移っても送り続けるので、画面の外に持つ。上げていなければ null。 */
+/** @type {MyUploadJob|null} */
+let myUploadJob = null;
+
+/**
+ * 最後に開いた動画アップロードの画面。送信の処理はこれを通して描く（移って戻ると、送り始めたときの要素はページから外れている）。
+ * 別の画面へ移っても残るので、{@link myOpenUploadScreen} を通して使う。
+ * @type {MyUploadScreen|null}
+ */
+let myUploadScreen = null;
+
+/** 別の画面にいる間に失敗した文言。エラー帯は画面の中にあるので、戻ったときに出す。無ければ空。 */
+let myUploadMissedError = "";
+
+/**
+ * @returns {MyUploadScreen|null} 動画アップロードの画面を開いていれば描き先。別の画面なら null
+ */
+function myOpenUploadScreen() {
+    return myUploadScreen?.panel.isConnected ? myUploadScreen : null;
+}
+
+/**
+ * 上げている間、ページを閉じる・読み込み直す前に確かめる。閉じると送信が切れ、サーバーは受け取った分を消すため。
+ * 上げていない間は外す（付けたままだと、ブラウザーによっては「戻る」のキャッシュが効かなくなる）。
+ *
+ * @param {BeforeUnloadEvent} event イベント
+ */
+function myConfirmUnloadWhileUploading(event) {
+    event.preventDefault();
+    // preventDefault だけでは確認を出さないブラウザーがある
+    event.returnValue = "";
+}
+
+/**
+ * 動画を送り始める。結果の知らせも含めて、画面を移っても動くようにしてある（DOM には {@link myOpenUploadScreen} を通して触る）。
+ *
+ * fetch でなく XMLHttpRequest なのは、fetch では送信の進み具合を取れないため。本文に File をそのまま渡すと、ブラウザーは
+ * 読みながら送り、ファイルをメモリへ読み込まない。応答は取り込みが終わるまで返らない（数分かかる）ので、タイムアウトは付けない。
+ *
+ * ログイン切れの転送より先に確認を外す（finish）。残すと、終わった送信のことをページを移るときに聞いてしまう。
+ *
+ * @param {File} file 送る動画
+ * @param {string} title 題名。空ならサーバーがファイル名から決める
+ */
+function myStartUpload(file, title) {
+    const xhr = new XMLHttpRequest();
+    /** @type {MyUploadJob} */
+    const job = { xhr, fileName: file.name, loaded: 0, total: file.size };
+    /** @param {boolean} succeeded 取り込めたか */
+    const finish = (succeeded) => {
+        myUploadJob = null;
+        window.removeEventListener("beforeunload", myConfirmUnloadWhileUploading);
+        myOpenUploadScreen()?.settle(succeeded);
+    };
+    /** @param {string} message 失敗の文言 */
+    const fail = (message) => {
+        finish(false);
+        if (myOpenUploadScreen()) {
+            showError(message, { reveal: true });
+            return;
+        }
+        // 移った先の画面のエラー帯には書かない。トーストは消えるので、理由は戻ったときにエラー帯へ出す
+        myUploadMissedError = message;
+        showToast("動画をアップロードできませんでした。理由は「動画アップロード」の画面に出ています", "danger");
+    };
+    xhr.upload.addEventListener("progress", (event) => {
+        job.loaded = event.loaded;
+        myOpenUploadScreen()?.paint();
+    });
+    xhr.addEventListener("load", () => {
+        if (xhr.status === 401) {
+            finish(false);
+            redirectToLogin();
+        } else if (xhr.status === 201) {
+            finish(true);
+            showToast(`「${xhr.response.title}」をアップロードしました`);
+        } else {
+            fail(xhr.response?.error || `アップロードできませんでした（HTTP ${xhr.status}）`);
+        }
+    });
+    xhr.addEventListener("error", () => fail(NETWORK_ERROR_MESSAGE));
+    xhr.addEventListener("abort", () => {
+        finish(false);
+        showToast("アップロードを中止しました");
+    });
+
+    const params = new URLSearchParams({ fileName: file.name, title });
+    xhr.open("PUT", `/api/my/uploads?${params}`);
+    xhr.responseType = "json";
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    Object.entries(csrfHeaders()).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+    myUploadJob = job;
+    window.addEventListener("beforeunload", myConfirmUnloadWhileUploading);
+    xhr.send(file);
+}
+
+/**
+ * 上げた動画 1 本を一覧の行にする。
+ *
+ * @param {MyUpload} upload 上げた動画
+ * @returns {string} li 要素の HTML
+ */
+function myUploadItemHtml(upload) {
+    return `<li data-focus-key="${upload.id}">
+        <div class="uploadItemText">
+          <a href="${myWatchPath(upload)}">${escapeHtml(upload.title)}</a>
+          <span class="muted">${formatDuration(upload.durationSeconds)} · ${formatFileSize(upload.fileSizeBytes)} · ${escapeHtml(formatTimeAgo(upload.uploadedAt))}</span>
+        </div>
+        <button type="button" class="removeBtn" data-upload-id="${upload.id}">削除</button>
+      </li>`;
+}
+
+/**
+ * 動画アップロード（#888。API は #887）。手元の動画を選んで上げ、進み具合を見て、自分の分を一覧で確かめて消す。
+ *
+ * 送信は画面より長く続く。画面を離れても止めず（leave を持たない）、戻ったら {@link myUploadJob} から進み具合を描く。
+ *
+ * 100% の後は中止のボタンを隠す。送り終えた後の取り込みは接続が切れても止まらず、動画は一覧に増える。中止と言って止まらないため。
+ *
+ * 1 本の上限はサーバーも確かめるが、画面でも先に断る。このファイルの大きさを添えて伝えられるため。一覧を読めていない間は
+ * サーバーの判定（413）に任せる。
+ *
+ * @type {MyView}
+ */
+const myUploadView = {
+    title: "動画アップロード",
+    nav: "/my/upload",
+    render(root) {
+        root.innerHTML = `<h1>動画アップロード</h1>
+            <p class="pageDescription">手元の動画をこのサービスへ上げて、アーカイブで再生します。ログインできる全員に見えます。</p>
+            <p id="error" class="error" role="alert" style="display:none;"></p>
+            <p id="uploadLimits" class="muted"></p>
+            <form id="uploadForm">
+              <p><label>動画ファイル<br><input type="file" id="uploadFile" accept="video/*,.mkv,.mov,.webm" required></label></p>
+              <p class="muted">対応形式: MP4・MOV・WebM・MKV</p>
+              <p><label>題名<br><input type="text" id="uploadTitle" maxlength="${MY_UPLOAD_TITLE_MAX_LENGTH}" size="60"></label></p>
+              <p><button type="submit">アップロード</button></p>
+            </form>
+            <div id="uploadJob" class="uploadJob" hidden>
+              <p id="uploadJobName"></p>
+              <progress max="1" value="0" aria-label="アップロードの進み具合"></progress>
+              <p id="uploadJobAmount"></p>
+              <!-- 読み上げは段階が変わったときだけにする。上の割合は送っている間ずっと変わるので、ここに入れない -->
+              <p id="uploadJobPhase" role="status"></p>
+              <button type="button" id="uploadAbort">中止</button>
+            </div>
+            <h2>アップロードした動画</h2>
+            <div id="uploadList"><p class="muted">読み込み中...</p></div>`;
+        const form = formEl("uploadForm");
+        const fileInput = inputEl("uploadFile");
+        const titleInput = inputEl("uploadTitle");
+        const submitButton = /** @type {HTMLButtonElement} */ (query("button[type=submit]", form));
+        const panel = el("uploadJob");
+        const progress = /** @type {HTMLProgressElement} */ (query("progress", panel));
+        const abortButton = buttonEl("uploadAbort");
+        const list = el("uploadList");
+        /** 1 本の上限（バイト）。一覧を読むまでは null */
+        /** @type {number|null} */
+        let maxFileBytes = null;
+        // 読み込みの番号。遅れて届いた古い一覧で、新しい一覧を上書きしないため
+        let request = 0;
+
+        const paint = () => {
+            const job = myUploadJob;
+            panel.hidden = !job;
+            fileInput.disabled = titleInput.disabled = submitButton.disabled = job !== null;
+            if (!job) return;
+            const processing = job.loaded >= job.total;
+            el("uploadJobName").textContent = job.fileName;
+            // value を外すと、終わりの見えない待ちの表示になる
+            if (processing) progress.removeAttribute("value");
+            else progress.value = job.loaded / job.total;
+            el("uploadJobAmount").textContent = processing ? ""
+                : `${Math.floor(job.loaded / job.total * 100)}%（${formatFileSize(job.loaded)} / ${formatFileSize(job.total)}）`;
+            el("uploadJobPhase").textContent = processing ? "サーバーで処理しています…（数分かかることがあります）" : "";
+            abortButton.hidden = processing;
+        };
+
+        const reload = async () => {
+            const current = ++request;
+            try {
+                /** @type {MyUploadList} */
+                const uploads = await apiGet("/api/my/uploads");
+                if (current !== request || !list.isConnected) return;
+                maxFileBytes = uploads.maxFileBytes;
+                el("uploadLimits").textContent = `1 本 ${formatFileSize(uploads.maxFileBytes)} まで。使っている容量 ${formatFileSize(uploads.usedBytes)} / ${formatFileSize(uploads.quotaBytes)}`;
+                const restoreFocus = rememberFocus(list, root);
+                list.innerHTML = uploads.items.length === 0
+                    ? emptyState("アップロードした動画はまだありません", "上のフォームから動画を選んでください。")
+                    : `<ul class="uploadList">${uploads.items.map(myUploadItemHtml).join("")}</ul>`;
+                restoreFocus();
+            } catch (e) {
+                if (current !== request || !list.isConnected) return;
+                list.innerHTML = '<p class="muted">読み込めませんでした。</p>';
+                showError(errorMessage(e));
+            }
+        };
+
+        myUploadScreen = {
+            panel,
+            paint,
+            settle(succeeded) {
+                if (succeeded) {
+                    clearError();
+                    form.reset();
+                }
+                paint();
+                reload();
+            },
+        };
+
+        fileInput.addEventListener("change", () => {
+            const file = fileInput.files?.[0];
+            // value へ入れた値には maxlength が効かない
+            if (file) titleInput.value = file.name.replace(/\.[^.]*$/, "").slice(0, MY_UPLOAD_TITLE_MAX_LENGTH);
+        });
+
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            const file = fileInput.files?.[0];
+            if (!file || myUploadJob) return;
+            if (file.size === 0) {
+                showError("空のファイルはアップロードできません", { reveal: true });
+                return;
+            }
+            if (maxFileBytes !== null && file.size > maxFileBytes) {
+                showError(`ファイルが大きすぎます。1 本 ${formatFileSize(maxFileBytes)} までです（このファイルは ${formatFileSize(file.size)}）`, { reveal: true });
+                return;
+            }
+            clearError();
+            myStartUpload(file, titleInput.value);
+            paint();
+        });
+
+        abortButton.addEventListener("click", () => {
+            if (myUploadJob && confirm("アップロードを中止しますか？（送った分は消えます）")) myUploadJob.xhr.abort();
+        });
+
+        list.addEventListener("click", async (event) => {
+            const button = event.target instanceof Element ? event.target.closest("[data-upload-id]") : null;
+            if (!(button instanceof HTMLButtonElement)) return;
+            if (!confirm("この動画を削除しますか？（アーカイブからも消えます）")) return;
+            const title = button.closest("li")?.querySelector("a")?.textContent ?? "";
+            try {
+                await apiDelete(`/api/my/uploads/${button.dataset.uploadId}`);
+                showToast(`「${title}」を削除しました`, "danger");
+                if (!list.isConnected) return;
+                clearError();
+                await reload();
+            } catch (e) {
+                if (list.isConnected) showError(errorMessage(e), { reveal: true });
+            }
+        });
+
+        paint();
+        if (myUploadMissedError) {
+            showError(myUploadMissedError);
+            myUploadMissedError = "";
+        }
+        return reload();
+    },
+};
+
 /** @type {MyView} */
 const myNotFoundView = {
     title: "ページが見つかりません",
@@ -2127,6 +2454,7 @@ const myRoutes = [
     [/^\/my\/videos\/?$/, myVideosView],
     [/^\/my\/videos\/watch\/([\w-]+)\/?$/, myVideoWatchView],
     [/^\/my\/download\/?$/, myDownloadView],
+    [/^\/my\/upload\/?$/, myUploadView],
     [/^\/my\/search\/?$/, mySearchView],
     [/^\/my\/search\/watch\/([\w-]{11})\/?$/, mySearchWatchView],
     [/^\/my\/discover\/?$/, myDiscoverView],
