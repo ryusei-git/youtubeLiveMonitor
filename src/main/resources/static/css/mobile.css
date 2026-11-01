@@ -10,7 +10,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 input, select, textarea { font-size: 16px; }
 
 /* 指で押す前提の大きさ（Apple の推奨は 44pt）。PC のままの 32〜38px では押し損じる。 */
-button, .watchActions a, .watchActions .markBtn, .discoverTabs a { min-height: 44px; }
+button, .watchActions a, .watchActions .markBtn, .discoverTabs a, .archiveTabs a { min-height: 44px; }
 
 /* 一覧の行の中・耳キスの印は 44px にすると行が伸びすぎて一覧が見にくくなるので、少し小さめで止める。 */
 td button, .markBtn { min-height: 40px; }

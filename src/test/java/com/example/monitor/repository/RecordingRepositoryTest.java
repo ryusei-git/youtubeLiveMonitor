@@ -425,4 +425,60 @@ class RecordingRepositoryTest {
             assertThat(reloaded.getFileSizeBytes()).isNull();
         }
     }
+
+    /** 録画の開始時刻を書き換える。開始時刻は保存時に今の時刻が入り、エンティティからは変えられないため。 */
+    private void setStartedAt(Recording recording, LocalDateTime startedAt) {
+        entityManager.getEntityManager()
+                .createNativeQuery("UPDATE recordings SET started_at = :startedAt WHERE id = :id")
+                .setParameter("startedAt", startedAt)
+                .setParameter("id", recording.getId())
+                .executeUpdate();
+    }
+
+    @Nested
+    @DisplayName("summarizeByChannel() / findLatestWithThumbnailByChannel()")
+    class SummarizeByChannel {
+
+        private static final List<RecordingStatus> PLAYABLE = List.of(RecordingStatus.COMPLETED, RecordingStatus.PARTIAL);
+
+        @Test
+        @DisplayName("正常系：チャンネルごとに、対象の状態の録画だけの件数・合計秒数・最新の開始時刻をまとめる")
+        void testMethod01() {
+            MonitoredChannel channel = persistChannel("UCsummary1", "要約チャンネル");
+            Recording older = persistRecording(channel, "sum-old", "古い", null, RecordingStatus.COMPLETED);
+            older.setDurationSeconds(600);
+            Recording newer = persistRecording(channel, "sum-new", "新しい", null, RecordingStatus.PARTIAL);
+            newer.setDurationSeconds(300);
+            Recording failed = persistRecording(channel, "sum-failed", "失敗", null, RecordingStatus.FAILED);
+            persistRecording(null, "sum-unlinked", "URL 指定", null, RecordingStatus.COMPLETED);
+            flushAndClear();
+            setStartedAt(older, LocalDateTime.of(2026, 10, 1, 20, 0));
+            setStartedAt(newer, LocalDateTime.of(2026, 10, 5, 20, 0));
+            // 失敗の録画が一番新しくても、最新の開始時刻には効かない
+            setStartedAt(failed, LocalDateTime.of(2026, 10, 9, 20, 0));
+
+            List<Object[]> rows = recordingRepository.summarizeByChannel(PLAYABLE);
+
+            assertThat(rows).hasSize(1);
+            assertThat(rows.get(0)).containsExactly(channel.getId(), 2L, 900L, LocalDateTime.of(2026, 10, 5, 20, 0));
+        }
+
+        @Test
+        @DisplayName("正常系：サムネイルのある録画の中で最新のものを、チャンネルごとに返す")
+        void testMethod02() {
+            MonitoredChannel channel = persistChannel("UCsummary2", "サムネイルチャンネル");
+            Recording withThumb = persistRecording(channel, "thumb-old", "サムネイルあり", null, RecordingStatus.COMPLETED);
+            withThumb.setThumbnailPath("test/thumb-old.jpg");
+            // より新しいが、サムネイルがまだ無い録画は選ばない
+            Recording withoutThumb = persistRecording(channel, "thumb-new", "サムネイル待ち", null, RecordingStatus.COMPLETED);
+            flushAndClear();
+            setStartedAt(withThumb, LocalDateTime.of(2026, 10, 1, 20, 0));
+            setStartedAt(withoutThumb, LocalDateTime.of(2026, 10, 2, 20, 0));
+
+            List<Recording> latest = recordingRepository.findLatestWithThumbnailByChannel(PLAYABLE);
+
+            assertThat(latest).extracting(Recording::getVideoId).containsExactly("thumb-old");
+            assertThat(Hibernate.isInitialized(latest.get(0).getChannel())).isTrue();
+        }
+    }
 }

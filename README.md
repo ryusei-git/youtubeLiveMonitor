@@ -900,6 +900,8 @@ curl -b cookies.txt -H "X-XSRF-TOKEN: <トークン>" -T movie.mp4 "http://local
 | PUT | `/api/admin/users/{id}/password` | 一般利用者の新しいパスワードを決める（管理者のみ。本文 `{"password":"...","adminPassword":"..."}`。今のパスワードは見られない。成功は 204 で、その利用者のほかの端末のログイン・「ログインしたままにする」・再設定用のリンクは切れる。403・400・409 は上と同じ） |
 | POST | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS&force=` | 録画の耳キスの検出を今すぐ始める（202。今の版で検出済みなら `force=true` が要る。検出が走っている・再生できない録画は 409） |
 | GET | `/api/recordings/{recordingId}/sound-detection?kind=EAR_KISS` | 今の版の検出の実行記録（`status`・`candidateCount`・`attempts`・`message` など。まだ一度も検出していなければ 404） |
+| GET | `/api/my/recordings/channel-summaries` | 全チャンネルの録画の要約（再生できる録画の件数・合計の長さ・最新の録画日・最新のサムネイル・購読しているか）を、最新の録画が新しい順に返す。利用者のアーカイブの「チャンネル」（`/my/archive/channels`）が使う |
+| GET | `/api/my/recordings/channel-summaries/{channelId}` | 1 チャンネルの録画の要約（チャンネルページ `/my/archive/channels/{channelId}` の見出し。無いチャンネルは 404） |
 | GET | `/api/my/videos/{id}` | 録画していない動画 1 件を返す（視聴画面 `/my/videos/watch/{id}` が読む。ログインしていれば誰でも使える。無い・購読していないチャンネルの動画は 404。管理者はすべての動画を読める） |
 | GET | `/api/my/recordings?category=` | 利用者のアーカイブの一覧。パラメーターは `/api/recordings` と同じで、`category`（分類の key。知らない値は 400）と `playableOnly` が増える |
 | GET | `/api/my/recordings/categories` | 再生できる録画の分類ごとの件数を定義の順に返す（`[{"key":"asmr","label":"ASMR","count":12}]`。0 件の分類も返す） |
