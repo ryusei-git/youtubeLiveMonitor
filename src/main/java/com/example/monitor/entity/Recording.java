@@ -152,21 +152,22 @@ public class Recording {
     private LocalDateTime completedAt;
 
     /**
-     * 手元の動画を上げた利用者のログイン名（{@link com.example.monitor.service.VideoUploadService}）。
+     * 手元の動画を上げた利用者の主キー（{@link com.example.monitor.service.VideoUploadService}）。
      * {@code null} ならアップロードではない（録画・URL 指定のダウンロード）。
      *
      * <p><b>{@link RecordingStatus} に列挙子を足さずに列で見分ける理由。</b>アップロードは録画と同じ状態
      * （{@link RecordingStatus#COMPLETED}）を通るので、状態を分けると再生・一覧の条件をすべて直すことになる。
      *
-     * <p><b>ログイン名を API に出さない。</b>上げた動画はログインできる全員のアーカイブに並ぶので、
+     * <p><b>外部キーにしない（{@code @ManyToOne} にしない）。</b>利用者を消しても、動画は全員のアーカイブに
+     * 残し、管理者が消せるようにするため。外部キーにすると、利用者の削除が失敗するか、動画の行まで連鎖で消える。
+     * 主キーは IDENTITY で再利用されないので、利用者を消した後に同じ名前で登録した人の動画にはならない。
+     * ログイン名で持たないのは、利用者名を変えられるため。
+     *
+     * <p><b>誰が上げたかを API に出さない。</b>上げた動画はログインできる全員のアーカイブに並ぶので、
      * 出すと誰が上げたかが全員に見える（{@link com.example.monitor.dto.RecordingResponse} はチャンネル名を
      * 固定の文言にする）。本人の判定と容量の集計にだけ使う。
-     *
-     * <p>利用者名を変えたらこの列も書き換える
-     * （{@link com.example.monitor.service.AppUserManagementService#rename}）。
      */
-    @Column(length = 64)
-    private String uploadedBy;
+    private Long uploadedByUserId;
 
     /** 開始時刻を自動設定する。JPA が INSERT 直前に呼び出す。 */
     @PrePersist

@@ -139,6 +139,7 @@ public class VideoUploadService {
     private final RecordingHistoryService recordingHistoryService;
     private final RecordingRepository recordingRepository;
     private final AuditLogger auditLogger;
+    private final CurrentAppUser currentAppUser;
     private final ObjectMapper objectMapper;
 
     /** 1 本の大きさの上限（GB）。 */
@@ -165,12 +166,12 @@ public class VideoUploadService {
     private boolean schedulingEnabled = true;
 
     /**
-     * 受け取り中の利用者のログイン名と {@code Content-Length}。このオブジェクトをロックにして読み書きする。
+     * 受け取り中の利用者の主キーと {@code Content-Length}。このオブジェクトをロックにして読み書きする。
      *
      * <p>メモリだけに持つ。再起動すると受け取りも切れるので、{@link VideoDownloadService} の枠と違い、
      * 実際の受け取りとずれることも無い。
      */
-    private final Map<String, Long> activeUploads = new HashMap<>();
+    private final Map<Long, Long> activeUploads = new HashMap<>();
 
     /**
      * 動画を受け取り、取り込む。すべて終わるまで戻らない。
@@ -178,7 +179,6 @@ public class VideoUploadService {
      * <p>上限の判定は本文を読む前に済ませる。読んでから断ると、大きな動画を送り切らせることになるため。
      * 失敗したとき（切断・取り込めない動画を含む）は、ファイルをすべて消し、予約を解放し、DB に行を残さない。
      *
-     * @param username      上げる利用者のログイン名
      * @param fileName      元のファイル名。題名を省いたときだけ使い、パスには使わない。無ければ {@code null}
      * @param title         題名。無ければ {@code null}
      * @param contentLength 本文の長さ（バイト）。無ければ負の値
@@ -190,8 +190,8 @@ public class VideoUploadService {
      * @throws UploadRejectedException  空き容量・利用者の容量・同時の本数の都合で受け付けられない場合（409）
      * @throws IOException              本文を読めない（接続が切れた）場合、ファイルを書けない場合
      */
-    public MyUploadResponse upload(String username, String fileName, String title, long contentLength,
-                                   InputStream body) throws IOException {
+    public MyUploadResponse upload(String fileName, String title, long contentLength, InputStream body)
+            throws IOException {
         String resolvedTitle = resolveTitle(title, fileName);
         if (contentLength <= 0) {
             throw new IllegalArgumentException("Content-Length を指定してください");
@@ -200,10 +200,11 @@ public class VideoUploadService {
             throw new UploadTooLargeException(maxFileGb);
         }
 
-        reserveSlot(username, contentLength);
+        Long userId = currentAppUser.require().getId();
+        reserveSlot(userId, contentLength);
         try {
             // 枠を取った後に数える。先に数えると、本人の前の 1 本が終わった分を見落とす
-            if (recordingRepository.sumFileSizeBytesByUploadedBy(username) + contentLength
+            if (recordingRepository.sumFileSizeBytesByUploadedByUserId(userId) + contentLength
                     > userQuotaGb * BYTES_PER_GB) {
                 throw new UploadRejectedException("アップロードできる容量（" + userQuotaGb + "GB）を超えます");
             }
@@ -212,13 +213,13 @@ public class VideoUploadService {
                 throw new IllegalStateException("動画 ID が重なりました: " + videoId);
             }
             try {
-                return ingest(username, videoId, resolvedTitle, contentLength, body);
+                return ingest(userId, videoId, resolvedTitle, contentLength, body);
             } finally {
                 // 行を保存してから外す。先に外すと、孤立ファイルの掃除が履歴の無いファイルとして消しうる
                 activeVideoJobs.release(videoId);
             }
         } finally {
-            releaseSlot(username);
+            releaseSlot(userId);
         }
     }
 
@@ -266,13 +267,13 @@ public class VideoUploadService {
      * <p>加えて、この 1 本の詰め替えの山も見る。詰め替えの間は受け取ったファイルと出力の 2 本分になるので、
      * ここで見ないと、大きな動画を送り切った後で {@link #requireSpaceToRemux} に断られる。
      *
-     * @param username      上げる利用者のログイン名
+     * @param userId        上げる利用者の主キー
      * @param contentLength 本文の長さ（バイト）
      * @throws UploadRejectedException 本人が上げている途中の場合、全体の本数が上限の場合、空きが足りない場合
      */
-    private void reserveSlot(String username, long contentLength) {
+    private void reserveSlot(Long userId, long contentLength) {
         synchronized (activeUploads) {
-            if (activeUploads.containsKey(username)) {
+            if (activeUploads.containsKey(userId)) {
                 throw new UploadRejectedException("アップロードの途中です");
             }
             if (activeUploads.size() >= MAX_CONCURRENT_UPLOADS) {
@@ -284,18 +285,18 @@ public class VideoUploadService {
             if (lacksSpace(receivingBytes + contentLength, floorBytes)) {
                 throw new UploadRejectedException(NO_SPACE_MESSAGE);
             }
-            activeUploads.put(username, contentLength);
+            activeUploads.put(userId, contentLength);
         }
     }
 
     /**
      * 枠を外す。
      *
-     * @param username 上げた利用者のログイン名
+     * @param userId 上げた利用者の主キー
      */
-    private void releaseSlot(String username) {
+    private void releaseSlot(Long userId) {
         synchronized (activeUploads) {
-            activeUploads.remove(username);
+            activeUploads.remove(userId);
         }
     }
 
@@ -319,7 +320,7 @@ public class VideoUploadService {
     /**
      * 受け取りから行の保存までを行う。失敗したら、この動画のファイルをすべて消す。
      *
-     * @param username      上げる利用者のログイン名
+     * @param userId        上げる利用者の主キー
      * @param videoId       動画 ID（予約済み）
      * @param title         題名
      * @param contentLength 本文の長さ（バイト）
@@ -327,7 +328,7 @@ public class VideoUploadService {
      * @return 取り込んだ動画
      * @throws IOException 本文を読めない場合、ファイルを書けない場合
      */
-    private MyUploadResponse ingest(String username, String videoId, String title, long contentLength,
+    private MyUploadResponse ingest(Long userId, String videoId, String title, long contentLength,
                                     InputStream body) throws IOException {
         Path directory = uploadsDirectory();
         Files.createDirectories(directory);
@@ -345,7 +346,7 @@ public class VideoUploadService {
             // 再生時間とサムネイルを読む前に、受け取った分の空きを返す
             Files.delete(receiving);
 
-            Recording recording = save(username, videoId, title, completed);
+            Recording recording = save(userId, videoId, title, completed);
             saved = true;
             auditLogger.recordByCurrentUser(AuditAction.RECORDING_UPLOAD, AuditOutcome.SUCCESS, "RECORDING",
                     String.valueOf(recording.getId()), "video=" + videoId + ", title=" + title);
@@ -543,14 +544,14 @@ public class VideoUploadService {
      * <p>再生時間とサムネイルは失敗しても取り込みを止めない（{@link VideoMetadataExtractor} の JavaDoc 参照）。
      * 無いものは {@link RecordingReconciler} が後で作る。
      *
-     * @param username  上げた利用者のログイン名
+     * @param userId    上げた利用者の主キー
      * @param videoId   動画 ID
      * @param title     題名
      * @param completed 完成したファイル
      * @return 保存した行
      * @throws IOException 大きさを読めない場合
      */
-    private Recording save(String username, String videoId, String title, Path completed) throws IOException {
+    private Recording save(Long userId, String videoId, String title, Path completed) throws IOException {
         Integer duration = videoMetadataExtractor.extractDurationSeconds(completed).orElse(null);
         String thumbnail = duration == null ? null
                 : videoMetadataExtractor.extractThumbnail(completed, duration)
@@ -568,22 +569,22 @@ public class VideoUploadService {
                 .status(RecordingStatus.COMPLETED)
                 .startedAt(now)
                 .completedAt(now)
-                .uploadedBy(username)
+                .uploadedByUserId(userId)
                 .build());
     }
 
     /**
      * 自分が上げた動画を新しい順に返す。上限も一緒に返す。
      *
-     * @param username ログイン中の利用者のログイン名
      * @return 上限と上げた動画
      */
-    public MyUploadListResponse list(String username) {
+    public MyUploadListResponse list() {
+        Long userId = currentAppUser.require().getId();
         return new MyUploadListResponse(
                 maxFileGb * BYTES_PER_GB,
                 userQuotaGb * BYTES_PER_GB,
-                recordingRepository.sumFileSizeBytesByUploadedBy(username),
-                recordingRepository.findByUploadedByOrderByStartedAtDesc(username).stream()
+                recordingRepository.sumFileSizeBytesByUploadedByUserId(userId),
+                recordingRepository.findByUploadedByUserIdOrderByStartedAtDesc(userId).stream()
                         .map(MyUploadResponse::from)
                         .toList());
     }
@@ -591,13 +592,13 @@ public class VideoUploadService {
     /**
      * 自分が上げた動画を消す。ファイルの削除と監査は {@link RecordingHistoryService#deleteRecording} に任せる。
      *
-     * @param username ログイン中の利用者のログイン名
-     * @param id       録画の主キー
+     * @param id 録画の主キー
      * @throws RecordingNotFoundException 無い場合、ほかの人の動画の場合（どちらも 404。あるかどうかを見せない）
      */
-    public void delete(String username, Long id) {
+    public void delete(Long id) {
+        Long userId = currentAppUser.require().getId();
         Recording recording = recordingHistoryService.findById(id);
-        if (!username.equals(recording.getUploadedBy())) {
+        if (!userId.equals(recording.getUploadedByUserId())) {
             throw new RecordingNotFoundException(id);
         }
         recordingHistoryService.deleteRecording(id);

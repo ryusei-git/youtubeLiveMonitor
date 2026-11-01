@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
  * 利用者が上げた動画 1 本を API のレスポンスとして返す形。
  *
  * <p>エンティティを直接返さない（{@code docs/pitfalls.md}「エンティティを API に直接返さない」）。
- * ログイン名（{@link Recording#uploadedBy}）は載せない。
+ * 誰が上げたか（{@link Recording#uploadedByUserId}）は載せない。
  *
  * @param id              録画の主キー。再生は録画と同じ API・画面で行う
  * @param title           題名

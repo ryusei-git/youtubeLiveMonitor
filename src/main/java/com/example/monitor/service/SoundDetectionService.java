@@ -56,7 +56,7 @@ import java.util.function.Consumer;
  * 録画は、失敗（回数は上限）として記録して見回りの対象から外す。
  *
  * <h2>利用者が上げた動画を検出しない理由</h2>
- * 検出は配信の録画のためのもので、CPU を使う。上げた動画（{@link Recording#uploadedBy}）は、見回り
+ * 検出は配信の録画のためのもので、CPU を使う。上げた動画（{@link Recording#uploadedByUserId}）は、見回り
  * （{@link SoundDetectionRunRepository#findPendingRecordings}）でも今すぐ検出（{@link #startDetection}）でも
  * 対象にしない。候補の一覧（{@link #listCandidates}）は「待っています」と出し続けないよう、
  * {@code UNSUPPORTED} を返す。
@@ -307,7 +307,7 @@ public class SoundDetectionService {
         AppUser user = currentAppUser.require();
         String version = EarKissModel.load().version();
         Integer duration = recording.getDurationSeconds();
-        SoundCandidateListResponse.State state = recording.getUploadedBy() != null
+        SoundCandidateListResponse.State state = recording.getUploadedByUserId() != null
                 || (duration != null && duration > MAX_DURATION_SECONDS)
                 ? SoundCandidateListResponse.State.UNSUPPORTED
                 : soundDetectionRunRepository
@@ -373,7 +373,7 @@ public class SoundDetectionService {
     public void startDetection(Long recordingId, String kind, boolean force) {
         requireKind(kind);
         Recording recording = requireRecording(recordingId);
-        if (recording.getUploadedBy() != null) {
+        if (recording.getUploadedByUserId() != null) {
             throw new SoundDetectionConflictException(
                     "利用者が上げた動画は検出の対象外です: id=" + recordingId);
         }

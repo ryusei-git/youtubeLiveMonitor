@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,10 +44,9 @@ public class MyUploadController {
     /**
      * 動画を受け取って取り込む。取り込み終わるまで応答しない。
      *
-     * @param fileName       元のファイル名（題名を省いたときに使う）
-     * @param title          題名（200 字まで）。省略・空白なら {@code fileName} から拡張子を除いた値
-     * @param request        本文（動画のバイト列）と {@code Content-Length} を読むための要求
-     * @param authentication ログイン中の利用者
+     * @param fileName 元のファイル名（題名を省いたときに使う）
+     * @param title    題名（200 字まで）。省略・空白なら {@code fileName} から拡張子を除いた値
+     * @param request  本文（動画のバイト列）と {@code Content-Length} を読むための要求
      * @return 取り込んだ動画（HTTP 201）
      * @throws IllegalArgumentException 題名・長さが不正な場合、取り込めない動画の場合（400）
      * @throws com.example.monitor.exception.UploadTooLargeException 1 本の上限を超える場合（413）
@@ -59,9 +57,8 @@ public class MyUploadController {
     @PutMapping
     public ResponseEntity<MyUploadResponse> upload(@RequestParam(required = false) String fileName,
                                                    @RequestParam(required = false) String title,
-                                                   HttpServletRequest request,
-                                                   Authentication authentication) throws IOException {
-        MyUploadResponse uploaded = videoUploadService.upload(authentication.getName(), fileName, title,
+                                                   HttpServletRequest request) throws IOException {
+        MyUploadResponse uploaded = videoUploadService.upload(fileName, title,
                 request.getContentLengthLong(), request.getInputStream());
         return ResponseEntity.status(HttpStatus.CREATED).body(uploaded);
     }
@@ -69,25 +66,23 @@ public class MyUploadController {
     /**
      * 自分が上げた動画を新しい順に返す。上限と使っている量も一緒に返す。
      *
-     * @param authentication ログイン中の利用者
      * @return 上限と上げた動画
      */
     @GetMapping
-    public MyUploadListResponse list(Authentication authentication) {
-        return videoUploadService.list(authentication.getName());
+    public MyUploadListResponse list() {
+        return videoUploadService.list();
     }
 
     /**
      * 自分が上げた動画を消す。
      *
-     * @param id             録画の主キー
-     * @param authentication ログイン中の利用者
+     * @param id 録画の主キー
      * @return 本文なしの 204
      * @throws com.example.monitor.exception.RecordingNotFoundException 無い場合、ほかの人の動画の場合（404）
      */
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Long id, Authentication authentication) {
-        videoUploadService.delete(authentication.getName(), id);
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        videoUploadService.delete(id);
         return ResponseEntity.noContent().build();
     }
 }

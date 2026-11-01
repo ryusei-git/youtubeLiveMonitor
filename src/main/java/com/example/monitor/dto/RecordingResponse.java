@@ -84,7 +84,7 @@ public record RecordingResponse(
     /**
      * 利用者が上げた動画に使う表示名。
      *
-     * <p>上げた人のログイン名（{@link Recording#uploadedBy}）を出さないよう、固定の文言にしている。
+     * <p>誰が上げたか（{@link Recording#uploadedByUserId}）を出さないよう、固定の文言にしている。
      * アーカイブはログインできる全員に見えるので、出すと誰が上げたかが全員に分かる。
      */
     public static final String UPLOADED_CHANNEL_NAME = "アップロード";
@@ -120,7 +120,8 @@ public record RecordingResponse(
                 channel == null ? null : channel.getId(),
                 channel == null ? null : channel.getYoutubeChannelId(),
                 channel != null ? channel.getChannelName()
-                        : recording.getUploadedBy() != null ? UPLOADED_CHANNEL_NAME : UNLINKED_CHANNEL_NAME,
+                        : recording.getUploadedByUserId() != null ? UPLOADED_CHANNEL_NAME
+                        : UNLINKED_CHANNEL_NAME,
                 channel == null ? null : StreamLinkUtils.channelUrl(
                         channel.getPlatform(), channel.getYoutubeChannelId(), channel.getChannelLogin()),
                 channel == null ? null : channel.getChannelIconUrl(),

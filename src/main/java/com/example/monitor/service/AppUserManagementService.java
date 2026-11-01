@@ -6,7 +6,6 @@ import com.example.monitor.entity.AuditAction;
 import com.example.monitor.entity.AuditOutcome;
 import com.example.monitor.exception.TooManyPasswordAttemptsException;
 import com.example.monitor.repository.AppUserRepository;
-import com.example.monitor.repository.RecordingRepository;
 import com.example.monitor.security.LoginAttemptLimiter;
 import com.example.monitor.util.PasswordPolicy;
 import com.example.monitor.util.SecureTokens;
@@ -59,7 +58,6 @@ public class AppUserManagementService {
     private static final String STATE_CHANGED_MESSAGE = "利用者の状態が変わりました。再読み込みしてください";
 
     private final AppUserRepository repository;
-    private final RecordingRepository recordingRepository;
     private final AuditLogger auditLogger;
     private final PasswordEncoder passwordEncoder;
 
@@ -172,15 +170,9 @@ public class AppUserManagementService {
      * <p>変えたら、その利用者のログイン中のセッションは次のリクエストで失効する
      * （{@link AppUserRepository#updateUsername}。ログイン ID が変わるため）。
      *
-     * <p>上げた動画の持ち主はログイン名で持っているので、新しい名前へ書き換える
-     * （{@link com.example.monitor.entity.Recording#uploadedBy}）。書き換えないと、本人の動画が一覧と容量から
-     * 消え、本人が消せなくなる。後から同じ名前を付けられた別の人のものにもなる。
-     *
      * <p><b>メソッドにトランザクションを掛けない。</b>失敗を監査ログに残してから例外を投げるので、
      * 1 つのトランザクションにすると失敗の記録ごとロールバックされる（{@code PasswordChangeService} と同じ）。
-     * 利用者名の書き込みはリポジトリの 1 本の UPDATE なので、途中で失敗しても何も変わらない。
-     * 上げた動画の書き換えはその後に別の UPDATE で行う。そこで失敗するのは DB の障害のときで、
-     * 500 の ERROR で気づける。
+     * 書き込みはリポジトリの 1 本の UPDATE なので、途中で失敗しても何も変わらない。
      *
      * @param id            対象ID
      * @param username      新しい利用者名
@@ -216,7 +208,6 @@ public class AppUserManagementService {
             recordActorAction(AuditAction.USER_RENAME, AuditOutcome.FAILURE, actor, oldName, e.getReason());
             throw e;
         }
-        recordingRepository.updateUploadedBy(oldName, newName);
         log.info("利用者名を変更しました: id={}, actor={}, {} -> {}", id, actor, oldName, newName);
         // 対象は変えた後の名前。旧名は詳細に残し、前の名前での記録と結び付けられるようにする
         recordActorAction(AuditAction.USER_RENAME, AuditOutcome.SUCCESS, actor, newName, oldName + " → " + newName);
